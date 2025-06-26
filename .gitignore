@@ -8,3 +8,68 @@ wheels/
 
 # Virtual environments
 .venv
+.venv_old
+venv/
+venv_*/
+env/
+ENV/
+
+# Additional Python files
+*.py[cod]
+*$py.class
+*.so
+.Python
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+share/python-wheels/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Sphinx documentation
+docs/_build/
+
+# IDEs
+.idea/
+.vscode/
+
+# Project specific - Large data files
+# Exclude the entire data directory but keep README files
+data/
+!data/README.md
+!data/*/
+!data/*/README.md
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# OS specific
+.DS_Store
+Thumbs.db
