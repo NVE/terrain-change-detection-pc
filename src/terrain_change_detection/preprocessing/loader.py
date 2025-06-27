@@ -124,6 +124,109 @@ class PointCloudLoader:
         Returns:
             True if the file is valid, False otherwise
         """
+        try:
+            file_path = Path(file_path)
+
+            # Check if file exists
+            if not file_path.exists():
+                logger.warning(f"File not found: {file_path}")
+                return False
+            
+            # Check file extension
+            if file_path.suffix.lower() not in ['.las', '.laz']:
+                logger.warning(f"Unsupported file format: {file_path.suffix}")
+                return False
+            
+            # Try to read the header
+            laz_file = laspy.read(file_path)
+            # Basic validation checks
+            if len(laz_file.points) == 0:
+                logger.warning(f"No points found in file: {file_path}")
+                return False
+            
+            # Check if the file has valid coordinates
+            if not (np.isfinite(laz_file.x).all() and
+                    np.isfinite(laz_file.y).all() and
+                    np.isfinite(laz_file.z).all()):
+                logger.warning(f"Invalid coordinates in file: {file_path}")
+                return False
+            
+            logger.info(f"File validated successfully: {file_path}")
+            return True
+        
+        except Exception as e:
+            logger.error(f"File validation failed for {file_path}: {e}")
+            return False
+        
+    def get_metadata(self, file_path: str) -> dict:
+        """
+        Extract metadata from a point cloud file.
+        
+        Args:
+            file_path: Path to the LAS/LAZ file
+        
+        Returns:
+            Dictionary containing metadata information            
+        """
+        file_path = Path(file_path)
+
+        if not file_path.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+        
+        try:
+            laz_file = laspy.read(file_path)
+            metadata = {
+                'filename': file_path.name,
+                'file_size_mb': file_path.stat().st_size / (1024 * 1024),
+                'num_points': len(laz_file.points),
+                'point_format': getattr(laz_file.header, 'point_data_record_format', getattr(laz_file.header, 'point_format', 0)),
+                'bounds': {
+                    'min_x': float(laz_file.header.x_min),
+                    'max_x': float(laz_file.header.x_max),
+                    'min_y': float(laz_file.header.y_min),
+                    'max_y': float(laz_file.header.y_max),
+                    'min_z': float(laz_file.header.z_min),
+                    'max_z': float(laz_file.header.z_max)
+                },
+                'scales': [
+                    float(laz_file.header.x_scale),
+                    float(laz_file.header.y_scale),
+                    float(laz_file.header.z_scale)
+                ],
+                'offsets': [
+                    float(laz_file.header.x_offset),
+                    float(laz_file.header.y_offset),
+                    float(laz_file.header.z_offset)
+                ]                
+            }
+
+            # Add statistics
+            x_array = np.array(laz_file.x)
+            y_array = np.array(laz_file.y)
+            z_array = np.array(laz_file.z)
+
+            metadata['statistics'] = {
+                'mean_x': float(np.mean(x_array)),
+                'mean_y': float(np.mean(y_array)),
+                'mean_z': float(np.mean(z_array)),
+                'std_x': float(np.std(x_array)),
+                'std_y': float(np.std(y_array)),
+                'std_z': float(np.std(z_array)),
+                'centroid': [
+                    float(np.mean(x_array)),
+                    float(np.mean(y_array)),
+                    float(np.mean(z_array))
+                ]
+            }
+
+            return metadata
+
+        except Exception as e:
+            logger.error(f"Error extracting metadata from {file_path}: {e}")
+            raise
+
+            
+
 
 
 
