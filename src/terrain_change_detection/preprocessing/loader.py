@@ -56,53 +56,69 @@ class PointCloudLoader:
         try:
             # Load LAS/LAZ file using laspy
             laz_file = laspy.read(file_path)
-            # Extract coordinates
-            points = np.column_stack([
-                np.array(laz_file.x, dtype=np.float64),
-                np.array(laz_file.y, dtype=np.float64),
-                np.array(laz_file.z, dtype=np.float64)
-            ])
-            # Keep only the 'Ground' points
             
-            # Extract additional attributes if available
+            # Get total point count before filtering
+            total_points = len(laz_file.points)
+            
+            # Filter for ground points only (classification = 2)
+            ground_mask = np.array(laz_file.classification) == 2
+            ground_point_count = np.sum(ground_mask)
+            
+            if ground_point_count == 0:
+                logger.warning(f"No ground points found in file: {file_path}")
+            
+            logger.info(f"Found {ground_point_count} ground points out of {total_points} total points ({ground_point_count/total_points*100:.1f}%)")
+            
+            # Extract coordinates for ground points only
+            points = np.column_stack([
+                np.array(laz_file.x, dtype=np.float64)[ground_mask],
+                np.array(laz_file.y, dtype=np.float64)[ground_mask],
+                np.array(laz_file.z, dtype=np.float64)[ground_mask]
+            ])
+            
+            # Extract useful attributes for ground points based on sample exploration
             attributes = {}
+            
+            # Core attributes that are typically available
             if hasattr(laz_file, 'intensity'):
-                attributes['intensity'] = np.array(laz_file.intensity)
-            if hasattr(laz_file, 'classification'):
-                attributes['classification'] = np.array(laz_file.classification)
+                attributes['intensity'] = np.array(laz_file.intensity)[ground_mask]
             if hasattr(laz_file, 'return_number'):
-                attributes['return_number'] = np.array(laz_file.return_number)
+                attributes['return_number'] = np.array(laz_file.return_number)[ground_mask]
+            if hasattr(laz_file, 'number_of_returns'):
+                attributes['number_of_returns'] = np.array(laz_file.number_of_returns)[ground_mask]
+            if hasattr(laz_file, 'scan_angle_rank'):
+                attributes['scan_angle_rank'] = np.array(laz_file.scan_angle_rank)[ground_mask]
+            if hasattr(laz_file, 'point_source_id'):
+                attributes['point_source_id'] = np.array(laz_file.point_source_id)[ground_mask]
+            if hasattr(laz_file, 'gps_time'):
+                attributes['gps_time'] = np.array(laz_file.gps_time)[ground_mask]
+            
+            # Quality flags
+            if hasattr(laz_file, 'scan_direction_flag'):
+                attributes['scan_direction_flag'] = np.array(laz_file.scan_direction_flag)[ground_mask]
+            if hasattr(laz_file, 'edge_of_flight_line'):
+                attributes['edge_of_flight_line'] = np.array(laz_file.edge_of_flight_line)[ground_mask]
+            if hasattr(laz_file, 'synthetic'):
+                attributes['synthetic'] = np.array(laz_file.synthetic)[ground_mask]
+            if hasattr(laz_file, 'key_point'):
+                attributes['key_point'] = np.array(laz_file.key_point)[ground_mask]
+            if hasattr(laz_file, 'withheld'):
+                attributes['withheld'] = np.array(laz_file.withheld)[ground_mask]
+            if hasattr(laz_file, 'user_data'):
+                attributes['user_data'] = np.array(laz_file.user_data)[ground_mask]
+            
+            # RGB colors if available
             if hasattr(laz_file, 'red') and hasattr(laz_file, 'green') and hasattr(laz_file, 'blue'):
                 attributes['colors'] = np.column_stack([
-                    np.array(laz_file.red),
-                    np.array(laz_file.green),
-                    np.array(laz_file.blue)
+                    np.array(laz_file.red)[ground_mask],
+                    np.array(laz_file.green)[ground_mask],
+                    np.array(laz_file.blue)[ground_mask]
                 ])
 
-            # Extract metadata
-            metadata = {
-                'num_points': len(points),
-                'bounds': {
-                    'min_x': float(laz_file.header.x_min),
-                    'max_x': float(laz_file.header.x_max),
-                    'min_y': float(laz_file.header.y_min),
-                    'max_y': float(laz_file.header.y_max),
-                    'min_z': float(laz_file.header.z_min),
-                    'max_z': float(laz_file.header.z_max)
-                },
-                'scales': [
-                    float(laz_file.header.x_scale),
-                    float(laz_file.header.y_scale),
-                    float(laz_file.header.z_scale)
-                ],
-                'offsets': [
-                    float(laz_file.header.x_offset),
-                    float(laz_file.header.y_offset),
-                    float(laz_file.header.z_offset)
-                ],
-                'point_format': getattr(laz_file.header, 'point_data_record_format', getattr(laz_file.header, 'point_format', 0)),
-                'file_path': str(file_path)
-            }
+            # Extract metadata using the dedicated method
+            metadata = self.get_metadata(str(file_path))
+            # Add file_path to metadata for consistency with original implementation
+            metadata['file_path'] = str(file_path)
 
             return {
                 'points': points,
@@ -175,11 +191,28 @@ class PointCloudLoader:
         
         try:
             laz_file = laspy.read(file_path)
+            
+            # Get classification statistics
+            classification_stats = {}
+            if hasattr(laz_file, 'classification'):
+                classifications = np.array(laz_file.classification)
+                unique_classes, counts = np.unique(classifications, return_counts=True)
+                total_points = len(classifications)
+                
+                classification_stats = {
+                    'unique_classes': unique_classes.tolist(),
+                    'class_counts': dict(zip(unique_classes.tolist(), counts.tolist())),
+                    'ground_points': int(counts[unique_classes == 2][0]) if 2 in unique_classes else 0,
+                    'ground_percentage': float(counts[unique_classes == 2][0] / total_points * 100) if 2 in unique_classes else 0.0
+                }
+            
             metadata = {
                 'filename': file_path.name,
                 'file_size_mb': file_path.stat().st_size / (1024 * 1024),
                 'num_points': len(laz_file.points),
                 'point_format': getattr(laz_file.header, 'point_data_record_format', getattr(laz_file.header, 'point_format', 0)),
+                'version': f"{laz_file.header.version_major}.{laz_file.header.version_minor}",
+                'creation_date': getattr(laz_file.header, 'creation_date', None),
                 'bounds': {
                     'min_x': float(laz_file.header.x_min),
                     'max_x': float(laz_file.header.x_max),
@@ -197,13 +230,54 @@ class PointCloudLoader:
                     float(laz_file.header.x_offset),
                     float(laz_file.header.y_offset),
                     float(laz_file.header.z_offset)
-                ]                
+                ],
+                'classification_stats': classification_stats
             }
+            
+            # Available dimensions based on point format
+            available_dimensions = ['X', 'Y', 'Z']
+            if hasattr(laz_file, 'intensity'):
+                available_dimensions.append('intensity')
+            if hasattr(laz_file, 'return_number'):
+                available_dimensions.append('return_number')
+            if hasattr(laz_file, 'number_of_returns'):
+                available_dimensions.append('number_of_returns')
+            if hasattr(laz_file, 'scan_direction_flag'):
+                available_dimensions.append('scan_direction_flag')
+            if hasattr(laz_file, 'edge_of_flight_line'):
+                available_dimensions.append('edge_of_flight_line')
+            if hasattr(laz_file, 'classification'):
+                available_dimensions.append('classification')
+            if hasattr(laz_file, 'synthetic'):
+                available_dimensions.append('synthetic')
+            if hasattr(laz_file, 'key_point'):
+                available_dimensions.append('key_point')
+            if hasattr(laz_file, 'withheld'):
+                available_dimensions.append('withheld')
+            if hasattr(laz_file, 'scan_angle_rank'):
+                available_dimensions.append('scan_angle_rank')
+            if hasattr(laz_file, 'user_data'):
+                available_dimensions.append('user_data')
+            if hasattr(laz_file, 'point_source_id'):
+                available_dimensions.append('point_source_id')
+            if hasattr(laz_file, 'gps_time'):
+                available_dimensions.append('gps_time')
+            if hasattr(laz_file, 'red') and hasattr(laz_file, 'green') and hasattr(laz_file, 'blue'):
+                available_dimensions.extend(['red', 'green', 'blue'])
+            
+            metadata['available_dimensions'] = available_dimensions
 
-            # Add statistics
-            x_array = np.array(laz_file.x)
-            y_array = np.array(laz_file.y)
-            z_array = np.array(laz_file.z)
+            # Add statistics for ground points only
+            if classification_stats.get('ground_points', 0) > 0:
+                ground_mask = np.array(laz_file.classification) == 2
+                x_array = np.array(laz_file.x)[ground_mask]
+                y_array = np.array(laz_file.y)[ground_mask]
+                z_array = np.array(laz_file.z)[ground_mask]
+            else:
+                # Fallback to all points if no ground points
+                x_array = np.array(laz_file.x)
+                y_array = np.array(laz_file.y)
+                z_array = np.array(laz_file.z)
 
             metadata['statistics'] = {
                 'mean_x': float(np.mean(x_array)),
@@ -216,7 +290,8 @@ class PointCloudLoader:
                     float(np.mean(x_array)),
                     float(np.mean(y_array)),
                     float(np.mean(z_array))
-                ]
+                ],
+                'points_used_for_stats': 'ground_points_only' if classification_stats.get('ground_points', 0) > 0 else 'all_points'
             }
 
             return metadata

@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from ..utils.logging import setup_logger
-from .loader import PoitCloudLoader
+from .loader import PointCloudLoader
 
 logger = setup_logger(__name__)
 
@@ -37,7 +37,7 @@ class DatasetInfo:
     time_period: str
     laz_files: List[Path]
     metadata_dir: Optional[Path]
-    total_points: int = 0
+    total_points: int = 0  # This will store ground points count for terrain analysis
     bounds: Optional[Dict] = None
 
 @dataclass
@@ -80,7 +80,7 @@ class DataDiscovery:
             base_dir: Base directory containing area subdirectories.
         """
         self.base_dir = Path(base_dir)
-        self.loader = PoitCloudLoader()
+        self.loader = PointCloudLoader()
 
 
     def scan_areas(self) -> Dict[str, AreaInfo]:
@@ -100,13 +100,13 @@ class DataDiscovery:
         for area_path in self.base_dir.iterdir():
             if area_path.is_dir() and not area_path.name.startswith('.'):
                 area_name = area_path.name
-                logger.info(f"Found area/area directory: {area_name}")
-                logger.info*(f"Scanning area: {area_name}")
+                logger.info(f"Found area directory: {area_name}")
+                logger.info(f"Scanning area: {area_name}")
 
                 datasets = self._scan_area_datasets(area_path)
                 if datasets:
                     areas[area_name] = AreaInfo(area_name=area_name, datasets=datasets)
-                    logger.info(f"Found {len(datasets)} time periods for area/area directory: {area_name}: {list(datasets.keys())}")
+                    logger.info(f"Found {len(datasets)} time periods for area: {area_name}: {list(datasets.keys())}")
 
         return areas
 
@@ -154,6 +154,8 @@ class DataDiscovery:
                     except Exception as e:
                         logger.error(f"Error getting stats for dataset {dataset_info.area_name}/{dataset_info.time_period}: {e}")
 
+                    datasets[time_period] = dataset_info
+
         return datasets
 
     def _get_dataset_stats(self, laz_files: List[Path]) -> Tuple[int, Dict]:
@@ -164,9 +166,10 @@ class DataDiscovery:
             laz_files: List of LAZ file paths.
 
         Returns:
-            Tuple of total points and bounds dictionary.
+            Tuple of total ground points and bounds dictionary.
         """
         total_points = 0
+        total_ground_points = 0
         min_x = min_y = min_z = float('inf')
         max_x = max_y = max_z = float('-inf')
 
@@ -174,6 +177,11 @@ class DataDiscovery:
             try:
                 metadata = self.loader.get_metadata(str(laz_file))
                 total_points += metadata['num_points']
+                
+                # Get ground points count from classification stats
+                classification_stats = metadata.get('classification_stats', {})
+                ground_points = classification_stats.get('ground_points', 0)
+                total_ground_points += ground_points
 
                 bounds = metadata['bounds']
                 min_x = min(min_x, bounds['min_x'])
@@ -195,7 +203,8 @@ class DataDiscovery:
             'max_z': max_z
         }
 
-        return total_points, combined_bounds
+        logger.info(f"Dataset stats: {total_ground_points} ground points out of {total_points} total points")
+        return total_ground_points, combined_bounds
 
 
 class BatchLoader:
@@ -207,7 +216,7 @@ class BatchLoader:
         """
         Initialize the batch loader.
         """
-        self.loader = PoitCloudLoader()
+        self.loader = PointCloudLoader()
 
     def load_dataset(self, dataset_info: DatasetInfo,
                      max_points_per_file: Optional[int] = None) -> Dict:
@@ -222,7 +231,7 @@ class BatchLoader:
             Combined point cloud data
         """
         all_points = []
-        all_attributes = []
+        all_attributes = {}
         file_metadata = []
 
         for laz_file in dataset_info.laz_files:
@@ -257,6 +266,19 @@ class BatchLoader:
 
         if not all_points:
             logger.warning(f"No valid point cloud data found in dataset {dataset_info.area_name}/{dataset_info.time_period}")
+            return {
+                'points': np.array([]),
+                'attributes': {},
+                'metadata': {
+                    'area_name': dataset_info.area_name,
+                    'time_period': dataset_info.time_period,
+                    'num_files': 0,
+                    'total_points': 0,
+                    'file_metadata': [],
+                    'bounds': {},
+                    'dataset_info': dataset_info
+                }
+            }
 
         # Combine all points
         combined_points = np.vstack(all_points)
@@ -274,7 +296,7 @@ class BatchLoader:
             'num_files': len(all_points),
             'total_points': len(combined_points),
             'file_metadata': file_metadata,
-            'bounds': self._combine_bounds(combined_points),
+            'bounds': self._compute_bounds(combined_points),
             'dataset_info': dataset_info
         }
 
