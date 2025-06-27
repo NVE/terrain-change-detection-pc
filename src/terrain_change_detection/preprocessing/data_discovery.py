@@ -24,7 +24,7 @@ import laspy
 import numpy as np
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from ..utils.logging import setup_logger
 from .loader import PointCloudLoader
 
@@ -39,6 +39,7 @@ class DatasetInfo:
     metadata_dir: Optional[Path]
     total_points: int = 0  # This will store ground points count for terrain analysis
     bounds: Optional[Dict] = None
+    per_file_stats: List[Dict] = field(default_factory=list)  # Add per-file stats
 
 @dataclass
 class AreaInfo:
@@ -150,7 +151,7 @@ class DataDiscovery:
 
                     # Get basic dataset statistics (can be slow for large datasets or many laz files)
                     try:
-                        dataset_info.total_points, dataset_info.bounds = self._get_dataset_stats(laz_files)
+                        dataset_info.total_points, dataset_info.bounds, dataset_info.per_file_stats = self._get_dataset_stats(laz_files)
                     except Exception as e:
                         logger.error(f"Error getting stats for dataset {dataset_info.area_name}/{dataset_info.time_period}: {e}")
 
@@ -158,7 +159,7 @@ class DataDiscovery:
 
         return datasets
 
-    def _get_dataset_stats(self, laz_files: List[Path]) -> Tuple[int, Dict]:
+    def _get_dataset_stats(self, laz_files: List[Path]) -> Tuple[int, Dict, List[Dict]]:
         """
         Get basic statistics for a dataset.
 
@@ -166,18 +167,17 @@ class DataDiscovery:
             laz_files: List of LAZ file paths.
 
         Returns:
-            Tuple of total ground points and bounds dictionary.
+            Tuple of total ground points, bounds dictionary, and per-file statistics.
         """
-        total_points = 0
         total_ground_points = 0
         min_x = min_y = min_z = float('inf')
         max_x = max_y = max_z = float('-inf')
+        per_file_stats = []
 
         for laz_file in laz_files:
             try:
                 metadata = self.loader.get_metadata(str(laz_file))
-                total_points += metadata['num_points']
-
+                
                 # Get ground points count from classification stats
                 classification_stats = metadata.get('classification_stats', {})
                 ground_points = classification_stats.get('ground_points', 0)
@@ -191,6 +191,14 @@ class DataDiscovery:
                 max_y = max(max_y, bounds['max_y'])
                 max_z = max(max_z, bounds['max_z'])
 
+                # Store per-file stats
+                per_file_stats.append({
+                    'file': laz_file.name,
+                    'num_points': metadata['num_points'],
+                    'ground_points': ground_points,
+                    'bounds': bounds
+                })
+
             except Exception as e:
                 logger.error(f"Error reading file {laz_file}: {e}")
 
@@ -203,8 +211,7 @@ class DataDiscovery:
             'max_z': max_z
         }
 
-        logger.info(f"Dataset stats: {total_ground_points} ground points out of {total_points} total points")
-        return total_ground_points, combined_bounds
+        return total_ground_points, combined_bounds, per_file_stats
 
 
 class BatchLoader:
