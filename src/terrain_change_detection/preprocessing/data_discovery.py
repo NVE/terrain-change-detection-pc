@@ -177,7 +177,7 @@ class DataDiscovery:
             try:
                 metadata = self.loader.get_metadata(str(laz_file))
                 total_points += metadata['num_points']
-                
+
                 # Get ground points count from classification stats
                 classification_stats = metadata.get('classification_stats', {})
                 ground_points = classification_stats.get('ground_points', 0)

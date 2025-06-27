@@ -47,38 +47,38 @@ class PointCloudLoader:
 
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
-        
+
         if file_path.suffix.lower() not in ['.las', '.laz']:
             raise ValueError(f"Unsupported file format: {file_path.suffix}")
-        
+
         logger.info(f"Loading point cloud data from {file_path}")
 
         try:
             # Load LAS/LAZ file using laspy
             laz_file = laspy.read(file_path)
-            
+
             # Get total point count before filtering
             total_points = len(laz_file.points)
-            
+
             # Filter for ground points only (classification = 2)
             ground_mask = np.array(laz_file.classification) == 2
             ground_point_count = np.sum(ground_mask)
-            
+
             if ground_point_count == 0:
                 logger.warning(f"No ground points found in file: {file_path}")
-            
+
             logger.info(f"Found {ground_point_count} ground points out of {total_points} total points ({ground_point_count/total_points*100:.1f}%)")
-            
+
             # Extract coordinates for ground points only
             points = np.column_stack([
                 np.array(laz_file.x, dtype=np.float64)[ground_mask],
                 np.array(laz_file.y, dtype=np.float64)[ground_mask],
                 np.array(laz_file.z, dtype=np.float64)[ground_mask]
             ])
-            
+
             # Extract useful attributes for ground points based on sample exploration
             attributes = {}
-            
+
             # Core attributes that are typically available
             if hasattr(laz_file, 'intensity'):
                 attributes['intensity'] = np.array(laz_file.intensity)[ground_mask]
@@ -92,7 +92,7 @@ class PointCloudLoader:
                 attributes['point_source_id'] = np.array(laz_file.point_source_id)[ground_mask]
             if hasattr(laz_file, 'gps_time'):
                 attributes['gps_time'] = np.array(laz_file.gps_time)[ground_mask]
-            
+
             # Quality flags
             if hasattr(laz_file, 'scan_direction_flag'):
                 attributes['scan_direction_flag'] = np.array(laz_file.scan_direction_flag)[ground_mask]
@@ -106,7 +106,7 @@ class PointCloudLoader:
                 attributes['withheld'] = np.array(laz_file.withheld)[ground_mask]
             if hasattr(laz_file, 'user_data'):
                 attributes['user_data'] = np.array(laz_file.user_data)[ground_mask]
-            
+
             # RGB colors if available
             if hasattr(laz_file, 'red') and hasattr(laz_file, 'green') and hasattr(laz_file, 'blue'):
                 attributes['colors'] = np.column_stack([
@@ -125,7 +125,7 @@ class PointCloudLoader:
                 'attributes': attributes,
                 'metadata': metadata
             }
-        
+
         except Exception as e:
             logger.error(f"Error loading point cloud data from {file_path}: {e}")
             raise
@@ -147,65 +147,65 @@ class PointCloudLoader:
             if not file_path.exists():
                 logger.warning(f"File not found: {file_path}")
                 return False
-            
+
             # Check file extension
             if file_path.suffix.lower() not in ['.las', '.laz']:
                 logger.warning(f"Unsupported file format: {file_path.suffix}")
                 return False
-            
+
             # Try to read the header
             laz_file = laspy.read(file_path)
             # Basic validation checks
             if len(laz_file.points) == 0:
                 logger.warning(f"No points found in file: {file_path}")
                 return False
-            
+
             # Check if the file has valid coordinates
             if not (np.isfinite(laz_file.x).all() and
                     np.isfinite(laz_file.y).all() and
                     np.isfinite(laz_file.z).all()):
                 logger.warning(f"Invalid coordinates in file: {file_path}")
                 return False
-            
+
             logger.info(f"File validated successfully: {file_path}")
             return True
-        
+
         except Exception as e:
             logger.error(f"File validation failed for {file_path}: {e}")
             return False
-        
+
     def get_metadata(self, file_path: str) -> dict:
         """
         Extract metadata from a point cloud file.
-        
+
         Args:
             file_path: Path to the LAS/LAZ file
-        
+
         Returns:
-            Dictionary containing metadata information            
+            Dictionary containing metadata information
         """
         file_path = Path(file_path)
 
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
-        
+
         try:
             laz_file = laspy.read(file_path)
-            
+
             # Get classification statistics
             classification_stats = {}
             if hasattr(laz_file, 'classification'):
                 classifications = np.array(laz_file.classification)
                 unique_classes, counts = np.unique(classifications, return_counts=True)
                 total_points = len(classifications)
-                
+
                 classification_stats = {
                     'unique_classes': unique_classes.tolist(),
                     'class_counts': dict(zip(unique_classes.tolist(), counts.tolist())),
                     'ground_points': int(counts[unique_classes == 2][0]) if 2 in unique_classes else 0,
                     'ground_percentage': float(counts[unique_classes == 2][0] / total_points * 100) if 2 in unique_classes else 0.0
                 }
-            
+
             metadata = {
                 'filename': file_path.name,
                 'file_size_mb': file_path.stat().st_size / (1024 * 1024),
@@ -233,7 +233,7 @@ class PointCloudLoader:
                 ],
                 'classification_stats': classification_stats
             }
-            
+
             # Available dimensions based on point format
             available_dimensions = ['X', 'Y', 'Z']
             if hasattr(laz_file, 'intensity'):
@@ -264,7 +264,7 @@ class PointCloudLoader:
                 available_dimensions.append('gps_time')
             if hasattr(laz_file, 'red') and hasattr(laz_file, 'green') and hasattr(laz_file, 'blue'):
                 available_dimensions.extend(['red', 'green', 'blue'])
-            
+
             metadata['available_dimensions'] = available_dimensions
 
             # Add statistics for ground points only
@@ -299,12 +299,3 @@ class PointCloudLoader:
         except Exception as e:
             logger.error(f"Error extracting metadata from {file_path}: {e}")
             raise
-
-            
-
-
-
-
-
-        
-        
