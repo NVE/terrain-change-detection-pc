@@ -211,7 +211,7 @@ class PointCloudLoader:
                 'file_size_mb': file_path.stat().st_size / (1024 * 1024),
                 'num_points': len(laz_file.points),
                 'point_format': getattr(laz_file.header, 'point_data_record_format', getattr(laz_file.header, 'point_format', 0)),
-                'version': f"{laz_file.header.version_major}.{laz_file.header.version_minor}",
+                'version': f"{laz_file.header.version}",
                 'creation_date': getattr(laz_file.header, 'creation_date', None),
                 'bounds': {
                     'min_x': float(laz_file.header.x_min),
