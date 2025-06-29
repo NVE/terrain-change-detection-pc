@@ -58,83 +58,87 @@ def main():
         return
     
     # Display discovered areas/area directories
-    print(f"Found {len(areas)} areas/area directories:")
-    print("=" * 50)
+    print(f"\n{'='*60}")
+    print(f"Data Discovery Summary")
+    print(f"{'='*60}")
+    print(f"Found {len(areas)} area(s):\n")
 
     total_files = 0
     total_ground_points = 0
 
-    for area_dir, area_info in areas.items():
-        print(f"Area or area directory: {area_dir}")
+    for area_name, area_info in areas.items():
+        print(f"Area: {area_name}")
         print(f"  Time periods: {len(area_info.time_periods)}")
-
         for time_period in area_info.time_periods:
             dataset = area_info.datasets[time_period]
-            print(f"  Time period: {time_period}")
-            print(f"    Number of files: {len(dataset.laz_files)}")
-            print(f"    Number of ground points: {dataset.total_points}")
-            print(f"    Bounds: {dataset.bounds}")
-            print(f"    Metadata dir: {dataset.metadata_dir}")
-            print(f"    Per-file stats (first 1): {dataset.per_file_stats[:1]}")
-
-            # Show individual files
-            for i, laz_file in enumerate(dataset.laz_files[:5]): # Show only first 5 files
+            print(f"    ├─ Time period: {time_period}")
+            print(f"    │   Number of files: {len(dataset.laz_files)}")
+            print(f"    │   Total ground points: {dataset.total_points}")
+            print(f"    │   Bounds: {dataset.bounds}")
+            print(f"    │   Metadata dir: {dataset.metadata_dir}")
+            if dataset.per_file_stats:
+                print(f"    │   Example file stats:")
+                for stat in dataset.per_file_stats[:1]:
+                    print(f"    │     - File: {stat['file']}")
+                    print(f"    │       Num points: {stat['num_points']}")
+                    print(f"    │       Ground points: {stat['ground_points']}")
+                    print(f"    │       Bounds: {stat['bounds']}")
+            else:
+                print(f"    │   No per-file stats available.")
+            print(f"    │   Example files:")
+            for i, laz_file in enumerate(dataset.laz_files[:5]):
                 file_size_mb = laz_file.stat().st_size / (1024 * 1024)
-                print(f"        {laz_file.name} ({file_size_mb:.1f} MB)")
-
+                print(f"    │     - {laz_file.name} ({file_size_mb:.1f} MB)")
             total_files += len(dataset.laz_files)
             total_ground_points += dataset.total_points
+        print()
 
-    print("=" * 50)    
+    print(f"{'='*60}")    
     print(f"Total files: {total_files}")
-    print(f"Total ground points: {total_ground_points}")
+    print(f"Total ground points (sum across all datasets): {total_ground_points}")
+    print(f"{'='*60}\n")
 
     # test loading a sample point cloud
-    print("\nTesting point cloud loading...")
-    test_area = list(areas.keys())[0]
-    test_time_period = list(areas[test_area].time_periods)[0]
-    test_dataset = areas[test_area].datasets[test_time_period]
+    print("Sample Point Cloud Loading Test")
+    print("-"*40)
+    test_area_name = list(areas.keys())[0]
+    test_time_period = list(areas[test_area_name].time_periods)[0]
+    test_dataset = areas[test_area_name].datasets[test_time_period]
 
-    print(f"Testing: {test_area}/{test_time_period}")
+    print(f"Testing: {test_area_name}/{test_time_period}")
 
     try:
         batch_loader = BatchLoader()
-
-        # Load just the first file for testing
         first_file = test_dataset.laz_files[0]
-        print(f"Loading file: {first_file.name}")
+        print(f"  Loading file: {first_file.name}")
         loader = PointCloudLoader()
-
         if loader.validate_file(str(first_file)):
-            print(f"File validation successful: {first_file.name}")
-
-            # Get basic metadata
+            print(f"  File validation successful: {first_file.name}")
             metadata = loader.get_metadata(str(first_file))
-            print(f"Metadata for {first_file.name}:")
+            print(f"  Metadata for {first_file.name}:")
             for key, value in metadata.items():
-                print(f"  {key}: {value}")
+                print(f"    {key}: {value}")
         else:
-            print(f"File validation failed: {first_file.name}")
-
+            print(f"  File validation failed: {first_file.name}")
     except Exception as e:
-        print(f"Error loading point cloud: {e}")
-        
+        print(f"  Error loading point cloud: {e}")
+
     # Show potential change detection analyses
-    print("\nPotential change detection analyses:")
-    for area_dir, area_info in areas.items():
+    print("\nChange Detection Opportunities")
+    print("-"*40)
+    for area_name, area_info in areas.items():
         if len(area_info.time_periods) >= 2:
             periods = area_info.time_periods
             for i in range(len(periods) - 1):
                 for j in range(i + 1, len(periods)):
                     dataset1 = area_info.datasets[periods[i]]
                     dataset2 = area_info.datasets[periods[j]]
-                    print(f"  {area_dir} - {periods[i]} vs {periods[j]} "
-                          f"({dataset1.total_points} vs {dataset2.total_points} points)")
+                    print(f"  {area_name}: {periods[i]} vs {periods[j]} "
+                          f"({dataset1.total_points} vs {dataset2.total_points} ground points)")
         else:
-            print(f" {area_dir} has {len(area_info.time_periods)} time period(s), ")
-            print("Two or more time periods are required for change detection analysis.")
-
-    print(f"To run change detection, use:")
+            print(f"  {area_name} has {len(area_info.time_periods)} time period(s). ")
+            print("  Two or more time periods are required for change detection analysis.")
+    print(f"\nTo run change detection, use:")
     print(f"  uv run scripts/run_workflow.py")
 
 
