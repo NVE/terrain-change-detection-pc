@@ -7,6 +7,7 @@ Use this to check what data is available and verify it can be loaded correctly.
 
 import sys
 from pathlib import Path
+from pprint import pprint
 
 # Add the src to the path to import modules
 sys.path.append(str(Path(__file__).parent.parent / "src"))
@@ -116,8 +117,7 @@ def main():
             print(f"  File validation successful: {first_file.name}")
             metadata = loader.get_metadata(str(first_file))
             print(f"  Metadata for {first_file.name}:")
-            for key, value in metadata.items():
-                print(f"    {key}: {value}")
+            pprint(metadata, indent=6, width=100, compact=False)
         else:
             print(f"  File validation failed: {first_file.name}")
     except Exception as e:
