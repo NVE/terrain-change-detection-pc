@@ -55,13 +55,11 @@ This project requires `uv` to be installed on your system for dependency managem
 
 ### Installation
 
-1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   cd terrain-change-detection-pc
-   ```
-
-2. On first run, `uv` will automatically create a virtual environment and install the required dependencies.
+Clone the repository:
+```bash
+git clone <repository-url>
+cd terrain-change-detection-pc
+```
 
 ## Running Scripts
 
@@ -85,7 +83,7 @@ uv run scripts/explore_data.py
 Execute the complete change detection pipeline:
 
 ```bash
-# Run the main change detection workflow
+# Run the main change detection workflow (only preprocessing and alignment are implemented, change detection and visualization are TODOs)
 uv run scripts/run_workflow.py
 
 # Or run the main entry point (Not ready yet)
