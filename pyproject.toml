@@ -1,7 +1,7 @@
 [project]
 name = "terrain-change-detection-pc"
 version = "0.1.0"
-description = "Add your description here"
+description = "Terrain change detection based on multi-temporal point clouds"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
