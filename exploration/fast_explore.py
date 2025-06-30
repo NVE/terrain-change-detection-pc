@@ -1,7 +1,6 @@
-#!/usr/bin/env python3
 """
 High-performance script runner for LAZ file analysis
-Usage: uv run fast_explore.py [file_path]
+Usage: uv run fast_explore.py
 """
 
 import sys
