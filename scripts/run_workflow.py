@@ -16,6 +16,9 @@ from terrain_change_detection.preprocessing.data_discovery import DataDiscovery,
 from terrain_change_detection.alignment.fine_registration import ICPRegistration
 from terrain_change_detection.utils.logging import setup_logger
 
+# Hardware optimizations
+# TO DO: Implement hardware optimizations for large datasets
+
 def main():
     """
     Main function to run the terrain change detection workflow.
