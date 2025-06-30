@@ -95,13 +95,38 @@ def main():
             max_correspondence_distance=1.0
         )
 
+        # Subsample for alignment if datasets are large
+        if len(points1) > 50000:
+            indices1 = np.random.choice(len(points1), 20000, replace=False)
+            points1_subsampled = points1[indices1]
+        else:
+            points1_subsampled = points1
+
+        if len(points2) > 50000:
+            indices2 = np.random.choice(len(points2), 20000, replace=False)
+            points2_subsampled = points2[indices2]
+        else:
+            points2_subsampled = points2
+
         # Perform ICP alignment
-        points2_aligned, transform_matrix, final_error = icp.align_point_clouds(
-            source=points2,
+        points2_subsampled_aligned, transform_matrix, final_error = icp.align_point_clouds(
+            source=points2_subsampled,
+            target=points1_subsampled
+        )        
+
+        # Apply the transformation to the original points2
+        if len(points2) > 50000:
+            points2_full_aligned = icp.apply_transformation(points2, transform_matrix)
+        else:
+            points2_full_aligned = points2_subsampled_aligned
+
+        # Compute the registration error
+        alignment_error = icp.compute_registration_error(
+            source=points2_full_aligned,
             target=points1
         )
 
-        print(f"ICP Alignment completed with final error: {final_error:.6f}")
+        print(f"ICP Alignment completed with final error: {alignment_error:.6f}")
 
         # Step 3: Change Detection
         logger.info("--- Step 3: Detecting terrain changes... ---")
