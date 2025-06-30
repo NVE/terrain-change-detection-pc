@@ -1,4 +1,4 @@
-# Terrain Change Detection with Point Clouds
+# Terrain Change Detection Based on Multi-temporal Point Clouds
 
 A Python project for detecting terrain changes using multi-temporal point cloud data. The workflow includes data discovery and preprocessing, spatial alignment using ICP (Iterative Closest Point), change detection, and visualization capabilities.
 
@@ -40,8 +40,8 @@ terrain-change-detection-pc/
 
 The terrain change detection process follows these main steps:
 
-1. **Data Discovery and Preprocessing**: Locate and prepare multi-temporal point cloud data (LAZ/LAS files)
-2. **Spatial Alignment**: Co-register point clouds from different time periods using ICP algorithm
+1. **Data Discovery and Preprocessing**: Locate and prepare multi-temporal point cloud data, optimized for LiDAR point cloud data from hoydedata.no.
+2. **Spatial Alignment**: Co-register and spatially align point clouds from different time periods using the ICP algorithm.
 3. **Change Detection**: Identify and quantify significant terrain changes (TODO)
 4. **Visualization**: Generate visual representations of detected changes (TODO)
 
@@ -61,11 +61,11 @@ This project requires `uv` to be installed on your system for dependency managem
    cd terrain-change-detection-pc
    ```
 
-2. On first run, `uv` will automatically create a virtual environment and install dependencies from `pyproject.toml`
+2. On first run, `uv` will automatically create a virtual environment and install the required dependencies.
 
 ## Running Scripts
 
-Use `uv run` followed by the script path. The virtual environment will be created automatically on first use.
+Use `uv run` followed by the script path, as script aliases are not defined in `pyproject.toml` at the moment. The virtual environment will be created automatically on first use.
 
 ### Exploration Scripts
 
@@ -88,7 +88,7 @@ Execute the complete change detection pipeline:
 # Run the main change detection workflow
 uv run scripts/run_workflow.py
 
-# Or run the main entry point
+# Or run the main entry point (Not ready yet)
 uv run main.py
 ```
 
