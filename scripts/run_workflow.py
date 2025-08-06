@@ -15,6 +15,7 @@ from terrain_change_detection.preprocessing.loader import PointCloudLoader
 from terrain_change_detection.preprocessing.data_discovery import DataDiscovery, BatchLoader
 from terrain_change_detection.alignment.fine_registration import ICPRegistration
 from terrain_change_detection.utils.logging import setup_logger
+from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
 
 # Hardware optimizations
 # TO DO: Implement hardware optimizations for large datasets
@@ -90,6 +91,17 @@ def main():
         points1 = pc1_data['points']
         points2 = pc2_data['points']
 
+        # Instantiate the visualizer
+        visualizer = PointCloudVisualizer(backend='plotly')
+
+        # Visualize the original point clouds
+        logger.info("--- Visualizing original point clouds ---")
+        visualizer.visualize_clouds(
+            point_clouds=[points1, points2],
+            names=[f"Time {t1}", f"Time {t2}"],
+            sample_size=20000  # Downsample for visualization
+        )
+
         # Step 2: ICP Registration
         logger.info("--- Step 2: Performing spatial alignment... ---")
         icp = ICPRegistration(
@@ -130,6 +142,14 @@ def main():
         )
 
         print(f"ICP Alignment completed with final error: {alignment_error:.6f}")
+
+        # Visualize the aligned point clouds
+        logger.info("--- Visualizing aligned point clouds ---")
+        visualizer.visualize_clouds(
+            point_clouds=[points1, points2_full_aligned],
+            names=[f"Time {t1} (Target)", f"Time {t2} (Aligned)"],
+            sample_size=20000  # Downsample for visualization
+        )
 
         # Step 3: Change Detection
         logger.info("--- Step 3: Detecting terrain changes... ---")
