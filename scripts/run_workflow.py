@@ -102,8 +102,10 @@ def main():
         points1 = pc1_data['points']
         points2 = pc2_data['points']
 
-        # Instantiate the visualizer
-        visualizer = PointCloudVisualizer(backend='plotly')
+        # Instantiate the visualizer (choose backend and blocking behavior)
+        VIS_BACKEND = 'pyvista'   # 'plotly' or 'pyvista'
+        VIS_BLOCK = False         # For PyVista: False keeps script running while windows remain open
+        visualizer = PointCloudVisualizer(backend=VIS_BACKEND, block=VIS_BLOCK)
 
         # Visualize the original point clouds
         logger.info("--- Visualizing original point clouds ---")

@@ -1,6 +1,6 @@
 # Terrain Change Detection Based on Multi-temporal Point Clouds
 
-A Python project for detecting terrain changes using multi-temporal point cloud data. The workflow includes data discovery and preprocessing, spatial alignment using ICP (Iterative Closest Point), change detection (with a primary focus on M3C2), and interactive visualizations (Plotly default; PyVista supported). DoD and C2C are implemented for comparison/baseline purposes.
+A Python project for detecting terrain changes using multi-temporal point cloud data. The workflow includes data discovery and preprocessing, spatial alignment using ICP (Iterative Closest Point), change detection (with a primary focus on M3C2), and interactive visualizations (Plotly default; PyVista supported). DoD and C2C are implemented for comparison/baseline purposes. PyVista can run non-blocking with the optional `pyvistaqt` dependency.
 
 ## Project Structure
 
@@ -98,9 +98,21 @@ uv run scripts/run_workflow.py
 uv run main.py
 ```
 
-Backend selection:
-- Plotly is the default backend. To use PyVista, change the visualizer instantiation in `scripts/run_workflow.py`:
-    `visualizer = PointCloudVisualizer(backend='pyvista')`.
+Backend selection and non-blocking windows:
+- The workflow script lets you switch backends and choose whether PyVista windows block execution.
+- In `scripts/run_workflow.py`, set these toggles near the top of the visualization section:
+    - `VIS_BACKEND = 'plotly'` or `'pyvista'`
+    - `VIS_BLOCK = False` to keep the script running while PyVista windows remain open (requires `pyvistaqt`). If `pyvistaqt` is not installed, it will fall back to blocking and print a note.
+
+Optional: enable non-blocking PyVista windows (BackgroundPlotter):
+
+```powershell
+uv add pyvistaqt PySide6
+```
+
+Notes:
+- `pyvistaqt` uses Qt; `PySide6` provides the Qt runtime.
+- On Windows, BackgroundPlotter gives stable non-blocking behavior. Without it, classic `Plotter` windows are blocking to avoid UI freezes.
 
 Windows note (M3C2-EP):
 - On Windows, the workflow automatically runs M3C2-EP in a safe single-process mode to avoid multiprocessing spawn issues.
@@ -115,4 +127,7 @@ Core libraries (managed via `uv` in `pyproject.toml`):
 - `pyvista` — optional 3D plotting backend
 - `scikit-learn` — KD-tree for C2C and utilities
 
-`uv` installs these automatically when running scripts.
+Optional (recommended for non-blocking PyVista):
+- `pyvistaqt` and `PySide6` — enables PyVista BackgroundPlotter (non-blocking windows)
+
+`uv` installs the core packages automatically when running scripts. Use `uv add` for optional extras (see above).
