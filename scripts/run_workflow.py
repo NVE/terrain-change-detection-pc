@@ -103,7 +103,7 @@ def main():
         points2 = pc2_data['points']
 
         # Instantiate the visualizer (choose backend)
-        VIS_BACKEND = 'pyvista'   # 'plotly' or 'pyvista'
+        VIS_BACKEND = 'pyvistaqt'   # 'plotly', 'pyvista', or 'pyvistaqt'
         visualizer = PointCloudVisualizer(backend=VIS_BACKEND)
 
         # Visualize the original point clouds
