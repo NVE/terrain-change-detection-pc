@@ -653,6 +653,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "laspy" },
+    { name = "lazrs" },
     { name = "plotly" },
     { name = "py4dgeo" },
     { name = "pyside6" },
@@ -664,6 +665,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "laspy", specifier = ">=2.5.4" },
+    { name = "lazrs", specifier = ">=0.6.3" },
     { name = "plotly", specifier = ">=6.2.0" },
     { name = "py4dgeo", specifier = ">=0.7.0" },
     { name = "pyside6", specifier = ">=6.9.1" },

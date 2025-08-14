@@ -98,6 +98,22 @@ uv run scripts/run_workflow.py
 uv run main.py
 ```
 
+### Synthetic datasets
+
+You can generate a small, controlled synthetic dataset to validate alignment and change detection. It creates two LAZ files with known deposition/erosion and intentional misalignment.
+
+Output location:
+- `data/synthetic/synthetic_area/2015/data/synthetic_tile_01.laz`
+- `data/synthetic/synthetic_area/2020/data/synthetic_tile_01.laz`
+
+Generate them:
+
+```powershell
+uv run scripts/generate_synthetic_laz.py
+```
+
+Then, to run the workflow on synthetic data, point the workflow to `data/synthetic` by changing `base_dir` in `scripts/run_workflow.py` or temporarily moving/renaming directories as needed.
+
 Backend selection and non-blocking windows:
 - The workflow script lets you switch backends and choose whether PyVista windows block execution.
 - In `scripts/run_workflow.py`, set these toggles near the top of the visualization section:

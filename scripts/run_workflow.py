@@ -5,6 +5,7 @@ This script demonstrates the full workflow from data discovery to change detecti
 """
 
 import sys
+import argparse
 import numpy as np
 from pathlib import Path
 
@@ -43,8 +44,17 @@ def main():
     # Load configuration
     # TO DO: Load configuration from a file or command line arguments
 
-    # Example data paths
-    base_dir = Path(__file__).parent.parent / "data" / "raw"
+    # CLI: allow overriding the data root (default to data/raw)
+    parser = argparse.ArgumentParser(description="Terrain Change Detection Workflow")
+    parser.add_argument(
+        "--base-dir",
+        type=str,
+        default=str(Path(__file__).parent.parent / "data" / "raw"),
+        help="Base directory containing area folders (e.g., data/raw or data/synthetic)",
+    )
+    args, unknown = parser.parse_known_args()
+
+    base_dir = Path(args["base_dir"] if isinstance(args, dict) else args.base_dir)
     # base_dir = Path(__file__).parent.parent / "tests" / "test_preprocessing" / "sample_data" / "raw"
     if not base_dir.exists():
         logger.error(f"Base directory {base_dir} does not exist.")
