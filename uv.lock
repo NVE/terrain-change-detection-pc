@@ -571,6 +571,7 @@ dependencies = [
     { name = "plotly" },
     { name = "py4dgeo" },
     { name = "pyvista" },
+    { name = "scikit-learn" },
 ]
 
 [package.metadata]
@@ -579,6 +580,7 @@ requires-dist = [
     { name = "plotly", specifier = ">=6.2.0" },
     { name = "py4dgeo", specifier = ">=0.7.0" },
     { name = "pyvista", specifier = ">=0.46.0" },
+    { name = "scikit-learn", specifier = ">=1.4.0" },
 ]
 
 [[package]]

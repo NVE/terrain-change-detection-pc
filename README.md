@@ -1,6 +1,6 @@
 # Terrain Change Detection Based on Multi-temporal Point Clouds
 
-A Python project for detecting terrain changes using multi-temporal point cloud data. The workflow includes data discovery and preprocessing, spatial alignment using ICP (Iterative Closest Point), change detection, and visualization capabilities.
+A Python project for detecting terrain changes using multi-temporal point cloud data. The workflow includes data discovery and preprocessing, spatial alignment using ICP (Iterative Closest Point), change detection (with a primary focus on M3C2), and interactive visualizations (Plotly default; PyVista supported). DoD and C2C are implemented for comparison/baseline purposes.
 
 ## Project Structure
 
@@ -35,14 +35,24 @@ terrain-change-detection-pc/
     └── sample_data/                 # Test data
 ```
 
-## Workflow Overview
+## Features and workflow overview
 
-The terrain change detection process follows these main steps:
+The pipeline performs:
 
-1. **Data Discovery and Preprocessing**: Locate and prepare multi-temporal point cloud data, optimized for LiDAR point cloud data from hoydedata.no.
-2. **Spatial Alignment**: Co-register and spatially align point clouds from different time periods using the ICP algorithm.
-3. **Change Detection**: Identify and quantify significant terrain changes (TODO)
-4. **Visualization**: Generate visual representations of detected changes (TODO)
+1. Data discovery and preprocessing (optimized for LiDAR from hoydedata.no).
+2. Spatial alignment via ICP. (Current implementation from scratch; TODO: evaluate direct use of libraries such as Open3D.)
+3. Change detection methods (M3C2 is the main algorithm):
+    - M3C2 (Original) via py4dgeo.
+    - M3C2-EP (Error Propagation) via py4dgeo with LoD significance flags.
+    - For comparison purposes, DoD (DEM of Difference) with multiple aggregators and C2C (Cloud-to-Cloud) nearest-neighbor distances are implemented.
+4. Visualizations shown immediately after each computation:
+    - DoD heatmap.
+    - Distance histograms (C2C and M3C2/M3C2-EP).
+    - 3D core-points colored by M3C2 distances.
+
+Notes:
+- M3C2 parameters (projection scale, cylinder radius, max depth) may need tuning per dataset.
+- M3C2-EP uses default scan-position noise parameters if not provided; supplying real scanner metadata improves uncertainty estimates.
 
 ## Getting Started
 
@@ -60,7 +70,7 @@ git clone <repository-url>
 cd terrain-change-detection-pc
 ```
 
-## Running Scripts
+## Running scripts
 
 Use `uv run` followed by the script path, as script aliases are not defined in `pyproject.toml` at the moment. The virtual environment will be created automatically on first use.
 
@@ -77,21 +87,32 @@ uv run exploration/fast_explore.py
 uv run scripts/explore_data.py
 ```
 
-### Main Workflow
+### Main workflow
 
-Execute the complete change detection pipeline:
+Execute the complete change detection pipeline. Visualizations appear after each step.
 
 ```bash
-# Run the main change detection workflow (only preprocessing and alignment are implemented, change detection and visualization are TODOs)
 uv run scripts/run_workflow.py
 
 # Or run the main entry point (Not ready yet)
 uv run main.py
 ```
 
+Backend selection:
+- Plotly is the default backend. To use PyVista, change the visualizer instantiation in `scripts/run_workflow.py`:
+    `visualizer = PointCloudVisualizer(backend='pyvista')`.
+
+Windows note (M3C2-EP):
+- On Windows, the workflow automatically runs M3C2-EP in a safe single-process mode to avoid multiprocessing spawn issues.
+    This has lower performance but better compatibility. On Linux/macOS it runs in parallel by default.
+
 ## Dependencies
 
-- `laspy>=2.5.4` - Reading and writing LAZ/LAS point cloud files
-- `py4dgeo>=0.7.0` - 4D geospatial analysis and change detection algorithms
+Core libraries (managed via `uv` in `pyproject.toml`):
+- `laspy` — LAZ/LAS I/O
+- `py4dgeo` — M3C2 algorithms
+- `plotly` — interactive plotting (default backend)
+- `pyvista` — optional 3D plotting backend
+- `scikit-learn` — KD-tree for C2C and utilities
 
-Additional dependencies will be installed automatically by `uv` as needed.
+`uv` installs these automatically when running scripts.
