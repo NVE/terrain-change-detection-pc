@@ -9,12 +9,6 @@ import plotly.graph_objects as go
 import pyvista as pv
 from typing import Optional, Any
 
-# Optional non-blocking plotter for PyVista
-try:
-    from pyvistaqt import BackgroundPlotter  # type: ignore
-except Exception:  # pragma: no cover - optional dependency
-    BackgroundPlotter = None  # type: ignore
-
 try:
     # Optional import for type hints
     from ..detection.change_detection import DoDResult, M3C2Result
@@ -24,16 +18,14 @@ except Exception:
 class PointCloudVisualizer:
     """A class for visualizing point cloud data using different backends."""
 
-    def __init__(self, backend: str = 'plotly', block: bool = True):
+    def __init__(self, backend: str = 'plotly'):
         """
         Initializes the visualizer with a specific backend.
 
         Args:
             backend: The visualization backend to use ('plotly' or 'pyvista').
                      Defaults to 'plotly'.
-            block: For 'pyvista' backend, whether calls should block until the
-                   window is closed. Set to False to let the script continue
-                   executing while windows stay open (when supported).
+            (PyVista windows are blocking by design.)
 
         Raises:
             ValueError: If the specified backend is not supported.
@@ -41,31 +33,8 @@ class PointCloudVisualizer:
         if backend not in ['plotly', 'pyvista']:
             raise ValueError(f"Unsupported backend: '{backend}'. Please choose 'plotly' or 'pyvista'.")
         self.backend = backend
-        self.block = block
-        # Keep references to plotters so windows are not garbage-collected
-        self._plotters = []
-        self._warned_no_bg = False
 
     # ---- Helpers ----
-    def _create_plotter(self):
-        if self.backend != 'pyvista':
-            return None
-        if not self.block:
-            if BackgroundPlotter is not None:
-                # Non-blocking window that allows code to continue executing
-                plotter = BackgroundPlotter()
-            else:
-                # Fallback to blocking behavior; non-blocking requires pyvistaqt
-                if not self._warned_no_bg:
-                    print("[PointCloudVisualizer] Non-blocking PyVista requires 'pyvistaqt'. Falling back to blocking windows.")
-                    self._warned_no_bg = True
-                self.block = True
-                plotter = pv.Plotter()
-        else:
-            plotter = pv.Plotter()
-        # Keep a reference so the window persists
-        self._plotters.append(plotter)
-        return plotter
 
     def visualize_clouds(self, point_clouds: list[np.ndarray], names: list[str], sample_size: int = None):
         """
@@ -144,7 +113,7 @@ class PointCloudVisualizer:
             point_clouds: List of point clouds to visualize.
             names: List of names for the legend.
         """
-        plotter = self._create_plotter()
+        plotter = pv.Plotter()
         colors = ['red', 'blue', 'green', 'yellow', 'purple', 'orange']
         for i, (pc, name) in enumerate(zip(point_clouds, names)):
             poly_data = pv.PolyData(pc)
@@ -157,9 +126,7 @@ class PointCloudVisualizer:
                 lighting=False,
             )
         plotter.add_legend()
-        # Show the window. Use non-blocking mode when using BackgroundPlotter; otherwise blocking
-        if isinstance(plotter, pv.Plotter):
-            plotter.show()
+        plotter.show()
 
     def visualize_dod_heatmap(self, dod: Any, title: str = "DoD (m)"):
         """
@@ -198,7 +165,7 @@ class PointCloudVisualizer:
             grid.dimensions = (X.shape[1], X.shape[0], 1)  # (nx, ny, 1)
             scalars = dod.dod.astype(float).ravel(order='C')
             vmax = float(np.nanmax(np.abs(scalars))) if np.isfinite(scalars).any() else 1.0
-            plotter = self._create_plotter()
+            plotter = pv.Plotter()
             plotter.add_mesh(
                 grid,
                 scalars=scalars,
@@ -209,8 +176,7 @@ class PointCloudVisualizer:
                 lighting=False,
             )
             plotter.view_xy()
-            if isinstance(plotter, pv.Plotter):
-                plotter.show()
+            plotter.show()
         else:
             raise ValueError(f"Unsupported backend: {self.backend}")
 
@@ -271,7 +237,7 @@ class PointCloudVisualizer:
         elif self.backend == 'pyvista':
             poly = pv.PolyData(pts)
             poly["distance"] = d
-            plotter = self._create_plotter()
+            plotter = pv.Plotter()
             plotter.add_mesh(
                 poly,
                 scalars="distance",
@@ -282,7 +248,6 @@ class PointCloudVisualizer:
                 show_scalar_bar=True,
                 lighting=False,
             )
-            if isinstance(plotter, pv.Plotter):
-                plotter.show()
+            plotter.show()
         else:
             raise ValueError(f"Unsupported backend: {self.backend}")

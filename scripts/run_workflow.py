@@ -26,10 +26,10 @@ from terrain_change_detection.visualization.point_cloud import PointCloudVisuali
 # - M3C2_CORE_POINTS: number of core points for M3C2
 # - C2C_MAX_POINTS: maximum points per cloud for C2C distances
 # - VIS_SAMPLE_SIZE: sample size for visualization
-ICP_SAMPLE_SIZE = 500000
-M3C2_CORE_POINTS = 100000
-C2C_MAX_POINTS = 100000
-VIS_SAMPLE_SIZE = 500000
+ICP_SAMPLE_SIZE = 50000
+M3C2_CORE_POINTS = 10000
+C2C_MAX_POINTS = 10000
+VIS_SAMPLE_SIZE = 50000
 
 def main():
     """
@@ -102,10 +102,9 @@ def main():
         points1 = pc1_data['points']
         points2 = pc2_data['points']
 
-        # Instantiate the visualizer (choose backend and blocking behavior)
+        # Instantiate the visualizer (choose backend)
         VIS_BACKEND = 'pyvista'   # 'plotly' or 'pyvista'
-        VIS_BLOCK = False         # For PyVista: False keeps script running while windows remain open
-        visualizer = PointCloudVisualizer(backend=VIS_BACKEND, block=VIS_BLOCK)
+        visualizer = PointCloudVisualizer(backend=VIS_BACKEND)
 
         # Visualize the original point clouds
         logger.info("--- Visualizing original point clouds ---")
@@ -162,7 +161,7 @@ def main():
         logger.info("--- Visualizing aligned point clouds ---")
         visualizer.visualize_clouds(
             point_clouds=[points1, points2_full_aligned],
-            names=[f"Time {t1} (Target)", f"Time {t2} (Aligned)"],
+            names=[f"PC from {t1} (Target)", f"PC from {t2} (Aligned)"],
             sample_size=VIS_SAMPLE_SIZE  # Downsample for visualization
         )
 
