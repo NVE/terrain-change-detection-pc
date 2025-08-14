@@ -51,7 +51,10 @@ class PointCloudVisualizer:
                 zmid=0.0,
                 colorbar=dict(title='m')
             ))
+            # Enforce equal scaling for X and Y so distances are to scale
             fig.update_layout(title=title, xaxis_title='Y', yaxis_title='X')
+            fig.update_yaxes(scaleanchor="x", scaleratio=1)
+            fig.update_xaxes(constrain='domain')
             fig.show(renderer="browser")
             return
         # PyVista / PyVistaQt
@@ -74,7 +77,12 @@ class PointCloudVisualizer:
             show_scalar_bar=True,
             lighting=False,
         )
+        # Top-down view and parallel projection to keep XY distances to scale
         plotter.view_xy()
+        try:
+            plotter.enable_parallel_projection()
+        except Exception:
+            pass
         plotter.show()
 
     def visualize_distance_histogram(self, distances: np.ndarray, title: str, bins: int = 60):
