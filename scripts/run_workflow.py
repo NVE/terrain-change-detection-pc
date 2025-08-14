@@ -21,6 +21,16 @@ from terrain_change_detection.visualization.point_cloud import PointCloudVisuali
 # Hardware optimizations
 # TO DO: Implement hardware optimizations for large datasets
 
+# Tuning knobs (independent):
+# - ICP_SAMPLE_SIZE: subsample size for ICP alignment
+# - M3C2_CORE_POINTS: number of core points for M3C2
+# - C2C_MAX_POINTS: maximum points per cloud for C2C distances
+# - VIS_SAMPLE_SIZE: sample size for visualization
+ICP_SAMPLE_SIZE = 500000
+M3C2_CORE_POINTS = 100000
+C2C_MAX_POINTS = 100000
+VIS_SAMPLE_SIZE = 500000
+
 def main():
     """
     Main function to run the terrain change detection workflow.
@@ -99,8 +109,8 @@ def main():
         logger.info("--- Visualizing original point clouds ---")
         visualizer.visualize_clouds(
             point_clouds=[points1, points2],
-            names=[f"Time {t1}", f"Time {t2}"],
-            sample_size=20000  # Downsample for visualization
+            names=[f"PC from {t1}", f"PC from {t2}"],
+            sample_size=VIS_SAMPLE_SIZE  # Downsample for visualization
         )
 
         # Step 2: ICP Registration
@@ -112,14 +122,16 @@ def main():
         )
 
         # Subsample for alignment if datasets are large
-        if len(points1) > 50000:
-            indices1 = np.random.choice(len(points1), 20000, replace=False)
+        if len(points1) > ICP_SAMPLE_SIZE:
+            n1 = min(len(points1), ICP_SAMPLE_SIZE)
+            indices1 = np.random.choice(len(points1), n1, replace=False)
             points1_subsampled = points1[indices1]
         else:
             points1_subsampled = points1
 
-        if len(points2) > 50000:
-            indices2 = np.random.choice(len(points2), 20000, replace=False)
+        if len(points2) > ICP_SAMPLE_SIZE:
+            n2 = min(len(points2), ICP_SAMPLE_SIZE)
+            indices2 = np.random.choice(len(points2), n2, replace=False)
             points2_subsampled = points2[indices2]
         else:
             points2_subsampled = points2
@@ -131,7 +143,7 @@ def main():
         )        
 
         # Apply the transformation to the original points2
-        if len(points2) > 50000:
+        if len(points2) > ICP_SAMPLE_SIZE:
             points2_full_aligned = icp.apply_transformation(points2, transform_matrix)
         else:
             points2_full_aligned = points2_subsampled_aligned
@@ -149,7 +161,7 @@ def main():
         visualizer.visualize_clouds(
             point_clouds=[points1, points2_full_aligned],
             names=[f"Time {t1} (Target)", f"Time {t2} (Aligned)"],
-            sample_size=20000  # Downsample for visualization
+            sample_size=VIS_SAMPLE_SIZE  # Downsample for visualization
         )
 
         # Step 3: Change Detection + on-the-spot visualization
@@ -182,7 +194,7 @@ def main():
         try:
             logger.info("Computing Cloud-to-Cloud (C2C) distances (downsampled for speed)...")
             # Downsample to keep pairwise search manageable if sklearn is unavailable
-            max_points = 20000
+            max_points = C2C_MAX_POINTS
             src = points2_full_aligned
             tgt = points1
             if len(src) > max_points:
@@ -209,7 +221,7 @@ def main():
         try:
             logger.info("Computing M3C2 (Original) distances on core points (downsampled)...")
             # Generate core points by uniform subsampling of target (T1)
-            max_core = 20000
+            max_core = M3C2_CORE_POINTS
             core_src = points1
             if len(core_src) > max_core:
                 idx = np.random.choice(len(core_src), max_core, replace=False)
@@ -238,7 +250,7 @@ def main():
                 float(np.std(m3c2_res.distances)),
             )
             # Visualize M3C2 core points immediately
-            visualizer.visualize_m3c2_corepoints(m3c2_res.core_points, m3c2_res.distances, sample_size=20000, title="M3C2 distances (m)")
+            visualizer.visualize_m3c2_corepoints(m3c2_res.core_points, m3c2_res.distances, sample_size=VIS_SAMPLE_SIZE, title="M3C2 distances (m)")
         except Exception as e:
             logger.error(f"M3C2 computation failed: {e}")
 

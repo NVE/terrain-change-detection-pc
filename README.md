@@ -43,7 +43,7 @@ The pipeline performs:
 2. Spatial alignment via ICP. (Current implementation from scratch; TODO: evaluate direct use of libraries such as Open3D.)
 3. Change detection methods (M3C2 is the main algorithm):
     - M3C2 (Original) via py4dgeo.
-    - M3C2-EP (Error Propagation) via py4dgeo with LoD significance flags.
+    - M3C2-EP (Error Propagation) via py4dgeo with Level of Detection (LoD) significance flags.
     - For comparison purposes, DoD (DEM of Difference) with multiple aggregators and C2C (Cloud-to-Cloud) nearest-neighbor distances are implemented.
 4. Visualizations shown immediately after each computation:
     - DoD heatmap.
