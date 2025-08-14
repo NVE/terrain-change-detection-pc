@@ -116,13 +116,3 @@ Core libraries (managed via `uv` in `pyproject.toml`):
 - `scikit-learn` — KD-tree for C2C and utilities
 
 `uv` installs these automatically when running scripts.
-
-## Advanced
-
-Quick M3C2-EP smoke test (synthetic plane offset):
-
-```bash
-uv run scripts/_smoke_m3c2ep.py
-```
-
-This validates the M3C2-EP wrapper and significance flagging end-to-end.
