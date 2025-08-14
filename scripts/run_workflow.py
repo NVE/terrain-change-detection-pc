@@ -15,6 +15,7 @@ from terrain_change_detection.preprocessing.loader import PointCloudLoader
 from terrain_change_detection.preprocessing.data_discovery import DataDiscovery, BatchLoader
 from terrain_change_detection.alignment.fine_registration import ICPRegistration
 from terrain_change_detection.utils.logging import setup_logger
+from terrain_change_detection.detection import ChangeDetector, M3C2Params
 from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
 
 # Hardware optimizations
@@ -151,13 +152,121 @@ def main():
             sample_size=20000  # Downsample for visualization
         )
 
-        # Step 3: Change Detection
+        # Step 3: Change Detection + on-the-spot visualization
         logger.info("--- Step 3: Detecting terrain changes... ---")
-        # TO DO: Implement change detection
 
-        # Step 4: Visualization
-        logger.info("--- Step 4: Visualizing results... ---")
-        # TO DO: Implement visualization of results
+        # 3a) DEM of Difference (DoD)
+        try:
+            logger.info("Computing DEM of Difference (DoD)...")
+            dod_res = ChangeDetector.compute_dod(
+                points_t1=points1,
+                points_t2=points2_full_aligned,
+                cell_size=1.0,
+                aggregator="mean",
+            )
+            logger.info(
+                "DoD stats: n_cells=%d, mean=%.4f m, median=%.4f m, rmse=%.4f m, min=%.4f m, max=%.4f m",
+                dod_res.stats.get("n_cells", 0),
+                dod_res.stats.get("mean_change", float('nan')),
+                dod_res.stats.get("median_change", float('nan')),
+                dod_res.stats.get("rmse", float('nan')),
+                dod_res.stats.get("min_change", float('nan')),
+                dod_res.stats.get("max_change", float('nan')),
+            )
+            # Visualize DoD immediately
+            visualizer.visualize_dod_heatmap(dod_res, title="DEM of Difference (m)")
+        except Exception as e:
+            logger.error(f"DoD computation failed: {e}")
+
+        # 3b) Cloud-to-Cloud (C2C)
+        try:
+            logger.info("Computing Cloud-to-Cloud (C2C) distances (downsampled for speed)...")
+            # Downsample to keep pairwise search manageable if sklearn is unavailable
+            max_points = 20000
+            src = points2_full_aligned
+            tgt = points1
+            if len(src) > max_points:
+                idx = np.random.choice(len(src), max_points, replace=False)
+                src = src[idx]
+            if len(tgt) > max_points:
+                idx = np.random.choice(len(tgt), max_points, replace=False)
+                tgt = tgt[idx]
+
+            c2c_res = ChangeDetector.compute_c2c(src, tgt)
+            logger.info(
+                "C2C stats: n=%d, mean=%.4f m, median=%.4f m, rmse=%.4f m",
+                c2c_res.n,
+                c2c_res.mean,
+                c2c_res.median,
+                c2c_res.rmse,
+            )
+            # Visualize C2C histogram immediately
+            visualizer.visualize_distance_histogram(c2c_res.distances, title="C2C distances (m)", bins=60)
+        except Exception as e:
+            logger.error(f"C2C computation failed: {e}")
+
+        # 3c) M3C2 (Original)
+        try:
+            logger.info("Computing M3C2 (Original) distances on core points (downsampled)...")
+            # Generate core points by uniform subsampling of target (T1)
+            max_core = 20000
+            core_src = points1
+            if len(core_src) > max_core:
+                idx = np.random.choice(len(core_src), max_core, replace=False)
+                core_src = core_src[idx]
+
+            m3c2_params = M3C2Params(
+                projection_scale=1.0,   # normal estimation radius
+                cylinder_radius=1.0,    # cylinder radius for distance aggregation
+                max_depth=2.0,          # half-length along normal
+                min_neighbors=10,
+                normal_scale=None,
+                confidence=0.95,
+            )
+
+            m3c2_res = ChangeDetector.compute_m3c2_original(
+                core_points=core_src,
+                cloud_t1=points1,
+                cloud_t2=points2_full_aligned,
+                params=m3c2_params,
+            )
+            logger.info(
+                "M3C2 stats: n=%d, mean=%.4f m, median=%.4f m, std=%.4f m",
+                m3c2_res.distances.size,
+                float(np.mean(m3c2_res.distances)),
+                float(np.median(m3c2_res.distances)),
+                float(np.std(m3c2_res.distances)),
+            )
+            # Visualize M3C2 core points immediately
+            visualizer.visualize_m3c2_corepoints(m3c2_res.core_points, m3c2_res.distances, sample_size=20000, title="M3C2 distances (m)")
+        except Exception as e:
+            logger.error(f"M3C2 computation failed: {e}")
+
+        # 3d) M3C2 with Error Propagation (EP)
+        try:
+            logger.info("Computing M3C2 with Error Propagation (EP) and significance flags...")
+            import platform
+            workers = 1 if platform.system().lower().startswith('win') else 4
+            m3c2_ep = ChangeDetector.compute_m3c2_error_propagation(
+                core_points=core_src,
+                cloud_t1=points1,
+                cloud_t2=points2_full_aligned,
+                params=m3c2_params,
+                workers=workers,
+            )
+            sig_count = int(np.sum(m3c2_ep.significant)) if m3c2_ep.significant is not None else 0
+            logger.info(
+                "M3C2-EP: significant=%d of %d (%.1f%%)",
+                sig_count,
+                m3c2_ep.distances.size,
+                100.0 * sig_count / max(1, m3c2_ep.distances.size),
+            )
+            # Optional: visualize EP distributions
+            visualizer.visualize_distance_histogram(m3c2_ep.distances, title="M3C2-EP distances (m)", bins=60)
+            if m3c2_ep.significant is not None:
+                visualizer.visualize_distance_histogram(m3c2_ep.distances[m3c2_ep.significant], title="M3C2-EP distances (significant)", bins=60)
+        except Exception as e:
+            logger.error(f"M3C2-EP computation failed: {e}")
 
     except Exception as e:
         logger.error(f"Change detection workflow failed: {e}")

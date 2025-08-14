@@ -1,7 +1,22 @@
 """
 Terrain Change Detection Module
 
-This module implements various algorithms for detecting changes in terrain data, including
-feature extraction for landslide hazard assessment. The implementations are based on py4dgeo.
+Exports user-facing change detection interfaces and results.
 """
+
+from .change_detection import (
+	ChangeDetector,
+	DoDResult,
+	C2CResult,
+	M3C2Result,
+	M3C2Params,
+)
+
+__all__ = [
+	"ChangeDetector",
+	"DoDResult",
+	"C2CResult",
+	"M3C2Result",
+	"M3C2Params",
+]
 
