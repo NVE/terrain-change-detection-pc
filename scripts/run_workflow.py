@@ -5,6 +5,7 @@ This script demonstrates the full workflow from data discovery to change detecti
 """
 
 import sys
+import argparse
 import numpy as np
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from terrain_change_detection.preprocessing.loader import PointCloudLoader
 from terrain_change_detection.preprocessing.data_discovery import DataDiscovery, BatchLoader
 from terrain_change_detection.alignment.fine_registration import ICPRegistration
 from terrain_change_detection.utils.logging import setup_logger
-from terrain_change_detection.detection import ChangeDetector, M3C2Params
+from terrain_change_detection.detection import ChangeDetector, M3C2Params, autotune_m3c2_params
 from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
 
 # Hardware optimizations
@@ -43,8 +44,18 @@ def main():
     # Load configuration
     # TO DO: Load configuration from a file or command line arguments
 
-    # Example data paths
-    base_dir = Path(__file__).parent.parent / "data" / "raw"
+    # CLI: allow overriding the data root (default to data/raw)
+    parser = argparse.ArgumentParser(description="Terrain Change Detection Workflow")
+    parser.add_argument(
+        "--base-dir",
+        type=str,
+        default=str(Path(__file__).parent.parent / "data" / "raw"),
+        help="Base directory containing area folders (e.g., data/raw or data/synthetic)",
+    )
+    # No explicit CLI args for M3C2 tuning; parameters are auto-tuned from data density
+    args, unknown = parser.parse_known_args()
+
+    base_dir = Path(args["base_dir"] if isinstance(args, dict) else args.base_dir)
     # base_dir = Path(__file__).parent.parent / "tests" / "test_preprocessing" / "sample_data" / "raw"
     if not base_dir.exists():
         logger.error(f"Base directory {base_dir} does not exist.")
@@ -103,7 +114,7 @@ def main():
         points2 = pc2_data['points']
 
         # Instantiate the visualizer (choose backend)
-        VIS_BACKEND = 'pyvistaqt'   # 'plotly', 'pyvista', or 'pyvistaqt'
+        VIS_BACKEND = 'plotly'   # 'plotly', 'pyvista', or 'pyvistaqt'
         visualizer = PointCloudVisualizer(backend=VIS_BACKEND)
 
         # Visualize the original point clouds
@@ -228,13 +239,14 @@ def main():
                 idx = np.random.choice(len(core_src), max_core, replace=False)
                 core_src = core_src[idx]
 
-            m3c2_params = M3C2Params(
-                projection_scale=1.0,   # normal estimation radius
-                cylinder_radius=1.0,    # cylinder radius for distance aggregation
-                max_depth=2.0,          # half-length along normal
-                min_neighbors=10,
-                normal_scale=None,
-                confidence=0.95,
+            # Auto-tune M3C2 parameters based on point density
+            m3c2_params = autotune_m3c2_params(points1)
+            logger.info(
+                "M3C2 auto-tuned params: proj_scale=%.2f, cyl_radius=%.2f, max_depth=%.2f, min_neighbors=%d",
+                m3c2_params.projection_scale,
+                m3c2_params.cylinder_radius,
+                m3c2_params.max_depth,
+                m3c2_params.min_neighbors,
             )
 
             m3c2_res = ChangeDetector.compute_m3c2_original(

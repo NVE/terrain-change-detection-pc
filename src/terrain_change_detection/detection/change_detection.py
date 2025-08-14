@@ -321,6 +321,62 @@ class ChangeDetector:
 		)
 
 	# --- M3C2 variants (using py4dgeo) ---
+
+	@staticmethod
+	def autotune_m3c2_params(
+		cloud: np.ndarray,
+		target_neighbors: int = 16,
+		max_depth_factor: float = 0.6,
+		min_radius: float = 1.0,
+		max_radius: float = 20.0,
+	) -> M3C2Params:
+		"""
+		Suggest M3C2 parameter scales based on point density.
+
+		Heuristic:
+		- Estimate density = N / area from XY bounding box.
+		- Choose radius r so that expected neighbors ≈ target_neighbors.
+		- projection_scale and cylinder_radius both set to r.
+		- max_depth set to max_depth_factor * r (covers signal while limiting search).
+
+		Args:
+			cloud: Nx3 array used to estimate density (e.g., T1 or combined core region)
+			target_neighbors: desired neighbors within cylinder radius (~12–24 typical)
+			max_depth_factor: fraction of radius for cylinder half-length (0.5–1.0)
+			min_radius: lower bound on radius
+			max_radius: upper bound on radius
+
+		Returns:
+			M3C2Params with tuned scales; min_neighbors set to min(10,target_neighbors//2).
+		"""
+		if cloud.size == 0:
+			raise ValueError("autotune_m3c2_params: cloud is empty")
+
+		x_min, y_min = float(np.min(cloud[:, 0])), float(np.min(cloud[:, 1]))
+		x_max, y_max = float(np.max(cloud[:, 0])), float(np.max(cloud[:, 1]))
+		area = max(1e-6, (x_max - x_min) * (y_max - y_min))
+		density = len(cloud) / area  # pts per m^2
+
+		# Expected neighbors ~ density * π r^2 => r = sqrt(target / (π * density))
+		if density <= 0:
+			r_est = max_radius
+		else:
+			r_est = float(np.sqrt(max(1e-9, target_neighbors) / (np.pi * density)))
+		r_est = float(np.clip(r_est, min_radius, max_radius))
+
+		proj_scale = r_est
+		cyl_radius = r_est
+		max_depth = float(max(0.5, max_depth_factor * r_est))
+		min_neigh = int(max(5, min(20, target_neighbors // 2)))
+
+		return M3C2Params(
+			projection_scale=proj_scale,
+			cylinder_radius=cyl_radius,
+			max_depth=max_depth,
+			min_neighbors=min_neigh,
+			normal_scale=None,
+			confidence=0.95,
+		)
 	@staticmethod
 	def compute_m3c2_original(
 		core_points: np.ndarray,
