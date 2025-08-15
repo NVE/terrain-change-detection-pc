@@ -60,7 +60,7 @@ def main():
     if not base_dir.exists():
         logger.error(f"Base directory {base_dir} does not exist.")
         return
-    
+
     # Discover data
     data_discovery = DataDiscovery(base_dir)
     areas = data_discovery.scan_areas()
@@ -68,14 +68,14 @@ def main():
     if not areas:
         logger.error("No area/area directory found in the base directory.")
         return
-    
+
     # Find the first area with at least two time periods
     selected_area = None
     for area_name, area_info in areas.items():
         if len(area_info.time_periods) >= 2:
             selected_area = area_info
             break
-    
+
     if not selected_area:
         logger.error("Could not find an area with at least two time periods for change detection.")
         return
@@ -152,7 +152,7 @@ def main():
         points2_subsampled_aligned, transform_matrix, final_error = icp.align_point_clouds(
             source=points2_subsampled,
             target=points1_subsampled
-        )        
+        )
 
         # Apply the transformation to the original points2
         if len(points2) > ICP_SAMPLE_SIZE:
@@ -296,7 +296,7 @@ def main():
     except Exception as e:
         logger.error(f"Change detection workflow failed: {e}")
         return
-    
+
 if __name__ == "__main__":
     main()
 

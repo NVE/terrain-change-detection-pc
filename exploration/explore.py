@@ -50,15 +50,15 @@ if hasattr(las_file, 'classification'):
     classifications = las_file.classification
     # Use numpy's efficient unique function with return_counts for better performance
     unique_classes, counts = np.unique(classifications, return_counts=True)
-    
+
     print(f"Classification field found!")
     print(f"Unique classification codes: {unique_classes}")
     print(f"Total unique classes: {len(unique_classes)}")
-    
+
     # Standard LAS classification meanings (ASPRS standard)
     class_meanings = {
         0: "Created, never classified",
-        1: "Unclassified", 
+        1: "Unclassified",
         2: "Ground",
         3: "Low Vegetation",
         4: "Medium Vegetation",
@@ -77,7 +77,7 @@ if hasattr(las_file, 'classification'):
         17: "Bridge Deck",
         18: "High Noise"
     }
-    
+
     print("\nClassification breakdown:")
     for class_code, count in zip(unique_classes, counts):
         percentage = (count / len(classifications)) * 100

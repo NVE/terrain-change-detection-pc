@@ -29,9 +29,9 @@ terrain-change-detection-pc/
 │       ├── config.py                # Configuration management
 │       ├── io.py                    # Input/output utilities
 │       └── logging.py               # Logging setup
-└── tests/                           # Test suite    
+└── tests/                           # Test suite
     ├── test_data_discovery.py       # Tests for data discovery script
-    ├── test_loader.py               # Tests for point cloud data loader    
+    ├── test_loader.py               # Tests for point cloud data loader
     └── sample_data/                 # Test data
 ```
 
