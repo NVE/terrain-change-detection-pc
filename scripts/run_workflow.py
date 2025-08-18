@@ -225,7 +225,7 @@ def main():
                 c2c_res.rmse,
             )
             # Visualize C2C histogram immediately
-            visualizer.visualize_distance_histogram(c2c_res.distances, title="C2C distances (m)", bins=60)
+            # visualizer.visualize_distance_histogram(c2c_res.distances, title="C2C distances (m)", bins=60)
         except Exception as e:
             logger.error(f"C2C computation failed: {e}")
 
@@ -264,6 +264,8 @@ def main():
             )
             # Visualize M3C2 core points immediately
             visualizer.visualize_m3c2_corepoints(m3c2_res.core_points, m3c2_res.distances, sample_size=VIS_SAMPLE_SIZE, title="M3C2 distances (m)")
+            # Visualize M3C2 distance histogram
+            # visualizer.visualize_distance_histogram(m3c2_res.distances, title="M3C2 distances (m)", bins=60)
         except Exception as e:
             logger.error(f"M3C2 computation failed: {e}")
 
@@ -287,7 +289,7 @@ def main():
                 100.0 * sig_count / max(1, m3c2_ep.distances.size),
             )
             # Optional: visualize EP distributions
-            visualizer.visualize_distance_histogram(m3c2_ep.distances, title="M3C2-EP distances (m)", bins=60)
+            # visualizer.visualize_distance_histogram(m3c2_ep.distances, title="M3C2-EP distances (m)", bins=60)
             if m3c2_ep.significant is not None:
                 visualizer.visualize_distance_histogram(m3c2_ep.distances[m3c2_ep.significant], title="M3C2-EP distances (significant)", bins=60)
         except Exception as e:

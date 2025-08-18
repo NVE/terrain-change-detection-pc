@@ -156,7 +156,7 @@ class PointCloudVisualizer:
         fig.update_layout(
             title="Point Cloud Visualization",
             scene=dict(
-                xaxis=dict(visible=False), yaxis=dict(visible=False), zaxis=dict(visible=False), aspectmode='data'
+                xaxis=dict(visible=False), yaxis=dict(visible=False), zaxis=dict(visible=False), aspectmode='manual'
             ),
         )
         fig.show(renderer="browser")
