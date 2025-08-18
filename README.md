@@ -112,13 +112,17 @@ Generate them:
 uv run scripts/generate_synthetic_laz.py
 ```
 
-Then, to run the workflow on synthetic data, point the workflow to `data/synthetic` by changing `base_dir` in `scripts/run_workflow.py` or temporarily moving/renaming directories as needed.
+### Running the workflow on specific datasets
 
-Backend selection and non-blocking windows:
-- The workflow script lets you switch backends and choose whether PyVista windows block execution.
-- In `scripts/run_workflow.py`, set these toggles near the top of the visualization section:
-    - `VIS_BACKEND = 'plotly'` or `'pyvista'`
-    - `VIS_BLOCK = False` to keep the script running while PyVista windows remain open (requires `pyvistaqt`). If `pyvistaqt` is not installed, it will fall back to blocking and print a note.
+By default, the workflow script (`run_workflow.py`) looks for data in the `data/raw` directory. You can specify a different directory, such as the synthetic data directory, using the `--base-dir` command-line argument.
+
+**Example (running on synthetic data):**
+
+```powershell
+uv run scripts/run_workflow.py --base-dir data/synthetic
+```
+
+This command tells the script to look for area folders inside `data/synthetic` instead of the default location.
 
 Optional: enable non-blocking PyVista windows (BackgroundPlotter):
 
