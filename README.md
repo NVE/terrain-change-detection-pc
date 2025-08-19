@@ -66,7 +66,7 @@ This project requires `uv` to be installed on your system for dependency managem
 
 Clone the repository:
 ```bash
-git clone <repository-url>
+git clone https://github.com/yaredwb/terrain-change-detection-pc.git
 cd terrain-change-detection-pc
 ```
 
