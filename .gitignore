@@ -1,3 +1,6 @@
+# Manual additions to .gitignore
+docs/
+
 # Python-generated files
 __pycache__/
 *.py[oc]
