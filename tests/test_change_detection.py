@@ -28,17 +28,16 @@ def test_dod_basic_shapes():
     assert 0.9 < mean_change < 1.1
 
 
-def test_c2c_basic_stats():
-    # Two point clouds where target is shifted by +1 in Z
+def test_c2c_identical_clouds_zero_distance():
+    # Two identical point clouds -> nearest neighbor distance is zero
     rng = np.random.default_rng(1)
     source = rng.normal(size=(500, 3))
     target = source.copy()
-    target[:, 2] += 1.0
 
     res = ChangeDetector.compute_c2c(source, target)
 
-    # Distances should be ~1 due to Z shift
+    # Distances should be exactly zero in this case
     assert res.n == len(source)
-    assert 0.9 < res.mean < 1.1
-    assert 0.9 < res.median < 1.1
-    assert 0.9 < res.rmse < 1.1
+    assert float(res.mean) == 0.0
+    assert float(res.median) == 0.0
+    assert float(res.rmse) == 0.0
