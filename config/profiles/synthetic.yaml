@@ -10,6 +10,11 @@ alignment:
   tolerance: 1.0e-6
   max_correspondence_distance: 1.0
   subsample_size: 30000
+  coarse:
+    enabled: true
+    method: pca
+    voxel_size: 2.0
+    phase_grid_cell: 2.0
 
 detection:
   dod:

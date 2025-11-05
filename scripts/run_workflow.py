@@ -17,6 +17,7 @@ sys.path.append(str(Path(__file__).parent.parent / "src"))
 from terrain_change_detection.preprocessing.loader import PointCloudLoader
 from terrain_change_detection.preprocessing.data_discovery import DataDiscovery, BatchLoader
 from terrain_change_detection.alignment.fine_registration import ICPRegistration
+from terrain_change_detection.alignment.coarse_registration import CoarseRegistration
 from terrain_change_detection.utils.logging import setup_logger
 from terrain_change_detection.detection import ChangeDetector, M3C2Params, autotune_m3c2_params
 from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
@@ -157,6 +158,38 @@ def main():
 
         # Step 2: ICP Registration
         logger.info("--- Step 2: Performing spatial alignment... ---")
+
+        # Optional coarse registration to initialize ICP
+        initial_transform = None
+        try:
+            if getattr(cfg.alignment, 'coarse', None) and cfg.alignment.coarse.enabled:
+                logger.info(
+                    "Coarse registration enabled (method=%s)...",
+                    cfg.alignment.coarse.method,
+                )
+                coarse = CoarseRegistration(
+                    method=cfg.alignment.coarse.method,
+                    voxel_size=cfg.alignment.coarse.voxel_size,
+                    phase_grid_cell=cfg.alignment.coarse.phase_grid_cell,
+                )
+                initial_transform = coarse.compute_initial_transform(points2, points1)
+                # Optional pre-ICP error report without mutating points2
+                try:
+                    points2_init = coarse.apply_transformation(points2, initial_transform)
+                    tmp_icp = ICPRegistration(
+                        max_iterations=1,
+                        tolerance=cfg.alignment.tolerance,
+                        max_correspondence_distance=cfg.alignment.max_correspondence_distance,
+                    )
+                    pre_err = tmp_icp.compute_registration_error(points2_init, points1)
+                    logger.info("Pre-ICP RMSE after coarse registration: %.6f", pre_err)
+                except Exception:
+                    pass
+            else:
+                logger.info("Coarse registration disabled.")
+        except Exception as e:
+            logger.warning(f"Coarse registration failed: {e}")
+
         icp = ICPRegistration(
             max_iterations=cfg.alignment.max_iterations,
             tolerance=cfg.alignment.tolerance,
@@ -181,7 +214,8 @@ def main():
         # Perform ICP alignment
         points2_subsampled_aligned, transform_matrix, final_error = icp.align_point_clouds(
             source=points2_subsampled,
-            target=points1_subsampled
+            target=points1_subsampled,
+            initial_transform=initial_transform,
         )
 
         # Apply the transformation to the original points2

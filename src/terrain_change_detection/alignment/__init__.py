@@ -6,7 +6,9 @@ using the ICP (Iterative Closest Point) algorithm.
 """
 
 from .fine_registration import ICPRegistration
+from .coarse_registration import CoarseRegistration
 
 __all__ = [
-    "ICPRegistration"
+    "ICPRegistration",
+    "CoarseRegistration",
 ]

@@ -91,7 +91,7 @@ class PointCloudLoader:
                 pct = (ground_point_count / total_points * 100.0)
                 if self.ground_only:
                     logger.info(
-                        f"Selected {ground_point_count} ground points out of {total_points} total ({pct:.1f}%)"
+                        f"Found {ground_point_count} ground points out of {total_points} total ({pct:.1f}%)"
                     )
                     if ground_point_count == 0:
                         logger.warning("No ground points found in file while ground_only=True.")
@@ -99,11 +99,11 @@ class PointCloudLoader:
                     # Generic info when not explicitly ground-only
                     if self.classification_filter is not None:
                         logger.info(
-                            f"Selected {ground_point_count} points (classification filter: {self.classification_filter}) out of {total_points} total ({pct:.1f}%)"
+                            f"Found {ground_point_count} points (classification filter: {self.classification_filter}) out of {total_points} total ({pct:.1f}%)"
                         )
                     else:
                         logger.info(
-                            f"Selected {ground_point_count} points out of {total_points} total ({pct:.1f}%)"
+                            f"Found {ground_point_count} points out of {total_points} total ({pct:.1f}%)"
                         )
 
             # Extract coordinates for selected points

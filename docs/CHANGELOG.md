@@ -145,3 +145,105 @@ uv run scripts/run_workflow.py --config config/profiles/synthetic.yaml
 - Add small config parsing tests and a smoke test for config-driven parameters.
 - Consider exposing config parameters through a future web UI.
 
+---
+
+# Changelog and Implementation Notes — Coarse Registration, Open3D Optional, Config Fix
+
+Date: 2025-11-05
+
+This entry documents the addition of a coarse registration stage ahead of ICP, optional Open3D support for feature-based global matching, integration details in the workflow, and a bug fix in configuration loading.
+
+## Overview
+
+- New coarse registration module supports several initializers to bring clouds into rough alignment before ICP.
+- Workflow integrates the coarse stage and passes the resulting transform as an initial guess to ICP for faster convergence and greater robustness on misaligned pairs.
+- Optional Open3D-based global feature registration (FPFH + RANSAC) can be used when Open3D is available; otherwise we fall back gracefully to PCA.
+- Fixed config root path resolution so YAML overrides are honored reliably.
+
+## Highlights
+
+- New: `CoarseRegistration` with methods:
+  - `centroid`: translation-only by centroid alignment.
+  - `pca`: rigid transform from principal axes + centroid (default).
+  - `phase`: 2D phase correlation on XY occupancy grid (translation).
+  - `open3d_fpfh`: feature-based global match via Open3D (optional dependency).
+- Workflow improvement: computes a pre-ICP RMSE (non-destructive) and passes `initial_transform` to ICP.
+- Optional dependency gating: Open3D extra is only offered for Python < 3.13 to avoid resolver failures.
+- Config loader bug fix: repository root detection corrected so `config/default.yaml` and profiles are found.
+
+## New Features
+
+1) Coarse Registration Module
+- File: `src/terrain_change_detection/alignment/coarse_registration.py`
+- Public API: `CoarseRegistration(method=..., voxel_size=..., phase_grid_cell=...)`
+- Returns a 4×4 transform; helper `apply_transformation(points, T)` provided.
+
+2) Workflow Integration
+- File: `scripts/run_workflow.py`
+- Behavior:
+  - If `alignment.coarse.enabled: true`, compute `initial_transform` using the selected method.
+  - Log a pre-ICP RMSE computed on a temporary transformed copy of the moving cloud.
+  - Pass `initial_transform` to `ICPRegistration.align_point_clouds`.
+  - ICP returns the cumulative transform (initial × delta); that transform is applied to the full moving cloud.
+
+3) Configuration Additions
+- File: `src/terrain_change_detection/utils/config.py`
+- New model: `CoarseRegistrationConfig` (method, voxel_size, phase_grid_cell, enabled).
+- New key under alignment: `alignment.coarse`.
+- YAML defaults:
+  - `config/default.yaml`: coarse enabled, method `pca`.
+  - `config/profiles/synthetic.yaml`: coarse enabled, method `pca`.
+
+4) Optional Dependency (Open3D)
+- File: `pyproject.toml`
+- `[project.optional-dependencies].open3d = ["open3d>=0.18.0; python_version < '3.13'"]`
+- Rationale: Open3D wheels are not available for Python 3.13 at the time of writing; gating avoids unsatisfiable dependency errors.
+
+## Bug Fixes
+
+- Config loader root path resolution
+  - File: `src/terrain_change_detection/utils/config.py`
+  - Changed `_project_root()` from incorrect parent to the actual repo root.
+  - Impact: YAML files are found correctly; edits in `config/default.yaml` (e.g., `alignment.coarse.method`) now take effect.
+
+## Backward Compatibility
+
+- Coarse registration is enabled by default with `method: pca`. This improves alignment without breaking existing workflows.
+- If `open3d_fpfh` is selected on Python 3.13 (no Open3D), a clear warning is logged and PCA is used as a safe fallback.
+
+## Usage Changes (Summary)
+
+- Configure coarse registration in YAML:
+```yaml
+alignment:
+  max_iterations: 100
+  tolerance: 1.0e-6
+  max_correspondence_distance: 1.0
+  subsample_size: 50000
+  coarse:
+    enabled: true
+    method: pca        # centroid | pca | phase | open3d_fpfh | none
+    voxel_size: 2.0    # for open3d_fpfh only
+    phase_grid_cell: 2.0
+```
+
+- To use Open3D FPFH global matching:
+  - Use Python 3.12 (Open3D wheels are available up to cp312).
+  - Install the optional extra: `uv run -m pip install '.[open3d]'`.
+  - Set `alignment.coarse.method: open3d_fpfh`.
+
+## Tests
+
+- `tests/test_coarse_registration.py`:
+  - Verifies centroid translation recovery and PCA error reduction on synthetic data.
+- `tests/test_config_coarse_alignment.py`:
+  - Sanity checks for alignment.coarse defaults via `load_config`.
+
+## Documentation
+
+- `README.md` updated to reflect optional coarse registration before ICP and mention Open3D extra.
+
+## Known Limitations
+
+- Open3D not available for Python 3.13: attempting `open3d_fpfh` on 3.13 logs a warning and falls back to PCA.
+- Phase correlation estimates XY translation only; rotation still handled by ICP.

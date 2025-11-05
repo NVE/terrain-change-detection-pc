@@ -32,11 +32,19 @@ class DiscoveryConfig(BaseModel):
     metadata_dir_name: str = Field(default="metadata")
 
 
+class CoarseRegistrationConfig(BaseModel):
+    enabled: bool = Field(default=True)
+    method: Literal["centroid", "pca", "phase", "open3d_fpfh", "none"] = Field(default="pca")
+    voxel_size: float = Field(default=2.0, description="Voxel size for downsampling (if applicable)")
+    phase_grid_cell: float = Field(default=2.0, description="Grid cell size for phase correlation (meters)")
+
+
 class AlignmentICPConfig(BaseModel):
     max_iterations: int = Field(default=100)
     tolerance: float = Field(default=1e-6)
     max_correspondence_distance: float = Field(default=1.0)
     subsample_size: int = Field(default=50000)
+    coarse: CoarseRegistrationConfig = Field(default_factory=CoarseRegistrationConfig)
 
 
 class DetectionDoDConfig(BaseModel):
@@ -104,8 +112,17 @@ class AppConfig(BaseModel):
 
 
 def _project_root() -> Path:
-    # src/terrain_change_detection/utils/config.py -> project root is three parents up from this file then one up to repo root
-    return Path(__file__).resolve().parents[4]
+    """
+    Resolve the repository root directory.
+
+    File is at: repo_root/src/terrain_change_detection/utils/config.py
+    parents sequence:
+      0 -> .../src/terrain_change_detection/utils
+      1 -> .../src/terrain_change_detection
+      2 -> .../src
+      3 -> repo_root   <-- correct root
+    """
+    return Path(__file__).resolve().parents[3]
 
 
 def load_config(path: Optional[str | Path] = None, *, allow_missing: bool = True) -> AppConfig:

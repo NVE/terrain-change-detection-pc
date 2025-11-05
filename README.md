@@ -44,7 +44,7 @@ terrain-change-detection-pc/
 The pipeline performs:
 
 1. Data discovery and preprocessing (optimized for LiDAR from hoydedata.no).
-2. Spatial alignment via ICP. (Current implementation from scratch; TODO: evaluate direct use of libraries such as Open3D.)
+2. Spatial alignment via optional Coarse Registration followed by ICP. Coarse methods include centroid, PCA, 2D phase correlation, and optional Open3D FPFH/RANSAC when available.
 3. Change detection methods (M3C2 is the main algorithm):
     - M3C2 (Original) via py4dgeo.
     - M3C2-EP (Error Propagation) via py4dgeo with Level of Detection (LoD) significance flags.
@@ -57,6 +57,7 @@ The pipeline performs:
 Notes:
 - M3C2 parameters (projection scale, cylinder radius, max depth) may need tuning per dataset.
 - M3C2-EP uses default scan-position noise parameters if not provided; supplying real scanner metadata improves uncertainty estimates.
+- Coarse registration can speed up and stabilize ICP on misaligned pairs. Configure under `alignment.coarse` in YAML.
 
 ## Getting Started
 

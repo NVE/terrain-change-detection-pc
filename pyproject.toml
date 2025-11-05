@@ -17,3 +17,8 @@ dependencies = [
     "PyYAML>=6.0.1",
     "pytest>=7.4",
 ]
+
+[project.optional-dependencies]
+# Optional accelerators/backends
+# Note: Open3D does not provide cp313 wheels yet; restrict to <3.13
+open3d = ["open3d>=0.18.0; python_version < '3.13'"]
