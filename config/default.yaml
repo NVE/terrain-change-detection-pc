@@ -48,3 +48,8 @@ logging:
 performance:
   numpy_threads: auto
 
+outofcore:
+  enabled: false
+  tile_size_m: 500.0
+  halo_m: 20.0
+  chunk_points: 1000000

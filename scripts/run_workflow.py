@@ -246,12 +246,31 @@ def main():
         # 3a) DEM of Difference (DoD)
         try:
             logger.info("Computing DEM of Difference (DoD)...")
-            dod_res = ChangeDetector.compute_dod(
-                points_t1=points1,
-                points_t2=points2_full_aligned,
-                cell_size=cfg.detection.dod.cell_size,
-                aggregator=cfg.detection.dod.aggregator,
+            use_streaming = (
+                getattr(cfg, 'outofcore', None) is not None
+                and cfg.outofcore.enabled
+                and cfg.detection.dod.aggregator == 'mean'
+                and len(ds1.laz_files) > 0
+                and len(ds2.laz_files) > 0
             )
+            if use_streaming:
+                logger.info("Using out-of-core streaming DoD (mean aggregator)...")
+                dod_res = ChangeDetector.compute_dod_streaming_files(
+                    files_t1=[str(p) for p in ds1.laz_files],
+                    files_t2=[str(p) for p in ds2.laz_files],
+                    cell_size=cfg.detection.dod.cell_size,
+                    bounds=None,
+                    ground_only=cfg.preprocessing.ground_only,
+                    classification_filter=cfg.preprocessing.classification_filter,
+                    chunk_points=cfg.outofcore.chunk_points,
+                )
+            else:
+                dod_res = ChangeDetector.compute_dod(
+                    points_t1=points1,
+                    points_t2=points2_full_aligned,
+                    cell_size=cfg.detection.dod.cell_size,
+                    aggregator=cfg.detection.dod.aggregator,
+                )
             logger.info(
                 "DoD stats: n_cells=%d, mean=%.4f m, median=%.4f m, rmse=%.4f m, min=%.4f m, max=%.4f m",
                 dod_res.stats.get("n_cells", 0),

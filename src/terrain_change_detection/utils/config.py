@@ -96,6 +96,12 @@ class PerformanceConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
+    class OutOfCoreConfig(BaseModel):
+        enabled: bool = Field(default=False)
+        tile_size_m: float = Field(default=500.0)
+        halo_m: float = Field(default=20.0)
+        chunk_points: int = Field(default=1_000_000)
+
     paths: PathsConfig = Field(default_factory=PathsConfig)
     preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
@@ -104,6 +110,7 @@ class AppConfig(BaseModel):
     visualization: VisualizationConfig = Field(default_factory=VisualizationConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
+    outofcore: OutOfCoreConfig = Field(default_factory=OutOfCoreConfig)
 
 
 # -----------------------

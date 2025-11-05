@@ -35,3 +35,8 @@ detection:
 logging:
   level: INFO
 
+outofcore:
+  enabled: false
+  tile_size_m: 300.0
+  halo_m: 20.0
+  chunk_points: 800000
