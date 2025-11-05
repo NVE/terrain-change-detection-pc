@@ -254,12 +254,13 @@ def main():
                 and len(ds2.laz_files) > 0
             )
             if use_streaming:
-                logger.info("Using out-of-core streaming DoD (mean aggregator)...")
-                dod_res = ChangeDetector.compute_dod_streaming_files(
+                logger.info("Using out-of-core streaming DoD (mean aggregator, tiled)...")
+                dod_res = ChangeDetector.compute_dod_streaming_files_tiled(
                     files_t1=[str(p) for p in ds1.laz_files],
                     files_t2=[str(p) for p in ds2.laz_files],
                     cell_size=cfg.detection.dod.cell_size,
-                    bounds=None,
+                    tile_size=cfg.outofcore.tile_size_m,
+                    halo=cfg.outofcore.halo_m,
                     ground_only=cfg.preprocessing.ground_only,
                     classification_filter=cfg.preprocessing.classification_filter,
                     chunk_points=cfg.outofcore.chunk_points,

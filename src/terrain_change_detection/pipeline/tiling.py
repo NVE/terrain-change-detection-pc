@@ -53,19 +53,21 @@ class GridAccumulator:
         """Accumulate a chunk of points (N x 3)."""
         if points.size == 0:
             return
-        # Compute cell indices
-        xi = ((points[:, 0] - self.bounds.min_x) / self.cell).astype(int)
-        yi = ((points[:, 1] - self.bounds.min_y) / self.cell).astype(int)
-        # Clip to grid
-        np.clip(xi, 0, self.nx - 1, out=xi)
-        np.clip(yi, 0, self.ny - 1, out=yi)
+        # Compute fractional indices to filter strictly to tile bounds
+        fx = (points[:, 0] - self.bounds.min_x) / self.cell
+        fy = (points[:, 1] - self.bounds.min_y) / self.cell
+        mask = (fx >= 0.0) & (fy >= 0.0) & (fx < self.nx) & (fy < self.ny)
+        if not np.any(mask):
+            return
+        xi = fx[mask].astype(int)
+        yi = fy[mask].astype(int)
 
         # Aggregate sums and counts per unique cell (vectorized)
         lin = yi.astype(np.int64) * np.int64(self.nx) + xi.astype(np.int64)
         # unique linear indices
         uniq, idx, inv, counts = np.unique(lin, return_index=True, return_inverse=True, return_counts=True)
         # sum z per unique
-        z = points[:, 2]
+        z = points[mask, 2]
         sums = np.zeros_like(uniq, dtype=np.float64)
         np.add.at(sums, inv, z)
         # Scatter to grid arrays
@@ -80,6 +82,91 @@ class GridAccumulator:
         mask = self.cnt > 0
         dem[mask] = self.sum[mask] / self.cnt[mask]
         return dem
+
+
+@dataclass
+class Tile:
+    i: int
+    j: int
+    inner: Bounds2D
+    outer: Bounds2D
+    x0_idx: int  # starting column in global grid
+    y0_idx: int  # starting row in global grid
+    nx: int      # columns in tile grid
+    ny: int      # rows in tile grid
+
+
+class Tiler:
+    """Generate grid-aligned tiles with optional halo."""
+
+    def __init__(self, global_bounds: Bounds2D, cell_size: float, tile_size: float, halo: float) -> None:
+        self.gb = global_bounds
+        self.cell = float(cell_size)
+        self.tile = float(tile_size)
+        self.halo = float(halo)
+        # Global grid origin (centers start at min + cell/2)
+        self.nx = int(np.ceil((self.gb.max_x - self.gb.min_x) / self.cell)) + 1
+        self.ny = int(np.ceil((self.gb.max_y - self.gb.min_y) / self.cell)) + 1
+
+    def tiles(self) -> Iterator[Tile]:
+        # Number of tiles in each direction (ceil)
+        tx = int(np.ceil((self.gb.max_x - self.gb.min_x) / self.tile))
+        ty = int(np.ceil((self.gb.max_y - self.gb.min_y) / self.tile))
+        for j in range(ty):
+            y0 = self.gb.min_y + j * self.tile
+            y1 = min(self.gb.max_y, y0 + self.tile)
+            for i in range(tx):
+                x0 = self.gb.min_x + i * self.tile
+                x1 = min(self.gb.max_x, x0 + self.tile)
+                inner = Bounds2D(min_x=x0, min_y=y0, max_x=x1, max_y=y1)
+                # Outer bounds with halo, clipped to global
+                outer = Bounds2D(
+                    min_x=max(self.gb.min_x, x0 - self.halo),
+                    min_y=max(self.gb.min_y, y0 - self.halo),
+                    max_x=min(self.gb.max_x, x1 + self.halo),
+                    max_y=min(self.gb.max_y, y1 + self.halo),
+                )
+                # Tile grid size and starting indices (aligned to global origin)
+                nx = int(np.ceil((inner.max_x - inner.min_x) / self.cell)) + 1
+                ny = int(np.ceil((inner.max_y - inner.min_y) / self.cell)) + 1
+                x0_idx = int(round((inner.min_x - self.gb.min_x) / self.cell))
+                y0_idx = int(round((inner.min_y - self.gb.min_y) / self.cell))
+                yield Tile(i=i, j=j, inner=inner, outer=outer, x0_idx=x0_idx, y0_idx=y0_idx, nx=nx, ny=ny)
+
+
+class MosaicAccumulator:
+    """Assemble tile DEMs into a global grid by averaging overlaps."""
+
+    def __init__(self, global_bounds: Bounds2D, cell_size: float) -> None:
+        self.gb = global_bounds
+        self.cell = float(cell_size)
+        self.nx = int(np.ceil((self.gb.max_x - self.gb.min_x) / self.cell)) + 1
+        self.ny = int(np.ceil((self.gb.max_y - self.gb.min_y) / self.cell)) + 1
+        self.sum = np.zeros((self.ny, self.nx), dtype=np.float64)
+        self.cnt = np.zeros((self.ny, self.nx), dtype=np.int64)
+        # Precompute centers for output
+        x_edges = np.linspace(self.gb.min_x, self.gb.min_x + self.nx * self.cell, self.nx + 1)
+        y_edges = np.linspace(self.gb.min_y, self.gb.min_y + self.ny * self.cell, self.ny + 1)
+        self.grid_x, self.grid_y = np.meshgrid(
+            (x_edges[:-1] + x_edges[1:]) / 2.0,
+            (y_edges[:-1] + y_edges[1:]) / 2.0,
+        )
+
+    def add_tile(self, tile: Tile, dem_tile: np.ndarray) -> None:
+        h, w = dem_tile.shape
+        assert h == tile.ny and w == tile.nx
+        y_slice = slice(tile.y0_idx, tile.y0_idx + tile.ny)
+        x_slice = slice(tile.x0_idx, tile.x0_idx + tile.nx)
+        valid = np.isfinite(dem_tile)
+        # Accumulate sums and counts only where valid
+        self.sum[y_slice, x_slice][valid] += dem_tile[valid]
+        self.cnt[y_slice, x_slice][valid] += 1
+
+    def finalize(self) -> np.ndarray:
+        out = np.full((self.ny, self.nx), np.nan, dtype=np.float64)
+        mask = self.cnt > 0
+        out[mask] = self.sum[mask] / self.cnt[mask]
+        return out
 
 
 class LaspyStreamReader:
@@ -156,4 +243,3 @@ def union_bounds(files_a: Iterable[str | Path], files_b: Iterable[str | Path]) -
         max_x=max(ax1, bx1),
         max_y=max(ay1, by1),
     )
-

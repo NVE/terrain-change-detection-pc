@@ -22,7 +22,14 @@ from typing import Optional, Tuple, Dict, Literal
 import numpy as np
 
 from ..utils.logging import setup_logger
-from ..pipeline.tiling import GridAccumulator, LaspyStreamReader, Bounds2D, union_bounds
+from ..pipeline.tiling import (
+    GridAccumulator,
+    LaspyStreamReader,
+    Bounds2D,
+    union_bounds,
+    Tiler,
+    MosaicAccumulator,
+)
 
 logger = setup_logger(__name__)
 
@@ -323,7 +330,7 @@ class ChangeDetector:
 
 	# --- Streaming DoD from files (mean only) ---
 	@staticmethod
-	def compute_dod_streaming_files(
+    def compute_dod_streaming_files(
 		files_t1: list[str],
 		files_t2: list[str],
 		cell_size: float = 1.0,
@@ -375,16 +382,78 @@ class ChangeDetector:
 			"max_change": float(np.nanmax(dod)),
 		}
 
+        return DoDResult(
+            grid_x=acc1.grid_x,
+            grid_y=acc1.grid_y,
+            dem1=dem1,
+            dem2=dem2,
+            dod=dod,
+            cell_size=float(cell_size),
+            bounds=bounds_tuple,
+            stats=stats,
+            metadata={"aggregator": "mean", "streaming": True},
+        )
+
+	@staticmethod
+	def compute_dod_streaming_files_tiled(
+		files_t1: list[str],
+		files_t2: list[str],
+		cell_size: float,
+		tile_size: float,
+		halo: float,
+		*,
+		ground_only: bool = True,
+		classification_filter: Optional[list[int]] = None,
+		chunk_points: int = 1_000_000,
+	) -> DoDResult:
+		"""
+		Out-of-core tiled DoD (mean). Tiles are grid-aligned; overlapping contributions are averaged.
+		"""
+		if not files_t1 or not files_t2:
+			raise ValueError("compute_dod_streaming_files_tiled requires file lists for T1/T2")
+		gb = union_bounds(files_t1, files_t2)
+		tiler = Tiler(gb, cell_size=cell_size, tile_size=tile_size, halo=halo)
+		mosaic1 = MosaicAccumulator(gb, cell_size)
+		mosaic2 = MosaicAccumulator(gb, cell_size)
+		reader1 = LaspyStreamReader(files_t1, ground_only=ground_only, classification_filter=classification_filter, chunk_points=chunk_points)
+		reader2 = LaspyStreamReader(files_t2, ground_only=ground_only, classification_filter=classification_filter, chunk_points=chunk_points)
+
+		# For each tile: stream-filter chunks using tile.outer, accumulate into tile grid (inner only), add to mosaic
+		for tile in tiler.tiles():
+			acc1 = GridAccumulator(tile.inner, cell_size)
+			acc2 = GridAccumulator(tile.inner, cell_size)
+			for pts in reader1.stream_points(tile.outer):
+				acc1.accumulate(pts)
+			for pts in reader2.stream_points(tile.outer):
+				acc2.accumulate(pts)
+			dem1 = acc1.finalize()
+			dem2 = acc2.finalize()
+			mosaic1.add_tile(tile, dem1)
+			mosaic2.add_tile(tile, dem2)
+
+		dem1_global = mosaic1.finalize()
+		dem2_global = mosaic2.finalize()
+		dod = dem2_global - dem1_global
+		valid = np.isfinite(dod)
+		stats: Dict[str, float] = {
+			"n_cells": int(valid.sum()),
+			"mean_change": float(np.nanmean(dod)),
+			"median_change": float(np.nanmedian(dod)),
+			"rmse": float(np.sqrt(np.nanmean(np.square(dod)))),
+			"min_change": float(np.nanmin(dod)),
+			"max_change": float(np.nanmax(dod)),
+		}
+
 		return DoDResult(
-			grid_x=acc1.grid_x,
-			grid_y=acc1.grid_y,
-			dem1=dem1,
-			dem2=dem2,
+			grid_x=mosaic1.grid_x,
+			grid_y=mosaic1.grid_y,
+			dem1=dem1_global,
+			dem2=dem2_global,
 			dod=dod,
 			cell_size=float(cell_size),
-			bounds=bounds_tuple,
+			bounds=(gb.min_x, gb.min_y, gb.max_x, gb.max_y),
 			stats=stats,
-			metadata={"aggregator": "mean", "streaming": True},
+			metadata={"aggregator": "mean", "streaming": True, "tiled": True},
 		)
 
 	# --- M3C2 variants (using py4dgeo) ---
