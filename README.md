@@ -6,6 +6,10 @@ A Python project for detecting terrain changes using multi-temporal point cloud 
 
 ```
 terrain-change-detection-pc/
+├── config/                        # YAML configuration files
+│   ├── default.yaml               # Default configuration loaded if not overridden
+│   └── profiles/
+│       └── synthetic.yaml         # Example profile for synthetic data
 ├── main.py                          # Main entry point
 ├── pyproject.toml                   # UV project configuration and dependencies
 ├── exploration/                     # Exploration scripts and sample data
@@ -94,8 +98,75 @@ Execute the complete change detection pipeline. Visualizations appear after each
 ```bash
 uv run scripts/run_workflow.py
 
+# With explicit YAML config (optional)
+uv run scripts/run_workflow.py --config config/default.yaml
+
+# Override base data directory via CLI
+uv run scripts/run_workflow.py --base-dir data/synthetic
+
 # Or run the main entry point (Not ready yet)
 uv run main.py
+```
+
+### Configuration
+
+The project reads a YAML configuration (typed via pydantic) with sensible defaults.
+
+- Default location: `config/default.yaml`
+- Example profile: `config/profiles/synthetic.yaml`
+
+Key sections and keys:
+- `paths.base_dir`: dataset root folder (default: `data/raw`).
+- `preprocessing.ground_only`: filter to ground classes (default true).
+- `preprocessing.classification_filter`: list of LAS class codes to keep (default `[2]`).
+- `discovery.data_dir_name` / `discovery.metadata_dir_name`: subfolder names under each time period (defaults `data`/`metadata`).
+- `alignment.{max_iterations,tolerance,max_correspondence_distance,subsample_size}`: ICP + sampling.
+- `detection.dod.{cell_size,aggregator}`: DoD grid settings.
+- `detection.c2c.{max_points,max_distance}`: C2C sampling and optional distance cap.
+- `detection.m3c2.core_points`: core points count; `detection.m3c2.autotune.*`: autotune knobs; `detection.m3c2.ep.workers`: worker processes (null uses OS default: 1 on Windows, 4 elsewhere).
+- `visualization.{backend,sample_size}`: plotting backend and downsampling.
+- `logging.{level,file}`: logging level and optional file output.
+- `performance.numpy_threads`: integer thread count or `auto`.
+
+Example run using the synthetic profile:
+
+```powershell
+uv run scripts/run_workflow.py --config config/profiles/synthetic.yaml
+```
+
+CLI overrides take precedence for values they set (e.g., `--base-dir`).
+
+Example custom YAML snippet:
+
+```yaml
+paths:
+  base_dir: data/raw
+preprocessing:
+  ground_only: true
+  classification_filter: [2]
+discovery:
+  data_dir_name: data
+  metadata_dir_name: metadata
+alignment:
+  max_iterations: 120
+  tolerance: 1.0e-6
+  max_correspondence_distance: 0.8
+  subsample_size: 40000
+detection:
+  dod: { cell_size: 1.0, aggregator: median }
+  c2c: { max_points: 15000, max_distance: null }
+  m3c2:
+    core_points: 12000
+    autotune: { target_neighbors: 16, max_depth_factor: 0.6, min_radius: 1.0, max_radius: 20.0 }
+    ep: { workers: null }
+visualization:
+  backend: plotly
+  sample_size: 50000
+logging:
+  level: INFO
+  file: null
+performance:
+  numpy_threads: auto
 ```
 
 ### Synthetic datasets
@@ -147,7 +218,20 @@ Core libraries (managed via `uv` in `pyproject.toml`):
 - `pyvista` — optional 3D plotting backend
 - `scikit-learn` — KD-tree for C2C and utilities
 
+Configuration:
+- `pydantic` — typed validation of YAML config
+- `PyYAML` — YAML parsing
+
 Optional (recommended for non-blocking PyVista):
 - `pyvistaqt` and `PySide6` — enables PyVista BackgroundPlotter (non-blocking windows)
 
 `uv` installs the core packages automatically when running scripts. Use `uv add` for optional extras (see above).
+
+## CLI Options
+
+- `--config <path>`: Path to YAML configuration (defaults to `config/default.yaml`).
+- `--base-dir <path>`: Overrides `paths.base_dir` in config.
+
+## Performance
+
+The config key `performance.numpy_threads` sets `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, and `NUMEXPR_NUM_THREADS`. Use `auto` (default) or an explicit integer. Some BLAS backends read these at import time; launching via `uv run` ensures consistent environment handling.

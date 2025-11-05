@@ -6,6 +6,8 @@ This script demonstrates the full workflow from data discovery to change detecti
 
 import sys
 import argparse
+import logging
+import os
 import numpy as np
 from pathlib import Path
 
@@ -18,51 +20,79 @@ from terrain_change_detection.alignment.fine_registration import ICPRegistration
 from terrain_change_detection.utils.logging import setup_logger
 from terrain_change_detection.detection import ChangeDetector, M3C2Params, autotune_m3c2_params
 from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
+from terrain_change_detection.utils.config import load_config, AppConfig
 
 # Hardware optimizations
 # TO DO: Implement hardware optimizations for large datasets
 
-# Tuning knobs (independent):
-# - ICP_SAMPLE_SIZE: subsample size for ICP alignment
-# - M3C2_CORE_POINTS: number of core points for M3C2
-# - C2C_MAX_POINTS: maximum points per cloud for C2C distances
-# - VIS_SAMPLE_SIZE: sample size for visualization
-ICP_SAMPLE_SIZE = 50000
-M3C2_CORE_POINTS = 10000
-C2C_MAX_POINTS = 10000
-VIS_SAMPLE_SIZE = 50000
+# Tuning knobs (now configured via YAML):
+# - alignment.subsample_size: subsample size for ICP alignment
+# - detection.m3c2.core_points: number of core points for M3C2
+# - detection.c2c.max_points: maximum points per cloud for C2C distances
+# - visualization.sample_size: sample size for visualization
 
 def main():
     """
     Main function to run the terrain change detection workflow.
     """
-    logger = setup_logger(__name__)
-
-    print("Terrain Change Detection Workflow")
-    print("=================================")
-
-    # Load configuration
-    # TO DO: Load configuration from a file or command line arguments
-
-    # CLI: allow overriding the data root (default to data/raw)
+    # CLI: allow overriding the data root and config path
     parser = argparse.ArgumentParser(description="Terrain Change Detection Workflow")
     parser.add_argument(
         "--base-dir",
         type=str,
-        default=str(Path(__file__).parent.parent / "data" / "raw"),
+        default=None,
         help="Base directory containing area folders (e.g., data/raw or data/synthetic)",
     )
-    # No explicit CLI args for M3C2 tuning; parameters are auto-tuned from data density
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to YAML configuration file (defaults to config/default.yaml)",
+    )
     args, unknown = parser.parse_known_args()
 
-    base_dir = Path(args["base_dir"] if isinstance(args, dict) else args.base_dir)
+    # Load configuration
+    cfg: AppConfig = load_config(args.config)
+    if args.base_dir:
+        cfg.paths.base_dir = args.base_dir
+
+    # Setup logging from config
+    log_level = getattr(logging, cfg.logging.level.upper(), logging.INFO)
+    logger = setup_logger(__name__, level=log_level, log_file=cfg.logging.file)
+
+    # Performance: set thread env vars if configured
+    try:
+        threads = cfg.performance.numpy_threads
+        if threads == "auto":
+            threads = os.cpu_count() or 1
+        if isinstance(threads, int) and threads > 0:
+            os.environ["OMP_NUM_THREADS"] = str(threads)
+            os.environ["MKL_NUM_THREADS"] = str(threads)
+            os.environ["NUMEXPR_NUM_THREADS"] = str(threads)
+    except Exception:
+        pass
+
+    print("Terrain Change Detection Workflow")
+    print("=================================")
+
+    base_dir = Path(cfg.paths.base_dir)
     # base_dir = Path(__file__).parent.parent / "tests" / "test_preprocessing" / "sample_data" / "raw"
     if not base_dir.exists():
         logger.error(f"Base directory {base_dir} does not exist.")
         return
 
     # Discover data
-    data_discovery = DataDiscovery(base_dir)
+    # Configure preprocessing and discovery according to config
+    loader = PointCloudLoader(
+        ground_only=cfg.preprocessing.ground_only,
+        classification_filter=cfg.preprocessing.classification_filter,
+    )
+    data_discovery = DataDiscovery(
+        base_dir,
+        data_dir_name=cfg.discovery.data_dir_name,
+        metadata_dir_name=cfg.discovery.metadata_dir_name,
+        loader=loader,
+    )
     areas = data_discovery.scan_areas()
 
     if not areas:
@@ -92,7 +122,7 @@ def main():
     try:
         # Step 1: Load Data
         logger.info("--- Step 1: Loading point cloud data ---")
-        batch_loader = BatchLoader()
+        batch_loader = BatchLoader(loader=loader)
         if len(ds1.laz_files) > 1:
             logger.info(f"Batch loading {len(ds1.laz_files)} files for time period {t1}...")
             pc1_data = batch_loader.load_dataset(ds1)
@@ -114,7 +144,7 @@ def main():
         points2 = pc2_data['points']
 
         # Instantiate the visualizer (choose backend)
-        VIS_BACKEND = 'plotly'   # 'plotly', 'pyvista', or 'pyvistaqt'
+        VIS_BACKEND = cfg.visualization.backend
         visualizer = PointCloudVisualizer(backend=VIS_BACKEND)
 
         # Visualize the original point clouds
@@ -122,27 +152,27 @@ def main():
         visualizer.visualize_clouds(
             point_clouds=[points1, points2],
             names=[f"PC from {t1}", f"PC from {t2}"],
-            sample_size=VIS_SAMPLE_SIZE  # Downsample for visualization
+            sample_size=cfg.visualization.sample_size  # Downsample for visualization
         )
 
         # Step 2: ICP Registration
         logger.info("--- Step 2: Performing spatial alignment... ---")
         icp = ICPRegistration(
-            max_iterations=100,
-            tolerance=1e-6,
-            max_correspondence_distance=1.0
+            max_iterations=cfg.alignment.max_iterations,
+            tolerance=cfg.alignment.tolerance,
+            max_correspondence_distance=cfg.alignment.max_correspondence_distance,
         )
 
         # Subsample for alignment if datasets are large
-        if len(points1) > ICP_SAMPLE_SIZE:
-            n1 = min(len(points1), ICP_SAMPLE_SIZE)
+        if len(points1) > cfg.alignment.subsample_size:
+            n1 = min(len(points1), cfg.alignment.subsample_size)
             indices1 = np.random.choice(len(points1), n1, replace=False)
             points1_subsampled = points1[indices1]
         else:
             points1_subsampled = points1
 
-        if len(points2) > ICP_SAMPLE_SIZE:
-            n2 = min(len(points2), ICP_SAMPLE_SIZE)
+        if len(points2) > cfg.alignment.subsample_size:
+            n2 = min(len(points2), cfg.alignment.subsample_size)
             indices2 = np.random.choice(len(points2), n2, replace=False)
             points2_subsampled = points2[indices2]
         else:
@@ -155,7 +185,7 @@ def main():
         )
 
         # Apply the transformation to the original points2
-        if len(points2) > ICP_SAMPLE_SIZE:
+        if len(points2) > cfg.alignment.subsample_size:
             points2_full_aligned = icp.apply_transformation(points2, transform_matrix)
         else:
             points2_full_aligned = points2_subsampled_aligned
@@ -173,7 +203,7 @@ def main():
         visualizer.visualize_clouds(
             point_clouds=[points1, points2_full_aligned],
             names=[f"PC from {t1} (Target)", f"PC from {t2} (Aligned)"],
-            sample_size=VIS_SAMPLE_SIZE  # Downsample for visualization
+            sample_size=cfg.visualization.sample_size  # Downsample for visualization
         )
 
         # Step 3: Change Detection + on-the-spot visualization
@@ -185,8 +215,8 @@ def main():
             dod_res = ChangeDetector.compute_dod(
                 points_t1=points1,
                 points_t2=points2_full_aligned,
-                cell_size=1.0,
-                aggregator="mean",
+                cell_size=cfg.detection.dod.cell_size,
+                aggregator=cfg.detection.dod.aggregator,
             )
             logger.info(
                 "DoD stats: n_cells=%d, mean=%.4f m, median=%.4f m, rmse=%.4f m, min=%.4f m, max=%.4f m",
@@ -206,7 +236,7 @@ def main():
         try:
             logger.info("Computing Cloud-to-Cloud (C2C) distances (downsampled for speed)...")
             # Downsample to keep pairwise search manageable if sklearn is unavailable
-            max_points = C2C_MAX_POINTS
+            max_points = cfg.detection.c2c.max_points
             src = points2_full_aligned
             tgt = points1
             if len(src) > max_points:
@@ -216,7 +246,7 @@ def main():
                 idx = np.random.choice(len(tgt), max_points, replace=False)
                 tgt = tgt[idx]
 
-            c2c_res = ChangeDetector.compute_c2c(src, tgt)
+            c2c_res = ChangeDetector.compute_c2c(src, tgt, max_distance=cfg.detection.c2c.max_distance)
             logger.info(
                 "C2C stats: n=%d, mean=%.4f m, median=%.4f m, rmse=%.4f m",
                 c2c_res.n,
@@ -233,14 +263,20 @@ def main():
         try:
             logger.info("Computing M3C2 (Original) distances on core points (downsampled)...")
             # Generate core points by uniform subsampling of target (T1)
-            max_core = M3C2_CORE_POINTS
+            max_core = cfg.detection.m3c2.core_points
             core_src = points1
             if len(core_src) > max_core:
                 idx = np.random.choice(len(core_src), max_core, replace=False)
                 core_src = core_src[idx]
 
             # Auto-tune M3C2 parameters based on point density
-            m3c2_params = autotune_m3c2_params(points1)
+            m3c2_params = autotune_m3c2_params(
+                points1,
+                target_neighbors=cfg.detection.m3c2.autotune.target_neighbors,
+                max_depth_factor=cfg.detection.m3c2.autotune.max_depth_factor,
+                min_radius=cfg.detection.m3c2.autotune.min_radius,
+                max_radius=cfg.detection.m3c2.autotune.max_radius,
+            )
             logger.info(
                 "M3C2 auto-tuned params: proj_scale=%.2f, cyl_radius=%.2f, max_depth=%.2f, min_neighbors=%d",
                 m3c2_params.projection_scale,
@@ -263,7 +299,12 @@ def main():
                 float(np.std(m3c2_res.distances)),
             )
             # Visualize M3C2 core points immediately
-            visualizer.visualize_m3c2_corepoints(m3c2_res.core_points, m3c2_res.distances, sample_size=VIS_SAMPLE_SIZE, title="M3C2 distances (m)")
+            visualizer.visualize_m3c2_corepoints(
+                m3c2_res.core_points,
+                m3c2_res.distances,
+                sample_size=cfg.visualization.sample_size,
+                title="M3C2 distances (m)",
+            )
             # Visualize M3C2 distance histogram
             # visualizer.visualize_distance_histogram(m3c2_res.distances, title="M3C2 distances (m)", bins=60)
         except Exception as e:
@@ -273,7 +314,10 @@ def main():
         try:
             logger.info("Computing M3C2 with Error Propagation (EP) and significance flags...")
             import platform
-            workers = 1 if platform.system().lower().startswith('win') else 4
+            if cfg.detection.m3c2.ep.workers is not None:
+                workers = int(cfg.detection.m3c2.ep.workers)
+            else:
+                workers = 1 if platform.system().lower().startswith('win') else 4
             m3c2_ep = ChangeDetector.compute_m3c2_error_propagation(
                 core_points=core_src,
                 cloud_t1=points1,

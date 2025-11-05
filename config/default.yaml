@@ -1,0 +1,45 @@
+paths:
+  base_dir: data/raw
+
+preprocessing:
+  ground_only: true
+  classification_filter: [2]
+
+discovery:
+  data_dir_name: data
+  metadata_dir_name: metadata
+
+alignment:
+  max_iterations: 100
+  tolerance: 1.0e-6
+  max_correspondence_distance: 1.0
+  subsample_size: 50000
+
+detection:
+  dod:
+    cell_size: 1.0
+    aggregator: mean
+  c2c:
+    max_points: 10000
+    max_distance: null
+  m3c2:
+    core_points: 10000
+    autotune:
+      target_neighbors: 16
+      max_depth_factor: 0.6
+      min_radius: 1.0
+      max_radius: 20.0
+    ep:
+      workers: null  # use OS-specific default if null
+
+visualization:
+  backend: plotly  # plotly | pyvista | pyvistaqt
+  sample_size: 50000
+
+logging:
+  level: INFO
+  file: null
+
+performance:
+  numpy_threads: auto
+

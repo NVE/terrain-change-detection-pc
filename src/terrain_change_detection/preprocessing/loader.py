@@ -23,11 +23,16 @@ class PointCloudLoader:
     - Data validation and quality checks
     """
 
-    def __init__(self):
+    def __init__(self, *, ground_only: bool = True, classification_filter: Optional[List[int]] = None):
         """
         Initialize the point cloud loader.
+
+        Args:
+            ground_only: If True, filter points by ground classification (default True)
+            classification_filter: List of classification codes to keep (default [2] when ground_only)
         """
-        pass
+        self.ground_only = ground_only
+        self.classification_filter = classification_filter
 
     def load(self, file_path: str) -> dict:
         """
@@ -60,23 +65,55 @@ class PointCloudLoader:
             # Get total point count before filtering
             total_points = len(laz_file.points)
 
-            # Filter for ground points only (classification = 2)
-            ground_mask = np.array(laz_file.classification) == 2
-            ground_point_count = np.sum(ground_mask)
+            # Build mask according to configuration
+            if hasattr(laz_file, 'classification'):
+                classes = np.array(laz_file.classification)
+                if self.ground_only and self.classification_filter is not None:
+                    ground_mask = np.isin(classes, np.array(self.classification_filter))
+                elif self.ground_only:
+                    ground_mask = classes == 2
+                elif self.classification_filter is not None:
+                    ground_mask = np.isin(classes, np.array(self.classification_filter))
+                else:
+                    ground_mask = np.ones(total_points, dtype=bool)
+            else:
+                # If classification is not available, keep all points (warn if ground_only requested)
+                if self.ground_only:
+                    logger.warning("Classification not available; proceeding without ground filtering.")
+                ground_mask = np.ones(total_points, dtype=bool)
+
+            ground_point_count = int(np.sum(ground_mask))
 
             if ground_point_count == 0:
                 logger.warning(f"No ground points found in file: {file_path}")
 
-            logger.info(f"Found {ground_point_count} ground points out of {total_points} total points ({ground_point_count/total_points*100:.1f}%)")
+            if total_points > 0:
+                pct = (ground_point_count / total_points * 100.0)
+                if self.ground_only:
+                    logger.info(
+                        f"Selected {ground_point_count} ground points out of {total_points} total ({pct:.1f}%)"
+                    )
+                    if ground_point_count == 0:
+                        logger.warning("No ground points found in file while ground_only=True.")
+                else:
+                    # Generic info when not explicitly ground-only
+                    if self.classification_filter is not None:
+                        logger.info(
+                            f"Selected {ground_point_count} points (classification filter: {self.classification_filter}) out of {total_points} total ({pct:.1f}%)"
+                        )
+                    else:
+                        logger.info(
+                            f"Selected {ground_point_count} points out of {total_points} total ({pct:.1f}%)"
+                        )
 
-            # Extract coordinates for ground points only
+            # Extract coordinates for selected points
             points = np.column_stack([
                 np.array(laz_file.x, dtype=np.float64)[ground_mask],
                 np.array(laz_file.y, dtype=np.float64)[ground_mask],
                 np.array(laz_file.z, dtype=np.float64)[ground_mask]
             ])
 
-            # Extract useful attributes for ground points based on sample exploration
+            # Extract useful attributes for selected points based on sample exploration
             attributes = {}
 
             # Core attributes that are typically available

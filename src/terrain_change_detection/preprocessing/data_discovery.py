@@ -73,7 +73,7 @@ class DataDiscovery:
     │       └── metadata/
     """
 
-    def __init__(self, base_dir: str):
+    def __init__(self, base_dir: str, *, data_dir_name: str = 'data', metadata_dir_name: str = 'metadata', loader: Optional[PointCloudLoader] = None):
         """
         Initialize data discovery.
 
@@ -81,7 +81,9 @@ class DataDiscovery:
             base_dir: Base directory containing area subdirectories.
         """
         self.base_dir = Path(base_dir)
-        self.loader = PointCloudLoader()
+        self.data_dir_name = data_dir_name
+        self.metadata_dir_name = metadata_dir_name
+        self.loader = loader if loader is not None else PointCloudLoader()
 
 
     def scan_areas(self) -> Dict[str, AreaInfo]:
@@ -128,7 +130,7 @@ class DataDiscovery:
                 time_period = time_path.name
                 logger.info(f"Found time period directory: {time_period}")
 
-                data_dir = time_path / 'data'
+                data_dir = time_path / self.data_dir_name
                 if not data_dir.is_dir():
                     continue
 
@@ -137,7 +139,7 @@ class DataDiscovery:
 
                 if laz_files:
                     # Check for metadata directory
-                    metadata_dir = time_path / 'metadata'
+                    metadata_dir = time_path / self.metadata_dir_name
                     if not metadata_dir.exists():
                         metadata_dir = None
 
@@ -219,11 +221,11 @@ class BatchLoader:
     Loads and comibines multiple point cloud files into unified datasets
     """
 
-    def __init__(self):
+    def __init__(self, loader: Optional[PointCloudLoader] = None):
         """
         Initialize the batch loader.
         """
-        self.loader = PointCloudLoader()
+        self.loader = loader if loader is not None else PointCloudLoader()
 
     def load_dataset(self, dataset_info: DatasetInfo,
                      max_points_per_file: Optional[int] = None) -> Dict:
