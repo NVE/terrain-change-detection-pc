@@ -437,6 +437,12 @@ class ChangeDetector:
                 if not src_chunks:
                     continue
                 src_tile = np.vstack(src_chunks)
+                # Transparency: if tile required multiple chunks, log it
+                if len(src_chunks) > 1:
+                    logger.info(
+                        "Tile (%d,%d): src=%d points processed in %d chunks (chunk_points=%d)",
+                        i, j, src_tile.shape[0], len(src_chunks), chunk_points,
+                    )
 
                 # Collect target points in outer
                 tgt_chunks = []
@@ -448,14 +454,19 @@ class ChangeDetector:
                     all_dists.append(np.full(src_tile.shape[0], np.inf, dtype=float))
                     total_src += src_tile.shape[0]
                     logger.info(
-                        "Tile (%d,%d): src=%d, tgt=0 — all distances set to inf",
+                        "Tile (%d,%d): src=%d, tgt=0 - all distances set to inf",
                         i, j, src_tile.shape[0],
                     )
                     continue
                 tgt_tile = np.vstack(tgt_chunks)
+                if len(tgt_chunks) > 1:
+                    logger.info(
+                        "Tile (%d,%d): tgt=%d points processed in %d chunks (chunk_points=%d)",
+                        i, j, tgt_tile.shape[0], len(tgt_chunks), chunk_points,
+                    )
 
                 logger.info(
-                    "Tile (%d,%d): src=%d, tgt=%d — building NN",
+                    "Tile (%d,%d): src=%d, tgt=%d - building NN",
                     i, j, src_tile.shape[0], tgt_tile.shape[0],
                 )
 
@@ -642,7 +653,14 @@ class ChangeDetector:
             y0_idx = int(round((inner.min_y - gb.min_y) / cell_size))
             return Tile(i=i, j=j, inner=inner, outer=outer, x0_idx=x0_idx, y0_idx=y0_idx, nx=nx_t, ny=ny_t)
 
-        def _accumulate_files(files: list[str], *, transform: Optional[np.ndarray] = None) -> tuple[dict[tuple[int, int], Tile], dict[tuple[int, int], GridAccumulator], int]:
+        def _accumulate_files(
+            files: list[str], *, transform: Optional[np.ndarray] = None
+        ) -> tuple[
+            dict[tuple[int, int], Tile],
+            dict[tuple[int, int], GridAccumulator],
+            int,
+            dict[tuple[int, int], tuple[int, int]],  # (points_total, chunk_hits)
+        ]:
             reader = LaspyStreamReader(
                 files,
                 ground_only=ground_only,
@@ -652,6 +670,7 @@ class ChangeDetector:
             tiles: dict[tuple[int, int], Tile] = {}
             accs: dict[tuple[int, int], GridAccumulator] = {}
             n_points = 0
+            tile_stats: dict[tuple[int, int], tuple[int, int]] = {}
 
             for chunk in reader.stream_points():
                 if chunk.size == 0:
@@ -700,8 +719,11 @@ class ChangeDetector:
                     )
                     if not np.any(m_inner):
                         continue
-                    accs[k].accumulate(pts_ij[m_inner])
-            return tiles, accs, n_points
+                    sub = pts_ij[m_inner]
+                    accs[k].accumulate(sub)
+                    pts_total, chunk_hits = tile_stats.get(k, (0, 0))
+                    tile_stats[k] = (pts_total + sub.shape[0], chunk_hits + 1)
+            return tiles, accs, n_points, tile_stats
 
         logger.info(
             "Streaming tiled DoD: tiles=%dx%d (tile=%.1fm, halo=%.1fm), chunk_points=%d",
@@ -713,13 +735,25 @@ class ChangeDetector:
         )
 
         t0 = time.time()
-        tiles1, accs1, npts1 = _accumulate_files(files_t1)
+        tiles1, accs1, npts1, stats1 = _accumulate_files(files_t1)
         t1 = time.time()
         logger.info("T1 streamed: %d points into %d tiles in %.2fs", npts1, len(accs1), t1 - t0)
+        for (i, j), (pts_total, chunks) in stats1.items():
+            if chunks > 1:
+                logger.info(
+                    "Tile (%d,%d) T1: %d points processed in %d chunks (chunk_points=%d)",
+                    i, j, pts_total, chunks, chunk_points,
+                )
 
-        tiles2, accs2, npts2 = _accumulate_files(files_t2, transform=transform_t2)
+        tiles2, accs2, npts2, stats2 = _accumulate_files(files_t2, transform=transform_t2)
         t2 = time.time()
         logger.info("T2 streamed: %d points into %d tiles in %.2fs", npts2, len(accs2), t2 - t1)
+        for (i, j), (pts_total, chunks) in stats2.items():
+            if chunks > 1:
+                logger.info(
+                    "Tile (%d,%d) T2: %d points processed in %d chunks (chunk_points=%d)",
+                    i, j, pts_total, chunks, chunk_points,
+                )
 
         # Build mosaics (optionally memmap-backed)
         mosaic1 = MosaicAccumulator(gb, cell_size, memmap_dir=memmap_dir)
@@ -1050,6 +1084,12 @@ class ChangeDetector:
                 pts2_list.append(ch)
             m1 = np.vstack(pts1_list) if pts1_list else np.empty((0, 3), dtype=float)
             m2 = np.vstack(pts2_list) if pts2_list else np.empty((0, 3), dtype=float)
+            # Transparency on chunking when tile exceeds chunk size
+            if len(pts1_list) > 1 or len(pts2_list) > 1:
+                logger.info(
+                    "Tile (%d,%d): chunked - T1 chunks=%d, T2 chunks=%d (chunk_points=%d)",
+                    i, j, len(pts1_list), len(pts2_list), chunk_points,
+                )
             logger.info(
                 "Tile (%d,%d): cores=%d, T1 pts=%d, T2 pts=%d",
                 i, j, len(cores_ij), len(m1), len(m2)
