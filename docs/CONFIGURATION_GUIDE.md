@@ -210,3 +210,25 @@ m3c2_res = ChangeDetector.compute_m3c2_streaming_files_tiled(
 
 - Halo rule of thumb: use at least `max(cylinder_radius, projection_scale)` to ensure neighborhoods are contained within each tile’s outer bbox.
 - If some tiles have zero points in an epoch, distances for their core points return as NaN and are logged.
+
+## C2C: Streaming + Tiling
+
+Cloud‑to‑Cloud (nearest neighbor) can also run out‑of‑core by tiling the XY domain and streaming per tile. This requires a finite radius to bound neighborhoods.
+
+```python
+from terrain_change_detection.detection import ChangeDetector
+
+c2c_res = ChangeDetector.compute_c2c_streaming_files_tiled(
+    files_src=files_t2_aligned,          # LAZ/LAS epoch 2 (aligned), source cloud
+    files_tgt=files_t1,                  # LAZ/LAS epoch 1, target cloud
+    tile_size=cfg.outofcore.tile_size_m,
+    max_distance=float(cfg.detection.c2c.max_distance),  # required radius (meters)
+    ground_only=cfg.preprocessing.ground_only,
+    classification_filter=cfg.preprocessing.classification_filter,
+    chunk_points=cfg.outofcore.chunk_points,
+)
+```
+
+- Set `detection.c2c.max_distance` to enable streaming C2C; the tile halo uses this radius.
+- Indices are not tracked in streaming mode (set to `-1`); distances and summary stats are returned.
+- If a tile has no target points in its halo, distances for that tile’s sources are set to `inf` and logged.
