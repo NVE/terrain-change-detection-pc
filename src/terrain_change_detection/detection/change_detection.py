@@ -340,6 +340,7 @@ class ChangeDetector:
         ground_only: bool = True,
         classification_filter: Optional[list[int]] = None,
         chunk_points: int = 1_000_000,
+        transform_src: Optional[np.ndarray] = None,
     ) -> C2CResult:
         """
         Out-of-core tiled Cloud-to-Cloud distances (nearest neighbor) between two epochs.
@@ -424,6 +425,10 @@ class ChangeDetector:
                 src_chunks = []
                 for ch in reader_src.stream_points(inner):
                     if ch.size:
+                        if transform_src is not None:
+                            R = transform_src[:3, :3]
+                            t = transform_src[:3, 3]
+                            ch = (R @ ch.T).T + t
                         src_chunks.append(ch)
                 if not src_chunks:
                     continue
@@ -591,6 +596,7 @@ class ChangeDetector:
         classification_filter: Optional[list[int]] = None,
         chunk_points: int = 1_000_000,
         memmap_dir: Optional[str] = None,
+        transform_t2: Optional[np.ndarray] = None,
     ) -> DoDResult:
         """
         Out-of-core tiled DoD (mean). Tiles are grid-aligned; overlapping contributions are averaged.
@@ -632,7 +638,7 @@ class ChangeDetector:
             y0_idx = int(round((inner.min_y - gb.min_y) / cell_size))
             return Tile(i=i, j=j, inner=inner, outer=outer, x0_idx=x0_idx, y0_idx=y0_idx, nx=nx_t, ny=ny_t)
 
-        def _accumulate_files(files: list[str]) -> tuple[dict[tuple[int, int], Tile], dict[tuple[int, int], GridAccumulator], int]:
+        def _accumulate_files(files: list[str], *, transform: Optional[np.ndarray] = None) -> tuple[dict[tuple[int, int], Tile], dict[tuple[int, int], GridAccumulator], int]:
             reader = LaspyStreamReader(
                 files,
                 ground_only=ground_only,
@@ -646,6 +652,11 @@ class ChangeDetector:
             for chunk in reader.stream_points():
                 if chunk.size == 0:
                     continue
+                # Optional transform (apply to chunk as Nx3)
+                if transform is not None:
+                    R = transform[:3, :3]
+                    t = transform[:3, 3]
+                    chunk = (R @ chunk.T).T + t
                 n_points += len(chunk)
                 xs = chunk[:, 0]
                 ys = chunk[:, 1]
@@ -702,7 +713,7 @@ class ChangeDetector:
         t1 = time.time()
         logger.info("T1 streamed: %d points into %d tiles in %.2fs", npts1, len(accs1), t1 - t0)
 
-        tiles2, accs2, npts2 = _accumulate_files(files_t2)
+        tiles2, accs2, npts2 = _accumulate_files(files_t2, transform=transform_t2)
         t2 = time.time()
         logger.info("T2 streamed: %d points into %d tiles in %.2fs", npts2, len(accs2), t2 - t1)
 
@@ -919,6 +930,7 @@ class ChangeDetector:
         ground_only: bool = True,
         classification_filter: Optional[list[int]] = None,
         chunk_points: int = 1_000_000,
+        transform_t2: Optional[np.ndarray] = None,
     ) -> M3C2Result:
         """
         Out-of-core tiled M3C2 over streaming LAS/LAZ files using py4dgeo.
@@ -1027,6 +1039,10 @@ class ChangeDetector:
             for ch in reader1.stream_points(outer):
                 pts1_list.append(ch)
             for ch in reader2.stream_points(outer):
+                if transform_t2 is not None and ch.size:
+                    R = transform_t2[:3, :3]
+                    t = transform_t2[:3, 3]
+                    ch = (R @ ch.T).T + t
                 pts2_list.append(ch)
             m1 = np.vstack(pts1_list) if pts1_list else np.empty((0, 3), dtype=float)
             m2 = np.vstack(pts2_list) if pts2_list else np.empty((0, 3), dtype=float)

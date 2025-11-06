@@ -32,6 +32,8 @@ Bug fixes & robustness
 - Normalized whitespace to avoid indentation errors.
 - Corrected tiles log order in streaming M3C2 (compute tx/ty before logging).
 - Added missing `LaspyStreamReader` import in workflow; ensured streaming alignment sampling works.
+- Streaming transforms: when transformed files aren’t saved, streamed T2 chunks are transformed on-the-fly for DoD/M3C2/C2C to keep parity with in-memory paths.
+- Coarse registration guard: PCA/Phase/Open3D results are validated against a centroid baseline on a small NN RMSE; if clearly worse, we auto-fallback to centroid. Prefer `centroid` for synthetic/symmetric cases.
 
 To Do
 - Speed up alignment subsampling while staying memory-safe:

@@ -11,7 +11,7 @@ alignment:
   max_correspondence_distance: 1.0
   subsample_size: 30000
   coarse:
-    enabled: false
+    enabled: true
     method: phase
     voxel_size: 2.0
     phase_grid_cell: 2.0

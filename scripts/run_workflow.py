@@ -405,6 +405,7 @@ def main():
                         ground_only=cfg.preprocessing.ground_only,
                         classification_filter=cfg.preprocessing.classification_filter,
                         chunk_points=cfg.outofcore.chunk_points,
+                        transform_t2=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
                     )
                 except Exception as stream_error:
                     logger.error(f"Streaming DoD failed: {stream_error}")
@@ -457,6 +458,7 @@ def main():
                     ground_only=cfg.preprocessing.ground_only,
                     classification_filter=cfg.preprocessing.classification_filter,
                     chunk_points=cfg.outofcore.chunk_points,
+                    transform_src=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
                 )
             else:
                 logger.info("Using in-memory C2C with downsampling for speed...")
@@ -533,6 +535,7 @@ def main():
                         ground_only=cfg.preprocessing.ground_only,
                         classification_filter=cfg.preprocessing.classification_filter,
                         chunk_points=cfg.outofcore.chunk_points,
+                        transform_t2=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
                     )
                 except Exception as stream_err:
                     logger.error(f"Streaming M3C2 failed: {stream_err}")
