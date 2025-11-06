@@ -441,19 +441,36 @@ def main():
 
         # 3b) Cloud-to-Cloud (C2C)
         try:
-            logger.info("Computing Cloud-to-Cloud (C2C) distances (downsampled for speed)...")
-            # Downsample to keep pairwise search manageable if sklearn is unavailable
-            max_points = cfg.detection.c2c.max_points
-            src = points2_full_aligned
-            tgt = points1
-            if len(src) > max_points:
-                idx = np.random.choice(len(src), max_points, replace=False)
-                src = src[idx]
-            if len(tgt) > max_points:
-                idx = np.random.choice(len(tgt), max_points, replace=False)
-                tgt = tgt[idx]
-
-            c2c_res = ChangeDetector.compute_c2c(src, tgt, max_distance=cfg.detection.c2c.max_distance)
+            logger.info("Computing Cloud-to-Cloud (C2C) distances...")
+            use_streaming_c2c = (
+                use_streaming and cfg.detection.c2c.max_distance is not None and 'file_paths' in pc1_data
+            )
+            if use_streaming_c2c:
+                files_src = pc2_data.get('aligned_file_paths') or pc2_data['file_paths']
+                files_tgt = pc1_data['file_paths']
+                logger.info("Using streaming tiled C2C...")
+                c2c_res = ChangeDetector.compute_c2c_streaming_files_tiled(
+                    files_src=files_src,
+                    files_tgt=files_tgt,
+                    tile_size=cfg.outofcore.tile_size_m,
+                    max_distance=float(cfg.detection.c2c.max_distance),
+                    ground_only=cfg.preprocessing.ground_only,
+                    classification_filter=cfg.preprocessing.classification_filter,
+                    chunk_points=cfg.outofcore.chunk_points,
+                )
+            else:
+                logger.info("Using in-memory C2C with downsampling for speed...")
+                # Downsample to keep pairwise search manageable if sklearn is unavailable
+                max_points = cfg.detection.c2c.max_points
+                src = points2_full_aligned
+                tgt = points1
+                if len(src) > max_points:
+                    idx = np.random.choice(len(src), max_points, replace=False)
+                    src = src[idx]
+                if len(tgt) > max_points:
+                    idx = np.random.choice(len(tgt), max_points, replace=False)
+                    tgt = tgt[idx]
+                c2c_res = ChangeDetector.compute_c2c(src, tgt, max_distance=cfg.detection.c2c.max_distance)
             logger.info(
                 "C2C stats: n=%d, mean=%.4f m, median=%.4f m, rmse=%.4f m",
                 c2c_res.n,

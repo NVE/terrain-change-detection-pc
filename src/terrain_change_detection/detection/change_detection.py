@@ -323,11 +323,198 @@ class ChangeDetector:
             distances=dists,
             indices=indices,
             rmse=rmse,
-        mean=mean,
-        median=median,
-        n=n,
-        metadata={"max_distance": max_distance},
-    )
+            mean=mean,
+            median=median,
+            n=n,
+            metadata={"max_distance": max_distance},
+        )
+
+    # --- Streaming C2C from files (tiled) ---
+    @staticmethod
+    def compute_c2c_streaming_files_tiled(
+        files_src: list[str],
+        files_tgt: list[str],
+        *,
+        tile_size: float,
+        max_distance: float,
+        ground_only: bool = True,
+        classification_filter: Optional[list[int]] = None,
+        chunk_points: int = 1_000_000,
+    ) -> C2CResult:
+        """
+        Out-of-core tiled Cloud-to-Cloud distances (nearest neighbor) between two epochs.
+
+        Requires a finite max_distance to bound the search radius and ensure tile-local
+        neighborhoods are sufficient (halo >= max_distance).
+
+        Returns concatenated per-source-point distances (order is by tile stream order),
+        along with summary statistics. Target indices are not tracked in streaming mode
+        (set to -1).
+
+        Args:
+            files_src: LAZ/LAS files for the source epoch (points to measure from)
+            files_tgt: LAZ/LAS files for the target epoch (points to measure to)
+            tile_size: XY tile size in data units (meters)
+            max_distance: Maximum search radius; distances beyond remain > max_distance
+            ground_only: Apply ground/classification filter during streaming
+            classification_filter: Optional classification filter list
+            chunk_points: Points per streaming chunk
+        """
+        if not files_src or not files_tgt:
+            raise ValueError("compute_c2c_streaming_files_tiled requires non-empty file lists")
+        if not (isinstance(max_distance, (int, float)) and max_distance > 0):
+            raise ValueError("max_distance must be provided and > 0 for streaming tiled C2C")
+
+        gb = union_bounds(files_src, files_tgt)
+
+        # Tile grid for core (source) and neighborhood (target)
+        tx = max(1, int(np.ceil((gb.max_x - gb.min_x) / tile_size)))
+        ty = max(1, int(np.ceil((gb.max_y - gb.min_y) / tile_size)))
+        halo = float(max_distance)
+
+        # Engineer-friendly extent
+        dx = float(gb.max_x - gb.min_x)
+        dy = float(gb.max_y - gb.min_y)
+        logger.info(
+            "C2C extent: dX=%.1fm (%.3f km), dY=%.1fm (%.3f km)", dx, dx / 1000.0, dy, dy / 1000.0
+        )
+        logger.info(
+            "Streaming C2C tiled: tiles=%dx%d (tile=%.1fm, halo=%.1fm), chunk_points=%d, r=%.2fm",
+            tx, ty, tile_size, halo, chunk_points, max_distance,
+        )
+
+        from ..acceleration.tiling import LaspyStreamReader  # local import
+
+        def _inner_outer(i: int, j: int) -> tuple[Bounds2D, Bounds2D]:
+            x0 = gb.min_x + i * tile_size
+            x1 = min(gb.max_x, x0 + tile_size)
+            y0 = gb.min_y + j * tile_size
+            y1 = min(gb.max_y, y0 + tile_size)
+            inner = Bounds2D(min_x=x0, min_y=y0, max_x=x1, max_y=y1)
+            outer = Bounds2D(
+                min_x=max(gb.min_x, x0 - halo),
+                min_y=max(gb.min_y, y0 - halo),
+                max_x=min(gb.max_x, x1 + halo),
+                max_y=min(gb.max_y, y1 + halo),
+            )
+            return inner, outer
+
+        # Prepare readers
+        reader_src = LaspyStreamReader(
+            files_src,
+            ground_only=ground_only,
+            classification_filter=classification_filter,
+            chunk_points=chunk_points,
+        )
+        reader_tgt = LaspyStreamReader(
+            files_tgt,
+            ground_only=ground_only,
+            classification_filter=classification_filter,
+            chunk_points=chunk_points,
+        )
+
+        all_dists: list[np.ndarray] = []
+        total_src = 0
+        t0 = __import__('time').time()
+        for j in range(ty):
+            for i in range(tx):
+                inner, outer = _inner_outer(i, j)
+
+                # Collect source points in inner
+                src_chunks = []
+                for ch in reader_src.stream_points(inner):
+                    if ch.size:
+                        src_chunks.append(ch)
+                if not src_chunks:
+                    continue
+                src_tile = np.vstack(src_chunks)
+
+                # Collect target points in outer
+                tgt_chunks = []
+                for ch in reader_tgt.stream_points(outer):
+                    if ch.size:
+                        tgt_chunks.append(ch)
+                if not tgt_chunks:
+                    # No targets; distances default to +inf
+                    all_dists.append(np.full(src_tile.shape[0], np.inf, dtype=float))
+                    total_src += src_tile.shape[0]
+                    logger.info(
+                        "Tile (%d,%d): src=%d, tgt=0 — all distances set to inf",
+                        i, j, src_tile.shape[0],
+                    )
+                    continue
+                tgt_tile = np.vstack(tgt_chunks)
+
+                logger.info(
+                    "Tile (%d,%d): src=%d, tgt=%d — building NN",
+                    i, j, src_tile.shape[0], tgt_tile.shape[0],
+                )
+
+                # Compute nearest neighbors within the tile
+                try:
+                    from sklearn.neighbors import NearestNeighbors  # type: ignore
+                    nn = NearestNeighbors(n_neighbors=1, algorithm="kd_tree")
+                    nn.fit(tgt_tile)
+                    d, _ = nn.kneighbors(src_tile)
+                    d = d.reshape(-1)
+                except Exception:
+                    # Fallback: chunked brute-force if small enough
+                    n, m = src_tile.shape[0], tgt_tile.shape[0]
+                    if n * m > 5_000_000:
+                        # Too large for brute-force fallback
+                        logger.warning(
+                            "Tile (%d,%d): src*m too large for brute-force fallback (n=%d, m=%d)",
+                            i, j, n, m,
+                        )
+                        d = np.full(n, np.inf, dtype=float)
+                    else:
+                        # Compute in chunks
+                        dmin = np.full(n, np.inf, dtype=float)
+                        step = max(1, 5000)
+                        for s in range(0, n, step):
+                            e = min(n, s + step)
+                            a = src_tile[s:e]
+                            diff = a[:, None, :] - tgt_tile[None, :, :]
+                            dsq = np.einsum("ijk,ijk->ij", diff, diff)
+                            dmin[s:e] = np.sqrt(np.min(dsq, axis=1))
+                        d = dmin
+
+                # Apply radius cutoff
+                d = np.where(d <= max_distance, d, np.inf)
+                all_dists.append(d)
+                total_src += src_tile.shape[0]
+
+        dists_concat = np.concatenate(all_dists) if all_dists else np.array([], dtype=float)
+        valid = np.isfinite(dists_concat)
+        if not np.any(valid):
+            rmse = float("inf"); mean = float("nan"); median = float("nan"); n = 0
+        else:
+            vals = dists_concat[valid]
+            rmse = float(np.sqrt(np.mean(vals ** 2)))
+            mean = float(np.mean(vals))
+            median = float(np.median(vals))
+            n = int(vals.size)
+
+        # Indices not tracked in streaming path
+        idx = -np.ones_like(dists_concat, dtype=int)
+        logger.info(
+            "C2C streaming tiled finished: src_total=%d, valid=%d (<= %.2fm)", total_src, n, max_distance
+        )
+        return C2CResult(
+            distances=dists_concat,
+            indices=idx,
+            rmse=rmse,
+            mean=mean,
+            median=median,
+            n=n,
+            metadata={
+                "streaming": True,
+                "tiled": True,
+                "tile_size": float(tile_size),
+                "halo": float(halo),
+                "max_distance": float(max_distance),
+            },
+        )
 
     # --- Streaming DoD from files (mean only) ---
     @staticmethod

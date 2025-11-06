@@ -37,7 +37,7 @@ detection:
     aggregator: mean
   c2c:
     max_points: 50000  # More points for better statistics
-    max_distance: null
+    max_distance: 10
   m3c2:
     core_points: 20000
     autotune:
