@@ -116,6 +116,8 @@ if cfg.outofcore.enabled:
 - `chunk_points` → Points per streaming chunk
 - `detection.dod.cell_size` → Grid resolution
 
+For algorithm-specific guidance (DoD, C2C, and M3C2) and how tiling/halo settings differ, see docs/ALGORITHMS.md.
+
 ## Usage Examples
 
 ### Running with Default Config (In-Memory)
@@ -232,3 +234,5 @@ c2c_res = ChangeDetector.compute_c2c_streaming_files_tiled(
 - Set `detection.c2c.max_distance` to enable streaming C2C; the tile halo uses this radius.
 - Indices are not tracked in streaming mode (set to `-1`); distances and summary stats are returned.
 - If a tile has no target points in its halo, distances for that tile’s sources are set to `inf` and logged.
+
+See docs/ALGORITHMS.md for algorithm-specific guidance on C2C tiling, halos, and classification.

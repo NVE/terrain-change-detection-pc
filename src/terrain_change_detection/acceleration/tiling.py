@@ -6,6 +6,13 @@ Provides:
 - LaspyStreamReader: chunked LAS/LAZ reader with bbox + classification filter
 
 Note: This is an initial CPU-only implementation targeting 'mean' DoD.
+
+Applicability:
+- DoD (DEM of Difference): Uses GridAccumulator to build per-tile DEMs and MosaicAccumulator to blend overlaps.
+- C2C (point-based): Reuses Tiler/Tile (inner+halo) and LaspyStreamReader for radius-bounded nearest-neighbor queries; does not use DEM gridding/mosaicking.
+- M3C2 (point-based): Reuses Tiler/Tile (inner+halo) and LaspyStreamReader for out-of-core neighborhoods; does not use DEM gridding/mosaicking.
+
+See docs/ALGORITHMS.md for a full mapping of DoD, C2C, and M3C2.
 """
 
 from __future__ import annotations

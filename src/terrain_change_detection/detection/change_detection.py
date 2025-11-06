@@ -12,6 +12,11 @@ for:
 Implementations are designed to integrate with the project workflow and
 logging conventions. Heavy computations (e.g., M3C2 using py4dgeo) are added
 step by step in subsequent phases.
+
+Tiling Primitives:
+- DoD, C2C, and M3C2 run efficiently out-of-core by tiling with halos and streaming points.
+- DoD uses grid aggregation/mosaicking; C2C and M3C2 are point-based (no DEM mosaic).
+- See docs/ALGORITHMS.md for a detailed DoD/C2C/M3C2 mapping.
 """
 
 from __future__ import annotations
