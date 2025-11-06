@@ -10,10 +10,13 @@
 # Usage: run_workflow.py --config config/profiles/large_scale.yaml
 
 paths:
+  # Root folder containing your raw datasets
   base_dir: data/raw
 
 preprocessing:
+  # Keep only LAS class 2 (ground) unless classification_filter is set
   ground_only: true
+  # Optional list of LAS classification codes to include; overrides ground_only
   classification_filter: [2]
 
 discovery:
@@ -23,22 +26,30 @@ discovery:
 alignment:
   max_iterations: 100
   tolerance: 1.0e-6
-  max_correspondence_distance: 2.0  # Slightly larger for coarser data
-  subsample_size: 100000  # Larger sample for better alignment on large datasets
+  # Slightly larger for coarser/large-area data
+  max_correspondence_distance: 2.0
+  # Larger sample for better alignment on large datasets
+  subsample_size: 100000
   coarse:
     enabled: true
-    method: phase  # Phase correlation works well for large areas
-    voxel_size: 5.0  # Coarser voxels for large-scale data
+    # Phase correlation works well for large areas
+    method: phase
+    # Coarser voxels for large-scale data
+    voxel_size: 5.0
     phase_grid_cell: 5.0
 
 detection:
   dod:
-    cell_size: 2.0  # Coarser grid for large-scale analysis
+    # Coarser grid for large-scale analysis
+    cell_size: 2.0
     aggregator: mean
   c2c:
-    max_points: 50000  # More points for better statistics
+    # More points for better statistics (sampling/limits in examples)
+    max_points: 50000
+    # Search radius (m). Required for streaming C2C.
     max_distance: 10
   m3c2:
+    # Number of core points for M3C2
     core_points: 20000
     autotune:
       target_neighbors: 20
@@ -46,25 +57,35 @@ detection:
       min_radius: 2.0
       max_radius: 30.0
     ep:
+      # Null = OS default worker configuration
       workers: null
 
 visualization:
   backend: plotly
-  sample_size: 100000  # Larger sample for visualization
+  # Larger sample for visualization
+  sample_size: 100000
 
 logging:
   level: INFO
   file: logs/large_scale_processing.log
 
 performance:
+  # Set to an integer to pin NumPy threads; 'auto' lets NumPy decide
   numpy_threads: auto
 
 # Out-of-core processing configuration (ENABLED)
 outofcore:
-  enabled: true  # Enable streaming/tiling
-  tile_size_m: 1000.0  # 1km tiles for large areas
-  halo_m: 50.0  # Larger halo for edge effects
-  chunk_points: 2000000  # 2M points per chunk for efficient processing
-  streaming_mode: true  # Use streaming for preprocessing
-  save_transformed_files: true  # Save transformed LAZ files
-  output_dir: data/processed  # Where to save transformed files
+  # Enable streaming/tiling
+  enabled: true
+  # 1 km inner tile size
+  tile_size_m: 1000.0
+  # Halo (m) around each tile to avoid edge effects
+  halo_m: 50.0
+  # 2M points per streaming chunk (memory/perf trade-off)
+  chunk_points: 2000000
+  # Use streaming for preprocessing
+  streaming_mode: true
+  # Save transformed LAZ files to disk
+  save_transformed_files: true
+  # Where to save transformed files
+  output_dir: data/processed

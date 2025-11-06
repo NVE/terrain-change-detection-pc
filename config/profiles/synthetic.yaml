@@ -1,14 +1,22 @@
+# Configuration profile for small synthetic datasets (in-memory)
+#
+# Use this for local development, demos, and tests. Out-of-core is disabled,
+# and sampling sizes are smaller for faster iteration.
+
 paths:
+  # Root folder containing your synthetic datasets
   base_dir: data/synthetic
 
 visualization:
   backend: plotly
+  # Fewer points for faster local visualization
   sample_size: 20000
 
 alignment:
   max_iterations: 80
   tolerance: 1.0e-6
   max_correspondence_distance: 1.0
+  # Fewer samples for speed
   subsample_size: 30000
   coarse:
     enabled: true
@@ -21,8 +29,10 @@ detection:
     cell_size: 1.0
     aggregator: mean
   c2c:
+    # Lower point budget for quick C2C tests
     max_points: 8000
   m3c2:
+    # Fewer core points for fast runs
     core_points: 8000
     autotune:
       target_neighbors: 16
@@ -30,16 +40,22 @@ detection:
       min_radius: 1.0
       max_radius: 20.0
     ep:
+      # Null = OS default worker configuration
       workers: null
 
 logging:
   level: INFO
 
 outofcore:
+  # Out-of-core disabled for small datasets
   enabled: false
+  # Smaller tiles if enabled
   tile_size_m: 300.0
+  # Halo (m) around tiles
   halo_m: 20.0
+  # Small streaming chunks for quick tests
   chunk_points: 20000
   streaming_mode: true
-  save_transformed_files: false  # Smaller datasets don't need file transforms
+  # Smaller datasets don't need file transforms
+  save_transformed_files: false
   output_dir: null
