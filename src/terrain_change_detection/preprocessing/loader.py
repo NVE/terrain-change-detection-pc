@@ -9,6 +9,7 @@ import numpy as np
 from pathlib import Path
 from typing import Optional, List, Tuple
 from ..utils.logging import setup_logger
+from ..utils.point_cloud_filters import create_classification_mask, get_filter_statistics
 
 logger = setup_logger(__name__)
 
@@ -65,17 +66,10 @@ class PointCloudLoader:
             # Get total point count before filtering
             total_points = len(laz_file.points)
 
-            # Build mask according to configuration
+            # Build mask using shared utility function
             if hasattr(laz_file, 'classification'):
                 classes = np.array(laz_file.classification)
-                if self.ground_only and self.classification_filter is not None:
-                    ground_mask = np.isin(classes, np.array(self.classification_filter))
-                elif self.ground_only:
-                    ground_mask = classes == 2
-                elif self.classification_filter is not None:
-                    ground_mask = np.isin(classes, np.array(self.classification_filter))
-                else:
-                    ground_mask = np.ones(total_points, dtype=bool)
+                ground_mask = create_classification_mask(classes, self.ground_only, self.classification_filter)
             else:
                 # If classification is not available, keep all points (warn if ground_only requested)
                 if self.ground_only:
@@ -87,24 +81,13 @@ class PointCloudLoader:
             if ground_point_count == 0:
                 logger.warning(f"No ground points found in file: {file_path}")
 
+            # Log filtering statistics using shared utility
             if total_points > 0:
-                pct = (ground_point_count / total_points * 100.0)
-                if self.ground_only:
-                    logger.info(
-                        f"Found {ground_point_count} ground points out of {total_points} total ({pct:.1f}%)"
-                    )
-                    if ground_point_count == 0:
-                        logger.warning("No ground points found in file while ground_only=True.")
-                else:
-                    # Generic info when not explicitly ground-only
-                    if self.classification_filter is not None:
-                        logger.info(
-                            f"Found {ground_point_count} points (classification filter: {self.classification_filter}) out of {total_points} total ({pct:.1f}%)"
-                        )
-                    else:
-                        logger.info(
-                            f"Found {ground_point_count} points out of {total_points} total ({pct:.1f}%)"
-                        )
+                stats = get_filter_statistics(total_points, ground_point_count, self.ground_only, self.classification_filter)
+                logger.info(
+                    f"Found {stats['filtered_points']} points ({stats['filter_description']}) "
+                    f"out of {stats['total_points']} total ({stats['percentage']:.1f}%)"
+                )
 
             # Extract coordinates for selected points
             points = np.column_stack([

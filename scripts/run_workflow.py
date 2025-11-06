@@ -18,6 +18,7 @@ from terrain_change_detection.preprocessing.loader import PointCloudLoader
 from terrain_change_detection.preprocessing.data_discovery import DataDiscovery, BatchLoader
 from terrain_change_detection.alignment.fine_registration import ICPRegistration
 from terrain_change_detection.alignment.coarse_registration import CoarseRegistration
+from terrain_change_detection.alignment import apply_transform_to_files, save_transform_matrix
 from terrain_change_detection.utils.logging import setup_logger
 from terrain_change_detection.detection import ChangeDetector, M3C2Params, autotune_m3c2_params
 from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
@@ -120,29 +121,62 @@ def main():
     logger.info(f"Time period 1: {t1} ({len(ds1.laz_files)} files)")
     logger.info(f"Time period 2: {t2} ({len(ds2.laz_files)} files)")
 
+    # Determine if we should use streaming/out-of-core mode
+    use_streaming = (
+        getattr(cfg, 'outofcore', None) is not None
+        and cfg.outofcore.enabled
+        and cfg.outofcore.streaming_mode
+        and len(ds1.laz_files) > 0
+        and len(ds2.laz_files) > 0
+    )
+
     try:
-        # Step 1: Load Data
-        logger.info("--- Step 1: Loading point cloud data ---")
-        batch_loader = BatchLoader(loader=loader)
-        if len(ds1.laz_files) > 1:
-            logger.info(f"Batch loading {len(ds1.laz_files)} files for time period {t1}...")
-            pc1_data = batch_loader.load_dataset(ds1)
+        # Step 1: Load Data (or prepare for streaming)
+        if use_streaming:
+            logger.info("--- Step 1: Preparing datasets for streaming/out-of-core processing ---")
+            batch_loader = BatchLoader(loader=loader, streaming_mode=True)
+            
+            # Get file paths and metadata without loading full datasets
+            pc1_data = batch_loader.load_dataset(ds1, streaming=True)
+            pc2_data = batch_loader.load_dataset(ds2, streaming=True)
+            
+            logger.info(f"Dataset 1 ({t1}): {len(pc1_data['file_paths'])} files, ~{pc1_data['metadata']['total_points']} points")
+            logger.info(f"Dataset 2 ({t2}): {len(pc2_data['file_paths'])} files, ~{pc2_data['metadata']['total_points']} points")
+            
+            # Load samples for alignment (smaller memory footprint)
+            logger.info("Loading subsampled data for alignment...")
+            batch_loader_mem = BatchLoader(loader=loader, streaming_mode=False)
+            # Load with subsampling for alignment
+            pc1_sample = batch_loader_mem.load_dataset(ds1, max_points_per_file=cfg.alignment.subsample_size // len(ds1.laz_files))
+            pc2_sample = batch_loader_mem.load_dataset(ds2, max_points_per_file=cfg.alignment.subsample_size // len(ds2.laz_files))
+            
+            points1 = pc1_sample['points']
+            points2 = pc2_sample['points']
+            
+            logger.info(f"Loaded {len(points1)} sample points from T1 for alignment")
+            logger.info(f"Loaded {len(points2)} sample points from T2 for alignment")
         else:
-            logger.info(f"Loading single file for time period {t1}...")
-            pc1_data = batch_loader.loader.load(str(ds1.laz_files[0]))
+            logger.info("--- Step 1: Loading point cloud data (in-memory) ---")
+            batch_loader = BatchLoader(loader=loader)
+            if len(ds1.laz_files) > 1:
+                logger.info(f"Batch loading {len(ds1.laz_files)} files for time period {t1}...")
+                pc1_data = batch_loader.load_dataset(ds1)
+            else:
+                logger.info(f"Loading single file for time period {t1}...")
+                pc1_data = batch_loader.loader.load(str(ds1.laz_files[0]))
 
-        if len(ds2.laz_files) > 1:
-            logger.info(f"Batch loading {len(ds2.laz_files)} files for time period {t2}...")
-            pc2_data = batch_loader.load_dataset(ds2)
-        else:
-            logger.info(f"Loading single file for time period {t2}...")
-            pc2_data = batch_loader.loader.load(str(ds2.laz_files[0]))
+            if len(ds2.laz_files) > 1:
+                logger.info(f"Batch loading {len(ds2.laz_files)} files for time period {t2}...")
+                pc2_data = batch_loader.load_dataset(ds2)
+            else:
+                logger.info(f"Loading single file for time period {t2}...")
+                pc2_data = batch_loader.loader.load(str(ds2.laz_files[0]))
 
-        logger.info(f"Dataset 1 ({t1}): {pc1_data['points'].shape[0]} points")
-        logger.info(f"Dataset 2 ({t2}): {pc2_data['points'].shape[0]} points")
+            logger.info(f"Dataset 1 ({t1}): {pc1_data['points'].shape[0]} points")
+            logger.info(f"Dataset 2 ({t2}): {pc2_data['points'].shape[0]} points")
 
-        points1 = pc1_data['points']
-        points2 = pc2_data['points']
+            points1 = pc1_data['points']
+            points2 = pc2_data['points']
 
         # Instantiate the visualizer (choose backend)
         VIS_BACKEND = cfg.visualization.backend
@@ -232,6 +266,38 @@ def main():
 
         print(f"ICP Alignment completed with final error: {alignment_error:.6f}")
 
+        # If streaming mode, optionally apply transform to original files
+        if use_streaming and cfg.outofcore.save_transformed_files:
+            logger.info("--- Applying transformation to full datasets (streaming) ---")
+            
+            # Determine output directory
+            if cfg.outofcore.output_dir:
+                output_dir = Path(cfg.outofcore.output_dir) / selected_area.area_name / f"{t2}_aligned"
+            else:
+                output_dir = Path(cfg.paths.base_dir).parent / "processed" / selected_area.area_name / f"{t2}_aligned"
+            
+            try:
+                aligned_files = apply_transform_to_files(
+                    input_files=pc2_data['file_paths'],
+                    output_dir=str(output_dir),
+                    transform=transform_matrix,
+                    ground_only=cfg.preprocessing.ground_only,
+                    classification_filter=cfg.preprocessing.classification_filter,
+                    chunk_points=cfg.outofcore.chunk_points,
+                )
+                # Store aligned file paths for later use
+                pc2_data['aligned_file_paths'] = aligned_files
+                
+                # Save transformation matrix for reference
+                transform_file = output_dir / "transformation_matrix.txt"
+                save_transform_matrix(transform_matrix, str(transform_file))
+                
+                logger.info(f"Transformed {len(aligned_files)} files saved to {output_dir}")
+            except Exception as e:
+                logger.error(f"Failed to apply transformation to files: {e}")
+                logger.info("Falling back to in-memory aligned points for DoD")
+                # Keep points2_full_aligned for DoD computation
+
         # Visualize the aligned point clouds
         logger.info("--- Visualizing aligned point clouds ---")
         visualizer.visualize_clouds(
@@ -246,26 +312,55 @@ def main():
         # 3a) DEM of Difference (DoD)
         try:
             logger.info("Computing DEM of Difference (DoD)...")
-            use_streaming = (
-                getattr(cfg, 'outofcore', None) is not None
-                and cfg.outofcore.enabled
+            
+            # Determine which DoD method to use
+            can_use_streaming = (
+                use_streaming 
                 and cfg.detection.dod.aggregator == 'mean'
-                and len(ds1.laz_files) > 0
-                and len(ds2.laz_files) > 0
+                and 'file_paths' in pc1_data
             )
-            if use_streaming:
+            
+            if can_use_streaming:
+                # Use original file paths for T1, transformed file paths for T2 if available
+                files_t1 = pc1_data['file_paths']
+                
+                # Use aligned files if they were created, otherwise fall back to original
+                if 'aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']:
+                    files_t2 = pc2_data['aligned_file_paths']
+                    logger.info(f"Using transformed files for T2: {len(files_t2)} files")
+                else:
+                    files_t2 = pc2_data['file_paths']
+                    logger.warning("Transformed files not available, using original T2 files (misalignment may affect results)")
+                
                 logger.info("Using out-of-core streaming DoD (mean aggregator, tiled)...")
-                dod_res = ChangeDetector.compute_dod_streaming_files_tiled(
-                    files_t1=[str(p) for p in ds1.laz_files],
-                    files_t2=[str(p) for p in ds2.laz_files],
-                    cell_size=cfg.detection.dod.cell_size,
-                    tile_size=cfg.outofcore.tile_size_m,
-                    halo=cfg.outofcore.halo_m,
-                    ground_only=cfg.preprocessing.ground_only,
-                    classification_filter=cfg.preprocessing.classification_filter,
-                    chunk_points=cfg.outofcore.chunk_points,
-                )
+                logger.info(f"T1 files: {files_t1}")
+                logger.info(f"T2 files: {files_t2}")
+                logger.info(f"Tile size: {cfg.outofcore.tile_size_m}m, Halo: {cfg.outofcore.halo_m}m")
+                
+                try:
+                    dod_res = ChangeDetector.compute_dod_streaming_files_tiled(
+                        files_t1=files_t1,
+                        files_t2=files_t2,
+                        cell_size=cfg.detection.dod.cell_size,
+                        tile_size=cfg.outofcore.tile_size_m,
+                        halo=cfg.outofcore.halo_m,
+                        ground_only=cfg.preprocessing.ground_only,
+                        classification_filter=cfg.preprocessing.classification_filter,
+                        chunk_points=cfg.outofcore.chunk_points,
+                    )
+                except Exception as stream_error:
+                    logger.error(f"Streaming DoD failed: {stream_error}")
+                    logger.info("Falling back to in-memory DoD computation...")
+                    # Fallback to in-memory
+                    dod_res = ChangeDetector.compute_dod(
+                        points_t1=points1,
+                        points_t2=points2_full_aligned,
+                        cell_size=cfg.detection.dod.cell_size,
+                        aggregator=cfg.detection.dod.aggregator,
+                    )
             else:
+                # In-memory DoD computation
+                logger.info("Using in-memory DoD computation...")
                 dod_res = ChangeDetector.compute_dod(
                     points_t1=points1,
                     points_t2=points2_full_aligned,
@@ -365,33 +460,33 @@ def main():
             logger.error(f"M3C2 computation failed: {e}")
 
         # 3d) M3C2 with Error Propagation (EP)
-        try:
-            logger.info("Computing M3C2 with Error Propagation (EP) and significance flags...")
-            import platform
-            if cfg.detection.m3c2.ep.workers is not None:
-                workers = int(cfg.detection.m3c2.ep.workers)
-            else:
-                workers = 1 if platform.system().lower().startswith('win') else 4
-            m3c2_ep = ChangeDetector.compute_m3c2_error_propagation(
-                core_points=core_src,
-                cloud_t1=points1,
-                cloud_t2=points2_full_aligned,
-                params=m3c2_params,
-                workers=workers,
-            )
-            sig_count = int(np.sum(m3c2_ep.significant)) if m3c2_ep.significant is not None else 0
-            logger.info(
-                "M3C2-EP: significant=%d of %d (%.1f%%)",
-                sig_count,
-                m3c2_ep.distances.size,
-                100.0 * sig_count / max(1, m3c2_ep.distances.size),
-            )
-            # Optional: visualize EP distributions
-            # visualizer.visualize_distance_histogram(m3c2_ep.distances, title="M3C2-EP distances (m)", bins=60)
-            if m3c2_ep.significant is not None:
-                visualizer.visualize_distance_histogram(m3c2_ep.distances[m3c2_ep.significant], title="M3C2-EP distances (significant)", bins=60)
-        except Exception as e:
-            logger.error(f"M3C2-EP computation failed: {e}")
+        # try:
+        #     logger.info("Computing M3C2 with Error Propagation (EP) and significance flags...")
+        #     import platform
+        #     if cfg.detection.m3c2.ep.workers is not None:
+        #         workers = int(cfg.detection.m3c2.ep.workers)
+        #     else:
+        #         workers = 1 if platform.system().lower().startswith('win') else 4
+        #     m3c2_ep = ChangeDetector.compute_m3c2_error_propagation(
+        #         core_points=core_src,
+        #         cloud_t1=points1,
+        #         cloud_t2=points2_full_aligned,
+        #         params=m3c2_params,
+        #         workers=workers,
+        #     )
+        #     sig_count = int(np.sum(m3c2_ep.significant)) if m3c2_ep.significant is not None else 0
+        #     logger.info(
+        #         "M3C2-EP: significant=%d of %d (%.1f%%)",
+        #         sig_count,
+        #         m3c2_ep.distances.size,
+        #         100.0 * sig_count / max(1, m3c2_ep.distances.size),
+        #     )
+        #     # Optional: visualize EP distributions
+        #     # visualizer.visualize_distance_histogram(m3c2_ep.distances, title="M3C2-EP distances (m)", bins=60)
+        #     if m3c2_ep.significant is not None:
+        #         visualizer.visualize_distance_histogram(m3c2_ep.distances[m3c2_ep.significant], title="M3C2-EP distances (significant)", bins=60)
+        # except Exception as e:
+        #     logger.error(f"M3C2-EP computation failed: {e}")
 
     except Exception as e:
         logger.error(f"Change detection workflow failed: {e}")

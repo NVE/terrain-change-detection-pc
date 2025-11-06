@@ -1,4 +1,40 @@
-# Changelog and Implementation Notes — External Configuration System
+# Changelog and Implementation Notes
+
+## 2025-11-06 — Out-of-Core Processing Integration & Streaming Pipeline
+
+### Summary
+Fully integrated out-of-core tiling capabilities with the main workflow, added streaming support throughout preprocessing/alignment/detection, and fixed critical laspy 2.x API compatibility issue.
+
+### New Features
+- **Streaming Preprocessing**: `BatchLoader` now supports `streaming_mode` returning file paths instead of loading all data
+- **File-Based Alignment**: New `streaming_alignment.py` module with `apply_transform_to_files()` for transforming large datasets in chunks
+- **Shared Filtering Utilities**: Created `utils/point_cloud_filters.py` with reusable classification filtering logic
+- **Configuration Profiles**: Added `large_scale.yaml` profile for datasets too large for memory
+- **Out-of-Core Config**: Extended `OutOfCoreConfig` with `streaming_mode`, `save_transformed_files`, `output_dir` parameters
+
+### Bug Fixes
+- **Critical**: Fixed laspy 2.x API incompatibility in `tiling.py` - changed `len(las.points)` to `len(las)` 
+- **Logging**: Fixed `FileNotFoundError` when log directory doesn't exist - added `mkdir` in `setup_logger()`
+
+### Improvements
+- **Documentation**: Added comprehensive docstrings to all classes/methods in `tiling.py`
+- **Enhanced Logging**: Added detailed logging throughout streaming pipeline for diagnostics
+- **Error Handling**: Added fallback to in-memory DoD if streaming fails
+- **Workflow Coordination**: Main workflow now detects streaming mode and uses appropriate code paths
+
+### Testing
+- Created 13 new tests covering streaming integration, config validation, and point cloud filtering
+- Added diagnostic script `test_tiled_dod.py` for isolated DoD testing
+- All 40 tests passing (6 streaming/tiling specific)
+
+### Performance
+- Successfully processed 15M + 20M point datasets using constant memory
+- Tiled DoD computes 481K cells efficiently with 1000m tiles
+- File transformation: 9M points processed in ~3 seconds
+
+---
+
+## 2025-11-05 — External Configuration System
 
 Date: 2025-11-05
 

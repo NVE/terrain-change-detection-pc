@@ -53,3 +53,6 @@ outofcore:
   tile_size_m: 500.0
   halo_m: 20.0
   chunk_points: 1000000
+  streaming_mode: true  # Use streaming for preprocessing when out-of-core is enabled
+  save_transformed_files: true  # Save transformed LAZ files during alignment
+  output_dir: null  # Auto-generated if null (e.g., data/processed/area_name/period_aligned)

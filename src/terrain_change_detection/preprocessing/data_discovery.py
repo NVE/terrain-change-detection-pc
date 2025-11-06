@@ -218,27 +218,44 @@ class DataDiscovery:
 
 class BatchLoader:
     """
-    Loads and comibines multiple point cloud files into unified datasets
+    Loads and combines multiple point cloud files into unified datasets.
+    
+    Supports both in-memory loading and streaming-aware mode that returns
+    file paths and metadata for out-of-core processing.
     """
 
-    def __init__(self, loader: Optional[PointCloudLoader] = None):
+    def __init__(self, loader: Optional[PointCloudLoader] = None, streaming_mode: bool = False):
         """
         Initialize the batch loader.
+        
+        Args:
+            loader: PointCloudLoader instance for in-memory loading
+            streaming_mode: If True, prefer returning file paths over loading data
         """
         self.loader = loader if loader is not None else PointCloudLoader()
+        self.streaming_mode = streaming_mode
 
     def load_dataset(self, dataset_info: DatasetInfo,
-                     max_points_per_file: Optional[int] = None) -> Dict:
+                     max_points_per_file: Optional[int] = None,
+                     streaming: Optional[bool] = None) -> Dict:
         """
-        Load all files and combine into a single point cloud.
+        Load all files and combine into a single point cloud, or return metadata for streaming.
 
         Args:
             dataset_info: DatasetInfo object containing dataset details.
-            max_points_per_file: Optional maximum points to load from each file.
+            max_points_per_file: Optional maximum points to load from each file (in-memory mode only).
+            streaming: If True, return file paths and metadata without loading data.
+                      If None, uses self.streaming_mode.
 
         Returns:
-            Combined point cloud data
+            Combined point cloud data (in-memory mode) or file metadata (streaming mode)
         """
+        use_streaming = streaming if streaming is not None else self.streaming_mode
+        
+        if use_streaming:
+            return self._prepare_streaming_dataset(dataset_info)
+        
+        # In-memory loading (original behavior)
         all_points = []
         all_attributes = {}
         file_metadata = []
@@ -315,6 +332,38 @@ class BatchLoader:
             'points': combined_points,
             'attributes': combined_attributes,
             'metadata': combined_metadata
+        }
+
+    def _prepare_streaming_dataset(self, dataset_info: DatasetInfo) -> Dict:
+        """
+        Prepare dataset metadata for streaming/out-of-core processing.
+        
+        Instead of loading all data into memory, returns file paths and
+        metadata that can be used with LaspyStreamReader and tiling.
+        
+        Args:
+            dataset_info: DatasetInfo object containing dataset details
+            
+        Returns:
+            Dictionary with file paths, bounds, and metadata for streaming
+        """
+        logger.info(f"Preparing streaming dataset for {dataset_info.area_name}/{dataset_info.time_period}")
+        
+        # Return file paths as strings for compatibility with LaspyStreamReader
+        file_paths = [str(f) for f in dataset_info.laz_files]
+        
+        return {
+            'mode': 'streaming',
+            'file_paths': file_paths,
+            'num_files': len(file_paths),
+            'metadata': {
+                'area_name': dataset_info.area_name,
+                'time_period': dataset_info.time_period,
+                'num_files': len(file_paths),
+                'total_points': dataset_info.total_points,  # From dataset stats
+                'bounds': dataset_info.bounds,
+                'dataset_info': dataset_info,
+            }
         }
 
     def _load_separate_files(self, dataset_info: DatasetInfo,

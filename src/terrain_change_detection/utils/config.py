@@ -97,10 +97,13 @@ class PerformanceConfig(BaseModel):
 
 class AppConfig(BaseModel):
     class OutOfCoreConfig(BaseModel):
-        enabled: bool = Field(default=False)
-        tile_size_m: float = Field(default=500.0)
-        halo_m: float = Field(default=20.0)
-        chunk_points: int = Field(default=1_000_000)
+        enabled: bool = Field(default=False, description="Enable out-of-core/streaming processing")
+        tile_size_m: float = Field(default=500.0, description="Tile size in meters for tiled processing")
+        halo_m: float = Field(default=20.0, description="Halo/buffer width around tiles in meters")
+        chunk_points: int = Field(default=1_000_000, description="Number of points per chunk for streaming")
+        streaming_mode: bool = Field(default=True, description="Use streaming for preprocessing when enabled")
+        save_transformed_files: bool = Field(default=True, description="Save transformed LAZ files during alignment")
+        output_dir: Optional[str] = Field(default=None, description="Directory for transformed files (auto if None)")
 
     paths: PathsConfig = Field(default_factory=PathsConfig)
     preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)

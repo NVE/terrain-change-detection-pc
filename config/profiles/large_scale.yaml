@@ -1,0 +1,70 @@
+# Configuration profile for large-scale out-of-core processing
+#
+# Use this profile for datasets that are too large to fit in memory.
+# This enables:
+# - Streaming data loading (never loads full datasets)
+# - Tiled change detection processing
+# - File-based alignment transformations
+# - Memory-efficient workflows
+#
+# Usage: run_workflow.py --config config/profiles/large_scale.yaml
+
+paths:
+  base_dir: data/raw
+
+preprocessing:
+  ground_only: true
+  classification_filter: [2]
+
+discovery:
+  data_dir_name: data
+  metadata_dir_name: metadata
+
+alignment:
+  max_iterations: 100
+  tolerance: 1.0e-6
+  max_correspondence_distance: 2.0  # Slightly larger for coarser data
+  subsample_size: 100000  # Larger sample for better alignment on large datasets
+  coarse:
+    enabled: true
+    method: phase  # Phase correlation works well for large areas
+    voxel_size: 5.0  # Coarser voxels for large-scale data
+    phase_grid_cell: 5.0
+
+detection:
+  dod:
+    cell_size: 2.0  # Coarser grid for large-scale analysis
+    aggregator: mean
+  c2c:
+    max_points: 50000  # More points for better statistics
+    max_distance: null
+  m3c2:
+    core_points: 20000
+    autotune:
+      target_neighbors: 20
+      max_depth_factor: 0.6
+      min_radius: 2.0
+      max_radius: 30.0
+    ep:
+      workers: null
+
+visualization:
+  backend: plotly
+  sample_size: 100000  # Larger sample for visualization
+
+logging:
+  level: INFO
+  file: logs/large_scale_processing.log
+
+performance:
+  numpy_threads: auto
+
+# Out-of-core processing configuration (ENABLED)
+outofcore:
+  enabled: true  # Enable streaming/tiling
+  tile_size_m: 1000.0  # 1km tiles for large areas
+  halo_m: 50.0  # Larger halo for edge effects
+  chunk_points: 2000000  # 2M points per chunk for efficient processing
+  streaming_mode: true  # Use streaming for preprocessing
+  save_transformed_files: true  # Save transformed LAZ files
+  output_dir: data/processed  # Where to save transformed files

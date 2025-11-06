@@ -11,8 +11,8 @@ alignment:
   max_correspondence_distance: 1.0
   subsample_size: 30000
   coarse:
-    enabled: true
-    method: pca
+    enabled: false
+    method: phase
     voxel_size: 2.0
     phase_grid_cell: 2.0
 
@@ -37,6 +37,9 @@ logging:
 
 outofcore:
   enabled: false
-  tile_size_m: 300.0
+  tile_size_m: 100.0
   halo_m: 20.0
-  chunk_points: 800000
+  chunk_points: 20000
+  streaming_mode: true
+  save_transformed_files: false  # Smaller datasets don't need file transforms
+  output_dir: null
