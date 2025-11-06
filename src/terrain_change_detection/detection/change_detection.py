@@ -22,7 +22,7 @@ from typing import Optional, Tuple, Dict, Literal
 import numpy as np
 
 from ..utils.logging import setup_logger
-from ..pipeline.tiling import (
+from ..acceleration import (
     GridAccumulator,
     LaspyStreamReader,
     Bounds2D,
