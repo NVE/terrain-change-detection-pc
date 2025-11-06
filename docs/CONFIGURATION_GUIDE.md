@@ -105,6 +105,8 @@ if cfg.outofcore.enabled:
         tile_size=cfg.outofcore.tile_size_m,
         halo=cfg.outofcore.halo_m,
         chunk_points=cfg.outofcore.chunk_points,
+        # Advanced: optionally back mosaic arrays on disk to reduce RAM
+        # memmap_dir=".mosaic_tmp",
     )
 ```
 
@@ -173,3 +175,38 @@ assert isinstance(cfg.outofcore.tile_size_m, float)
 ```
 
 All configuration values are validated at load time, preventing runtime errors from misconfiguration.
+
+## Advanced: On-Disk Mosaic (Memmap)
+
+For very large output grids, you can reduce memory by enabling on-disk mosaicking in the tiled streaming DoD call:
+
+```python
+ChangeDetector.compute_dod_streaming_files_tiled(
+    ..., memmap_dir="/fast/scratch/mosaic"
+)
+```
+
+This backs the internal `sum`/`cnt` arrays with `numpy.memmap` files in the provided directory. It lowers RAM usage at the cost of extra disk I/O. Grid `X/Y` arrays are still returned as in-memory arrays.
+
+## M3C2: Streaming + Tiling
+
+For large datasets, you can run M3C2 without loading whole epochs into memory by tiling core points and streaming points per tile:
+
+```python
+from terrain_change_detection.detection import ChangeDetector
+
+m3c2_res = ChangeDetector.compute_m3c2_streaming_files_tiled(
+    core_points=core_src,           # Nx3, e.g., subsample of T1
+    files_t1=files_t1,              # LAZ/LAS epoch 1
+    files_t2=files_t2_aligned,      # LAZ/LAS epoch 2 (aligned to T1)
+    params=m3c2_params,             # from autotune_m3c2_params()
+    tile_size=cfg.outofcore.tile_size_m,
+    halo=None,                      # default halo = max(cyl_radius, projection_scale)
+    ground_only=cfg.preprocessing.ground_only,
+    classification_filter=cfg.preprocessing.classification_filter,
+    chunk_points=cfg.outofcore.chunk_points,
+)
+```
+
+- Halo rule of thumb: use at least `max(cylinder_radius, projection_scale)` to ensure neighborhoods are contained within each tile’s outer bbox.
+- If some tiles have zero points in an epoch, distances for their core points return as NaN and are logged.

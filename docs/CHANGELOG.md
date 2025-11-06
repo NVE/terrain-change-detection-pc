@@ -1,5 +1,39 @@
 # Changelog and Implementation Notes
 
+## 2025-11-06 — Out-of-Core Reliability & UX
+
+Summary
+- Strengthened out-of-core operation end-to-end, clarified logs for engineers, and added streaming M3C2 with tiling. Kept discovery and alignment subsampling memory-safe while exposing accurate dataset stats (ground vs total).
+
+Highlights
+- DoD (tiled streaming)
+  - Single-pass chunk routing: each epoch scanned once; chunks routed to tile accumulators.
+  - Optional on-disk mosaicking (`memmap_dir`) to reduce RAM for very large grids.
+  - Engineer-friendly logs: global extent in meters and km; tile grid and timing.
+- M3C2 (tiled streaming)
+  - New API: `ChangeDetector.compute_m3c2_streaming_files_tiled(...)`.
+  - Uses safe halo = `max(cylinder_radius, projection_scale)` by default.
+  - Per-tile streaming and execution with stitched results; clear timing and counts.
+  - Integrated into workflow when out-of-core is enabled; fallback to in-memory when needed.
+- Workflow logging & UX
+  - Clear step framing: Step 1 (Data Prep), Step 2 (Spatial Alignment), Step 3 (Change Detection).
+  - Logs core/global extents and tile grids; prints ground/total dataset points with percentage.
+- Discovery & metadata
+  - Header-only metadata + streamed classification counts (no full arrays) for accurate totals and ground counts.
+  - Streaming-based reservoir sampler for alignment subsampling (no full-file loads).
+
+Bug fixes & robustness
+- Fixed missing `Tile` import in detection module for tiled DoD.
+- Normalized whitespace to avoid indentation errors.
+- Corrected tiles log order in streaming M3C2 (compute tx/ty before logging).
+- Added missing `LaspyStreamReader` import in workflow; ensured streaming alignment sampling works.
+
+To Do
+- Speed up alignment subsampling while staying memory-safe:
+  - Add config flag for “fast” in-memory sampling (opt-in) for small/single-file cases.
+  - Add early-stop factor for reservoir sampler (e.g., stop after ~3–5× sample_size points).
+  - Explore parallel chunk sampling with a bounded reservoir and warp-level merging.
+
 ## 2025-11-06 — Out-of-Core Processing Integration & Streaming Pipeline
 
 ### Summary
@@ -34,7 +68,74 @@ Fully integrated out-of-core tiling capabilities with the main workflow, added s
 
 ---
 
-## 2025-11-05 — External Configuration System
+## 2025-11-06 — Tiled Streaming Optimization & Memmap Mosaic
+
+### Summary
+Improved tiled out-of-core DoD to avoid re-reading files per tile and added optional on-disk (memmap) mosaicking for very large output grids.
+
+### What Changed
+- Reworked `ChangeDetector.compute_dod_streaming_files_tiled` to stream each epoch (T1/T2) once and route chunks to tile accumulators by index. This removes the previous O(#tiles -- #files) I/O pattern.
+- `MosaicAccumulator` now supports an optional `memmap_dir` parameter. When provided, the per-cell `sum` and `cnt` arrays are backed by `numpy.memmap` files on disk, reducing RAM pressure for huge grids.
+- Added progress logging for tiled streaming: tiles geometry, per-epoch point counts, and timing of streaming and mosaicking phases.
+
+### Why It Matters
+- Large datasets now benefit from real out-of-core behavior: each file is scanned once per epoch, and only tile-local accumulators are kept in memory.
+- Very large global grids can be mosaicked with reduced RAM usage via on-disk arrays.
+
+### Backwards Compatibility
+- API of `compute_dod_streaming_files_tiled` is preserved; a new optional argument `memmap_dir` was added (default `None`).
+- Existing tests and workflows continue to function. All tests pass.
+
+### Usage Example
+```python
+res = ChangeDetector.compute_dod_streaming_files_tiled(
+    files_t1=files_t1,
+    files_t2=files_t2,
+    cell_size=2.0,
+    tile_size=1000.0,
+    halo=50.0,
+    chunk_points=2_000_000,
+    memmap_dir="./.mosaic_tmp"  # optional, enables on-disk mosaicking
+)
+```
+
+Note: `grid_x`/`grid_y` are still produced in-memory; for extremely large domains prefer writing mosaics directly to formats like GeoTIFF or chunked arrays in a future step.
+
+## 2025-11-06 --- Out-of-Core M3C2 (Tiled)
+
+### Summary
+Added tiled, streaming-based M3C2 wrapper that partitions core points spatially, streams tile-local points from files, runs py4dgeo M3C2 per tile, and stitches results back in input order.
+
+### What Changed
+- New API: `ChangeDetector.compute_m3c2_streaming_files_tiled(...)`
+  - Inputs: `core_points`, `files_t1`, `files_t2`, `params`, and tiling/streaming controls.
+  - Uses halo = max(cylinder_radius, projection_scale) unless overridden, ensuring neighborhood completeness.
+  - Clear logging per tile with counts and timings.
+
+### Why It Matters
+- Enables M3C2 on datasets that exceed memory by avoiding full in-memory epochs; only tile-local neighborhoods are materialized at a time.
+
+### Usage Example
+```python
+from terrain_change_detection.detection import ChangeDetector, M3C2Params
+
+m3c2_res = ChangeDetector.compute_m3c2_streaming_files_tiled(
+    core_points=core_src,           # Nx3 (sampled from T1 or grid)
+    files_t1=files_t1,              # epoch 1 LAZ/LAS
+    files_t2=files_t2_aligned,      # epoch 2 LAZ/LAS (aligned)
+    params=m3c2_params,             # tuned via autotune_m3c2_params
+    tile_size=1000.0,
+    halo=None,                      # default uses max(cyl_radius, projection_scale)
+    ground_only=True,
+    classification_filter=[2],
+    chunk_points=2_000_000,
+)
+```
+
+### Notes
+- For very large numbers of tiles, this approach re-reads epoch files per tile. A future iteration may cache per-file spatial subsets or integrate PDAL filters to reduce rescans.
+
+## 2025-11-05 --- External Configuration System
 
 Date: 2025-11-05
 
@@ -51,7 +152,7 @@ We externalized central pipeline parameters into a human-readable YAML configura
 - Workflow accepts `--config` and `--base-dir` CLI flags.
 - Preprocessing and discovery stages are configurable (ground filtering; subfolder names).
 - Logging level/file, visualization backend/sample size, and performance threads are configurable.
-- Clearer loader logging: explicitly reports “ground points” when ground filtering is enabled.
+- Clearer loader logging: explicitly reports ---ground points--- when ground filtering is enabled.
 
 ## New Features
 
@@ -85,7 +186,7 @@ We externalized central pipeline parameters into a human-readable YAML configura
 
 ## Improvements
 
-- Loader info logs now explicitly state “ground points” when `ground_only=True`; also warns if no ground points are found.
+- Loader info logs now explicitly state ---ground points--- when `ground_only=True`; also warns if no ground points are found.
 - Aligned-cloud visualization and other steps now use config-driven sample sizes and parameters (no hardcoded constants).
 - Code paths constructed from config reduce the need to edit scripts when switching datasets.
 
@@ -157,7 +258,7 @@ uv run scripts/run_workflow.py --config config/profiles/synthetic.yaml
 - scripts/run_workflow.py
   - Integrated config loading and CLI flags; replaced hardcoded constants with config values; applied logging/performance settings.
 - src/terrain_change_detection/preprocessing/loader.py
-  - Loader now accepts `ground_only` and `classification_filter`; info log explicitly mentions “ground points” when applicable.
+  - Loader now accepts `ground_only` and `classification_filter`; info log explicitly mentions ---ground points--- when applicable.
 - src/terrain_change_detection/preprocessing/data_discovery.py
   - Discovery accepts `data_dir_name` and `metadata_dir_name`; uses injected `PointCloudLoader`. `BatchLoader` accepts a loader instance.
 - README.md
@@ -165,7 +266,7 @@ uv run scripts/run_workflow.py --config config/profiles/synthetic.yaml
 
 ## Upgrade Guide
 
-1) No code changes are required for typical usage — continue running the workflow as before.
+1) No code changes are required for typical usage --- continue running the workflow as before.
 2) To customize behavior, edit `config/default.yaml` or point to an alternative file with `--config`.
 3) Override dataset root at the CLI with `--base-dir` for ad hoc runs.
 4) On Windows, M3C2-EP worker processes default to 1 when not specified; set `detection.m3c2.ep.workers` to override.
@@ -183,7 +284,7 @@ uv run scripts/run_workflow.py --config config/profiles/synthetic.yaml
 
 ---
 
-# Changelog and Implementation Notes — Coarse Registration, Open3D Optional, Config Fix
+# Changelog and Implementation Notes --- Coarse Registration, Open3D Optional, Config Fix
 
 Date: 2025-11-05
 
@@ -212,7 +313,7 @@ This entry documents the addition of a coarse registration stage ahead of ICP, o
 1) Coarse Registration Module
 - File: `src/terrain_change_detection/alignment/coarse_registration.py`
 - Public API: `CoarseRegistration(method=..., voxel_size=..., phase_grid_cell=...)`
-- Returns a 4×4 transform; helper `apply_transformation(points, T)` provided.
+- Returns a 4--4 transform; helper `apply_transformation(points, T)` provided.
 
 2) Workflow Integration
 - File: `scripts/run_workflow.py`
@@ -220,7 +321,7 @@ This entry documents the addition of a coarse registration stage ahead of ICP, o
   - If `alignment.coarse.enabled: true`, compute `initial_transform` using the selected method.
   - Log a pre-ICP RMSE computed on a temporary transformed copy of the moving cloud.
   - Pass `initial_transform` to `ICPRegistration.align_point_clouds`.
-  - ICP returns the cumulative transform (initial × delta); that transform is applied to the full moving cloud.
+  - ICP returns the cumulative transform (initial -- delta); that transform is applied to the full moving cloud.
 
 3) Configuration Additions
 - File: `src/terrain_change_detection/utils/config.py`
@@ -283,3 +384,4 @@ alignment:
 
 - Open3D not available for Python 3.13: attempting `open3d_fpfh` on 3.13 logs a warning and falls back to PCA.
 - Phase correlation estimates XY translation only; rotation still handled by ICP.
+

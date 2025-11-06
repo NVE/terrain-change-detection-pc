@@ -178,7 +178,8 @@ class DataDiscovery:
 
         for laz_file in laz_files:
             try:
-                metadata = self.loader.get_metadata(str(laz_file))
+                # Use header-only + streaming classification stats to avoid full loads
+                metadata = self.loader.get_metadata(str(laz_file), header_only=True)
 
                 # Get ground points count from classification stats
                 classification_stats = metadata.get('classification_stats', {})
@@ -352,6 +353,13 @@ class BatchLoader:
         # Return file paths as strings for compatibility with LaspyStreamReader
         file_paths = [str(f) for f in dataset_info.laz_files]
         
+        # Aggregate totals for clearer logging
+        total_ground = int(dataset_info.total_points or 0)
+        total_all = 0
+        if dataset_info.per_file_stats:
+            for s in dataset_info.per_file_stats:
+                total_all += int(s.get('num_points', 0))
+
         return {
             'mode': 'streaming',
             'file_paths': file_paths,
@@ -360,7 +368,9 @@ class BatchLoader:
                 'area_name': dataset_info.area_name,
                 'time_period': dataset_info.time_period,
                 'num_files': len(file_paths),
-                'total_points': dataset_info.total_points,  # From dataset stats
+                'total_points_ground': total_ground,
+                'total_points_all': total_all,
+                'ground_percentage': (100.0 * total_ground / total_all) if total_all > 0 else None,
                 'bounds': dataset_info.bounds,
                 'dataset_info': dataset_info,
             }

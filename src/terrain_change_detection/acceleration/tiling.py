@@ -267,21 +267,38 @@ class MosaicAccumulator:
         grid_y: Y coordinates of cell centers (ny x nx)
     """
 
-    def __init__(self, global_bounds: Bounds2D, cell_size: float) -> None:
+    def __init__(self, global_bounds: Bounds2D, cell_size: float, *, memmap_dir: Optional[str | Path] = None) -> None:
         """Initialize the mosaic accumulator.
         
         Args:
             global_bounds: Bounding box for the output global grid
             cell_size: Size of grid cells in data units
         """
+        from pathlib import Path as _Path
+        import os as _os
         self.gb = global_bounds
         self.cell = float(cell_size)
         self.nx = int(np.ceil((self.gb.max_x - self.gb.min_x) / self.cell)) + 1
         self.ny = int(np.ceil((self.gb.max_y - self.gb.min_y) / self.cell)) + 1
-        
-        # Initialize accumulators
-        self.sum = np.zeros((self.ny, self.nx), dtype=np.float64)
-        self.cnt = np.zeros((self.ny, self.nx), dtype=np.int64)
+
+        # Optional on-disk backing for large outputs
+        self._memmap_dir: Optional[_Path] = _Path(memmap_dir) if memmap_dir is not None else None
+        if self._memmap_dir is not None:
+            self._memmap_dir.mkdir(parents=True, exist_ok=True)
+            sum_path = self._memmap_dir / "mosaic_sum.float64.memmap"
+            cnt_path = self._memmap_dir / "mosaic_cnt.int64.memmap"
+            # Create/overwrite memmap files
+            self.sum = np.memmap(sum_path, mode="w+", dtype=np.float64, shape=(self.ny, self.nx))
+            self.cnt = np.memmap(cnt_path, mode="w+", dtype=np.int64, shape=(self.ny, self.nx))
+            # Zero-initialize
+            self.sum[...] = 0.0
+            self.cnt[...] = 0
+            self._sum_path = str(sum_path)
+            self._cnt_path = str(cnt_path)
+        else:
+            # In-memory accumulators
+            self.sum = np.zeros((self.ny, self.nx), dtype=np.float64)
+            self.cnt = np.zeros((self.ny, self.nx), dtype=np.int64)
         
         # Precompute grid cell centers for output
         x_edges = np.linspace(self.gb.min_x, self.gb.min_x + self.nx * self.cell, self.nx + 1)

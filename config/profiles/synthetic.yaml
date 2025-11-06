@@ -37,7 +37,7 @@ logging:
 
 outofcore:
   enabled: false
-  tile_size_m: 100.0
+  tile_size_m: 300.0
   halo_m: 20.0
   chunk_points: 20000
   streaming_mode: true

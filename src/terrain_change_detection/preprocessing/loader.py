@@ -194,7 +194,7 @@ class PointCloudLoader:
             logger.error(f"File validation failed for {file_path}: {e}")
             return False
 
-    def get_metadata(self, file_path: str) -> dict:
+    def get_metadata(self, file_path: str, *, header_only: bool = False, chunk_points: int = 1_000_000) -> dict:
         """
         Extract metadata from a point cloud file.
 
@@ -210,6 +210,63 @@ class PointCloudLoader:
             raise FileNotFoundError(f"File not found: {file_path}")
 
         try:
+            if header_only:
+                # Lightweight path: use header and stream-only attributes
+                with laspy.open(file_path) as reader:
+                    header = reader.header
+                    num_points = int(header.point_count)
+                    bounds = {
+                        'min_x': float(header.x_min),
+                        'max_x': float(header.x_max),
+                        'min_y': float(header.y_min),
+                        'max_y': float(header.y_max),
+                        'min_z': float(header.z_min),
+                        'max_z': float(header.z_max),
+                    }
+                    # Classification stats via streaming (no full load)
+                    class_counts: dict[int, int] = {}
+                    try:
+                        for chunk in reader.chunk_iterator(chunk_points):
+                            if hasattr(chunk, 'classification'):
+                                cls = np.asarray(chunk.classification)
+                                # bincount over observed classes in this chunk
+                                bc = np.bincount(cls, minlength=256)
+                                for code, cnt in enumerate(bc):
+                                    if cnt:
+                                        class_counts[code] = class_counts.get(code, 0) + int(cnt)
+                            else:
+                                # No classification; skip stats
+                                pass
+                    except Exception:
+                        # If streaming classification fails, leave stats minimal
+                        class_counts = {}
+
+                    ground_points = int(class_counts.get(2, 0)) if class_counts else 0
+                    ground_percentage = (100.0 * ground_points / num_points) if num_points > 0 and ground_points > 0 else 0.0
+
+                    classification_stats = {
+                        'unique_classes': sorted([int(k) for k, v in class_counts.items() if v > 0]),
+                        'class_counts': class_counts,
+                        'ground_points': ground_points,
+                        'ground_percentage': float(ground_percentage),
+                    }
+
+                    metadata = {
+                        'filename': file_path.name,
+                        'file_size_mb': file_path.stat().st_size / (1024 * 1024),
+                        'num_points': num_points,
+                        'point_format': getattr(header, 'point_data_record_format', getattr(header, 'point_format', 0)),
+                        'version': f"{header.version}",
+                        'creation_date': getattr(header, 'creation_date', None),
+                        'bounds': bounds,
+                        'scales': [float(header.x_scale), float(header.y_scale), float(header.z_scale)],
+                        'offsets': [float(header.x_offset), float(header.y_offset), float(header.z_offset)],
+                        'classification_stats': classification_stats,
+                        # No heavy per-point statistics in header_only mode
+                    }
+                    return metadata
+
+            # Full metadata path (may load arrays)
             laz_file = laspy.read(file_path)
 
             # Get classification statistics

@@ -23,6 +23,7 @@ from terrain_change_detection.utils.logging import setup_logger
 from terrain_change_detection.detection import ChangeDetector, M3C2Params, autotune_m3c2_params
 from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
 from terrain_change_detection.utils.config import load_config, AppConfig
+from terrain_change_detection.acceleration import LaspyStreamReader
 
 # Hardware optimizations
 # TO DO: Implement hardware optimizations for large datasets
@@ -83,7 +84,9 @@ def main():
         logger.error(f"Base directory {base_dir} does not exist.")
         return
 
-    # Discover data
+    # ============================================================
+    # Step 1: Data Preparation (Discovery & Streaming Setup)
+    # ============================================================
     # Configure preprocessing and discovery according to config
     loader = PointCloudLoader(
         ground_only=cfg.preprocessing.ground_only,
@@ -117,6 +120,7 @@ def main():
     ds1 = selected_area.datasets[t1]
     ds2 = selected_area.datasets[t2]
 
+    logger.info("=== STEP 1: Data Preparation ===")
     logger.info(f"Selected area: {selected_area.area_name}")
     logger.info(f"Time period 1: {t1} ({len(ds1.laz_files)} files)")
     logger.info(f"Time period 2: {t2} ({len(ds2.laz_files)} files)")
@@ -140,18 +144,68 @@ def main():
             pc1_data = batch_loader.load_dataset(ds1, streaming=True)
             pc2_data = batch_loader.load_dataset(ds2, streaming=True)
             
-            logger.info(f"Dataset 1 ({t1}): {len(pc1_data['file_paths'])} files, ~{pc1_data['metadata']['total_points']} points")
-            logger.info(f"Dataset 2 ({t2}): {len(pc2_data['file_paths'])} files, ~{pc2_data['metadata']['total_points']} points")
+            # Log both ground and total points for clarity (derived from headers + streamed class counts)
+            m1 = pc1_data['metadata']
+            m2 = pc2_data['metadata']
+            logger.info(
+                "Dataset 1 (%s): %d files, ~%.0f ground / %.0f total (%.1f%%)",
+                t1,
+                len(pc1_data['file_paths']),
+                float(m1.get('total_points_ground') or 0),
+                float(m1.get('total_points_all') or 0),
+                (float(m1.get('ground_percentage')) if m1.get('ground_percentage') is not None else float('nan')),
+            )
+            logger.info(
+                "Dataset 2 (%s): %d files, ~%.0f ground / %.0f total (%.1f%%)",
+                t2,
+                len(pc2_data['file_paths']),
+                float(m2.get('total_points_ground') or 0),
+                float(m2.get('total_points_all') or 0),
+                (float(m2.get('ground_percentage')) if m2.get('ground_percentage') is not None else float('nan')),
+            )
             
-            # Load samples for alignment (smaller memory footprint)
-            logger.info("Loading subsampled data for alignment...")
-            batch_loader_mem = BatchLoader(loader=loader, streaming_mode=False)
-            # Load with subsampling for alignment
-            pc1_sample = batch_loader_mem.load_dataset(ds1, max_points_per_file=cfg.alignment.subsample_size // len(ds1.laz_files))
-            pc2_sample = batch_loader_mem.load_dataset(ds2, max_points_per_file=cfg.alignment.subsample_size // len(ds2.laz_files))
-            
-            points1 = pc1_sample['points']
-            points2 = pc2_sample['points']
+            # Load samples for alignment (streaming-based reservoir sampling)
+            logger.info("Loading subsampled data for alignment (subsample_size=%d)...", cfg.alignment.subsample_size)
+
+            def stream_sample(files: list[str], n: int) -> np.ndarray:
+                reader = LaspyStreamReader(
+                    files,
+                    ground_only=cfg.preprocessing.ground_only,
+                    classification_filter=cfg.preprocessing.classification_filter,
+                    chunk_points=cfg.outofcore.chunk_points,
+                )
+                reservoir = None
+                filled = 0
+                seen = 0
+                for chunk in reader.stream_points():
+                    if chunk.size == 0:
+                        continue
+                    m = len(chunk)
+                    if reservoir is None:
+                        reservoir = np.empty((n, 3), dtype=np.float64)
+                    # Fill reservoir first
+                    take = min(n - filled, m)
+                    if take > 0:
+                        reservoir[filled:filled + take] = chunk[:take]
+                        filled += take
+                        seen += take
+                        start = take
+                    else:
+                        start = 0
+                    # Replacement
+                    for k in range(start, m):
+                        j = seen + (k - start)
+                        r = np.random.randint(0, j + 1)
+                        if r < n:
+                            reservoir[r] = chunk[k]
+                    seen += (m - start)
+                if reservoir is None:
+                    return np.empty((0, 3), dtype=np.float64)
+                return reservoir
+
+            n_per_dataset = cfg.alignment.subsample_size
+            points1 = stream_sample([str(p) for p in ds1.laz_files], n_per_dataset)
+            points2 = stream_sample([str(p) for p in ds2.laz_files], n_per_dataset)
             
             logger.info(f"Loaded {len(points1)} sample points from T1 for alignment")
             logger.info(f"Loaded {len(points2)} sample points from T2 for alignment")
@@ -190,8 +244,10 @@ def main():
             sample_size=cfg.visualization.sample_size  # Downsample for visualization
         )
 
-        # Step 2: ICP Registration
-        logger.info("--- Step 2: Performing spatial alignment... ---")
+        # ============================================================
+        # Step 2: Spatial Alignment
+        # ============================================================
+        logger.info("=== STEP 2: Spatial Alignment ===")
 
         # Optional coarse registration to initialize ICP
         initial_transform = None
@@ -306,8 +362,10 @@ def main():
             sample_size=cfg.visualization.sample_size  # Downsample for visualization
         )
 
-        # Step 3: Change Detection + on-the-spot visualization
-        logger.info("--- Step 3: Detecting terrain changes... ---")
+        # ============================================================
+        # Step 3: Change Detection
+        # ============================================================
+        logger.info("=== STEP 3: Change Detection ===")
 
         # 3a) DEM of Difference (DoD)
         try:
@@ -408,9 +466,9 @@ def main():
         except Exception as e:
             logger.error(f"C2C computation failed: {e}")
 
-        # 3c) M3C2 (Original)
+        # 3c) M3C2
         try:
-            logger.info("Computing M3C2 (Original) distances on core points (downsampled)...")
+            logger.info("Computing M3C2 distances on core points (downsampled)...")
             # Generate core points by uniform subsampling of target (T1)
             max_core = cfg.detection.m3c2.core_points
             core_src = points1
@@ -434,12 +492,47 @@ def main():
                 m3c2_params.min_neighbors,
             )
 
-            m3c2_res = ChangeDetector.compute_m3c2_original(
-                core_points=core_src,
-                cloud_t1=points1,
-                cloud_t2=points2_full_aligned,
-                params=m3c2_params,
+            # Prefer streaming tiled M3C2 when out-of-core is enabled and file paths are available
+            use_streaming_m3c2 = (
+                use_streaming and 'file_paths' in pc1_data and (
+                    'aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths'] or pc2_data.get('file_paths')
+                ) is not None
             )
+
+            if use_streaming_m3c2:
+                files_t1 = pc1_data['file_paths']
+                files_t2 = pc2_data.get('aligned_file_paths') or pc2_data['file_paths']
+                logger.info("Using streaming tiled M3C2...")
+                logger.info(f"T1 files: {files_t1}")
+                logger.info(f"T2 files: {files_t2}")
+                try:
+                    m3c2_res = ChangeDetector.compute_m3c2_streaming_files_tiled(
+                        core_points=core_src,
+                        files_t1=files_t1,
+                        files_t2=files_t2,
+                        params=m3c2_params,
+                        tile_size=cfg.outofcore.tile_size_m,
+                        halo=None,
+                        ground_only=cfg.preprocessing.ground_only,
+                        classification_filter=cfg.preprocessing.classification_filter,
+                        chunk_points=cfg.outofcore.chunk_points,
+                    )
+                except Exception as stream_err:
+                    logger.error(f"Streaming M3C2 failed: {stream_err}")
+                    logger.info("Falling back to in-memory M3C2 (Original)...")
+                    m3c2_res = ChangeDetector.compute_m3c2_original(
+                        core_points=core_src,
+                        cloud_t1=points1,
+                        cloud_t2=points2_full_aligned,
+                        params=m3c2_params,
+                    )
+            else:
+                m3c2_res = ChangeDetector.compute_m3c2_original(
+                    core_points=core_src,
+                    cloud_t1=points1,
+                    cloud_t2=points2_full_aligned,
+                    params=m3c2_params,
+                )
             logger.info(
                 "M3C2 stats: n=%d, mean=%.4f m, median=%.4f m, std=%.4f m",
                 m3c2_res.distances.size,
@@ -494,6 +587,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
