@@ -322,15 +322,15 @@ class ChangeDetector:
 			distances=dists,
 			indices=indices,
 			rmse=rmse,
-			mean=mean,
-			median=median,
-			n=n,
-			metadata={"max_distance": max_distance},
-		)
+		mean=mean,
+		median=median,
+		n=n,
+		metadata={"max_distance": max_distance},
+	)
 
 	# --- Streaming DoD from files (mean only) ---
 	@staticmethod
-    def compute_dod_streaming_files(
+	def compute_dod_streaming_files(
 		files_t1: list[str],
 		files_t2: list[str],
 		cell_size: float = 1.0,
@@ -341,9 +341,7 @@ class ChangeDetector:
 		chunk_points: int = 1_000_000,
 	) -> DoDResult:
 		"""
-		Streaming DoD that reads LAS/LAZ files in chunks and computes mean-based DEMs.
-
-		Notes:
+		Streaming DoD that reads LAS/LAZ files in chunks and computes mean-based DEMs.		Notes:
 		- Aggregator is mean-only in this prototype (streaming-friendly).
 		- bounds defaults to the union of LAS headers.
 		"""
@@ -382,17 +380,17 @@ class ChangeDetector:
 			"max_change": float(np.nanmax(dod)),
 		}
 
-        return DoDResult(
-            grid_x=acc1.grid_x,
-            grid_y=acc1.grid_y,
-            dem1=dem1,
-            dem2=dem2,
-            dod=dod,
-            cell_size=float(cell_size),
-            bounds=bounds_tuple,
-            stats=stats,
-            metadata={"aggregator": "mean", "streaming": True},
-        )
+		return DoDResult(
+			grid_x=acc1.grid_x,
+			grid_y=acc1.grid_y,
+			dem1=dem1,
+			dem2=dem2,
+			dod=dod,
+			cell_size=float(cell_size),
+			bounds=bounds_tuple,
+			stats=stats,
+			metadata={"aggregator": "mean", "streaming": True},
+		)
 
 	@staticmethod
 	def compute_dod_streaming_files_tiled(
