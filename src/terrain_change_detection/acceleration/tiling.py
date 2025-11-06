@@ -282,7 +282,6 @@ class MosaicAccumulator:
             cell_size: Size of grid cells in data units
         """
         from pathlib import Path as _Path
-        import os as _os
         self.gb = global_bounds
         self.cell = float(cell_size)
         self.nx = int(np.ceil((self.gb.max_x - self.gb.min_x) / self.cell)) + 1

@@ -20,7 +20,7 @@ from terrain_change_detection.alignment.fine_registration import ICPRegistration
 from terrain_change_detection.alignment.coarse_registration import CoarseRegistration
 from terrain_change_detection.alignment import apply_transform_to_files, save_transform_matrix
 from terrain_change_detection.utils.logging import setup_logger
-from terrain_change_detection.detection import ChangeDetector, M3C2Params, autotune_m3c2_params
+from terrain_change_detection.detection import ChangeDetector, autotune_m3c2_params
 from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
 from terrain_change_detection.utils.config import load_config, AppConfig
 from terrain_change_detection.acceleration import LaspyStreamReader

@@ -35,12 +35,12 @@ def main():
     # Load with optimized settings
     las_file = laspy.read(file_path)
 
-    print(f"✓ File loaded successfully!")
+    print("✓ File loaded successfully!")
     print(f"📊 Point format: {las_file.header.point_format}")
     print(f"📈 Number of points: {len(las_file.points):,}")
 
     # Quick analysis with vectorized operations
-    print(f"\n📍 Coordinate ranges:")
+    print("\n📍 Coordinate ranges:")
     print(f"   X: {las_file.x.min():.2f} to {las_file.x.max():.2f}")
     print(f"   Y: {las_file.y.min():.2f} to {las_file.y.max():.2f}")
     print(f"   Z: {las_file.z.min():.2f} to {las_file.z.max():.2f}")
@@ -64,7 +64,7 @@ def main():
     execution_time = end_time - start_time
     points_per_second = len(las_file.points) / execution_time
 
-    print(f"\n⚡ Performance:")
+    print("\n⚡ Performance:")
     print(f"   Execution time: {execution_time:.3f} seconds")
     print(f"   Processing rate: {points_per_second:,.0f} points/second")
 

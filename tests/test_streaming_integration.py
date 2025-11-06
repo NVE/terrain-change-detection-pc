@@ -14,7 +14,6 @@ sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from terrain_change_detection.utils.point_cloud_filters import (
     create_classification_mask,
-    apply_classification_filter,
     get_filter_statistics,
 )
 from terrain_change_detection.preprocessing.data_discovery import BatchLoader

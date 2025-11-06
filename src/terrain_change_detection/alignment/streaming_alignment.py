@@ -10,7 +10,6 @@ from typing import List, Optional
 import numpy as np
 
 from ..utils.logging import setup_logger
-from ..acceleration.tiling import LaspyStreamReader
 
 logger = setup_logger(__name__)
 

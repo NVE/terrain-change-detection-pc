@@ -32,7 +32,6 @@ from ..acceleration import (
     LaspyStreamReader,
     Bounds2D,
     union_bounds,
-    Tiler,
     MosaicAccumulator,
     Tile,
 )
@@ -1194,7 +1193,9 @@ class ChangeDetector:
             # by wrapping the calculate_distances method
             orig_calc = m3c2ep.M3C2EP.calculate_distances
             def _serial_calc(self, epoch1, epoch2):
-                import numpy as _np, math as _math, queue as _queue
+                import numpy as _np
+                import math as _math
+                import queue as _queue
                 # Copy of original up to block/thread config
                 print(self.name + " running (serial)")
                 if not isinstance(self.cyl_radius, float):
@@ -1219,7 +1220,6 @@ class ChangeDetector:
                 p1_idx = radius_search(epoch1, query_coords, effective_search_radius)
                 p2_idx = radius_search(epoch2, query_coords, effective_search_radius)
                 # Shared memory buffers
-                import multiprocessing as _mp
                 import multiprocessing.shared_memory as _shm
                 # Ensure submodule is visible to py4dgeo's mp alias
                 import py4dgeo.m3c2ep as _m

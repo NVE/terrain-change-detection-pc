@@ -7,7 +7,7 @@ This module handles loading and initial validation of point cloud datasets.
 import laspy
 import numpy as np
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import Optional, List
 from ..utils.logging import setup_logger
 from ..utils.point_cloud_filters import create_classification_mask, get_filter_statistics
 

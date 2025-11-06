@@ -15,7 +15,6 @@ This script tries lazrs first. If neither is installed, it will raise a helpful 
 from __future__ import annotations
 
 import math
-import os
 from pathlib import Path
 import numpy as np
 import laspy

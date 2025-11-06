@@ -28,7 +28,7 @@ class TestDataDiscovery(unittest.TestCase):
 
     def test_scan_areas(self):
         """Test scanning for areas and their datasets."""
-        print(f"\n=== Testing scan_areas ===")
+        print("\n=== Testing scan_areas ===")
         print(f"Scanning directory: {self.test_data_dir}")
         
         areas = self.discovery.scan_areas()
@@ -74,7 +74,7 @@ class TestDataDiscovery(unittest.TestCase):
 
     def test_batch_loader_load_dataset(self):
         """Test loading a complete dataset using BatchLoader."""
-        print(f"\n=== Testing BatchLoader.load_dataset ===")
+        print("\n=== Testing BatchLoader.load_dataset ===")
         
         # First discover the areas
         areas = self.discovery.scan_areas()
@@ -90,7 +90,7 @@ class TestDataDiscovery(unittest.TestCase):
         result = batch_loader.load_dataset(dataset_info)
         
         # Print results
-        print(f"Combined dataset:")
+        print("Combined dataset:")
         print(f"  Expected points (from discovery): {dataset_info.total_points}")
         print(f"  Loaded points (from batch loader): {len(result['points'])}")
         print(f"  Points shape: {result['points'].shape}")
@@ -104,7 +104,7 @@ class TestDataDiscovery(unittest.TestCase):
         
         if len(result['points']) > 0:
             points = result['points']
-            print(f"  Combined bounds:")
+            print("  Combined bounds:")
             print(f"    X: {points[:, 0].min():.1f} to {points[:, 0].max():.1f}")
             print(f"    Y: {points[:, 1].min():.1f} to {points[:, 1].max():.1f}")
             print(f"    Z: {points[:, 2].min():.1f} to {points[:, 2].max():.1f}")
@@ -140,7 +140,7 @@ class TestDataDiscovery(unittest.TestCase):
 
     def test_batch_loader_with_max_points(self):
         """Test loading dataset with point limit per file."""
-        print(f"\n=== Testing BatchLoader with max_points_per_file ===")
+        print("\n=== Testing BatchLoader with max_points_per_file ===")
         
         areas = self.discovery.scan_areas()
         dataset_info = areas['romerike'].datasets['2007']
@@ -152,7 +152,7 @@ class TestDataDiscovery(unittest.TestCase):
         batch_loader = BatchLoader()
         result = batch_loader.load_dataset(dataset_info, max_points_per_file=max_points)
         
-        print(f"Result with point limit:")
+        print("Result with point limit:")
         print(f"  Total points: {len(result['points'])}")
         print(f"  Files processed: {result['metadata']['num_files']}")
         
@@ -166,7 +166,7 @@ class TestDataDiscovery(unittest.TestCase):
 
     def test_discovery_with_nonexistent_directory(self):
         """Test data discovery with non-existent directory."""
-        print(f"\n=== Testing with non-existent directory ===")
+        print("\n=== Testing with non-existent directory ===")
         
         discovery = DataDiscovery("non_existent_directory")
         areas = discovery.scan_areas()
@@ -179,7 +179,7 @@ class TestDataDiscovery(unittest.TestCase):
 
     def test_time_periods_property(self):
         """Test the time_periods property of AreaInfo."""
-        print(f"\n=== Testing time_periods property ===")
+        print("\n=== Testing time_periods property ===")
         
         areas = self.discovery.scan_areas()
         romerike = areas['romerike']
@@ -215,18 +215,18 @@ class TestBatchLoader(unittest.TestCase):
 
     def test_init(self):
         """Test BatchLoader initialization."""
-        print(f"\n=== Testing BatchLoader initialization ===")
+        print("\n=== Testing BatchLoader initialization ===")
         
         loader = BatchLoader()
         self.assertIsInstance(loader, BatchLoader)
         
         # Should have a PointCloudLoader instance
         self.assertTrue(hasattr(loader, 'loader'))
-        print(f"BatchLoader initialized successfully with PointCloudLoader")
+        print("BatchLoader initialized successfully with PointCloudLoader")
 
     def test_load_separate_files(self):
         """Test loading files separately instead of combining them."""
-        print(f"\n=== Testing _load_separate_files ===")
+        print("\n=== Testing _load_separate_files ===")
         
         # Get a dataset to test with
         areas = self.discovery.scan_areas()
@@ -252,7 +252,7 @@ class TestBatchLoader(unittest.TestCase):
         
         # Print metadata
         metadata = result['metadata']
-        print(f"Metadata:")
+        print("Metadata:")
         print(f"  Area: {metadata['area_name']}")
         print(f"  Time period: {metadata['time_period']}")
         print(f"  Files processed: {metadata['num_files']}")
@@ -285,7 +285,7 @@ class TestBatchLoader(unittest.TestCase):
 
     def test_load_separate_files_with_max_points(self):
         """Test loading separate files with point limits."""
-        print(f"\n=== Testing _load_separate_files with max_points_per_file ===")
+        print("\n=== Testing _load_separate_files with max_points_per_file ===")
         
         areas = self.discovery.scan_areas()
         dataset_info = areas['romerike'].datasets['2013']
@@ -308,7 +308,7 @@ class TestBatchLoader(unittest.TestCase):
 
     def test_compute_bounds(self):
         """Test the _compute_bounds method."""
-        print(f"\n=== Testing _compute_bounds ===")
+        print("\n=== Testing _compute_bounds ===")
         
         # Create test points
         test_points = np.array([
@@ -338,7 +338,7 @@ class TestBatchLoader(unittest.TestCase):
 
     def test_empty_dataset_handling(self):
         """Test handling of datasets with no valid files."""
-        print(f"\n=== Testing empty dataset handling ===")
+        print("\n=== Testing empty dataset handling ===")
         
         # Create a mock dataset with no valid files
         from terrain_change_detection.preprocessing.data_discovery import DatasetInfo
@@ -352,7 +352,7 @@ class TestBatchLoader(unittest.TestCase):
         
         result = self.batch_loader.load_dataset(empty_dataset)
         
-        print(f"Result for empty dataset:")
+        print("Result for empty dataset:")
         print(f"  Points shape: {result['points'].shape}")
         print(f"  Attributes: {result['attributes']}")
         print(f"  Metadata: {result['metadata']}")
