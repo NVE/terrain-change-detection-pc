@@ -15,6 +15,11 @@ Highlights
   - Uses safe halo = `max(cylinder_radius, projection_scale)` by default.
   - Per-tile streaming and execution with stitched results; clear timing and counts.
   - Integrated into workflow when out-of-core is enabled; fallback to in-memory when needed.
+- C2C (tiled streaming)
+  - New API: `ChangeDetector.compute_c2c_streaming_files_tiled(...)`.
+  - Requires `max_distance` to bound search; tile halo = radius.
+  - Streams source (inner) and target (outer) per tile; uses sklearn NN when available.
+  - Integrated into workflow when out-of-core is enabled and a radius is set.
 - Workflow logging & UX
   - Clear step framing: Step 1 (Data Prep), Step 2 (Spatial Alignment), Step 3 (Change Detection).
   - Logs core/global extents and tile grids; prints ground/total dataset points with percentage.
