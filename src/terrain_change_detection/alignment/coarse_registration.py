@@ -15,7 +15,6 @@ All methods return a 4x4 transform suitable for initializing ICP.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
 import numpy as np
 
@@ -52,19 +51,22 @@ class CoarseRegistration:
         if method == "centroid":
             return self._centroid_transform(source, target)
         if method == "pca":
-            return self._pca_transform(source, target)
+            T = self._pca_transform(source, target)
+            return self._validate_or_fallback(source, target, T)
         if method == "phase":
             try:
-                return self._phase_correlation_xy(source, target, cell=self.phase_grid_cell)
+                T = self._phase_correlation_xy(source, target, cell=self.phase_grid_cell)
             except Exception as e:
                 logger.warning(f"Phase correlation failed: {e}; falling back to centroid.")
                 return self._centroid_transform(source, target)
+            return self._validate_or_fallback(source, target, T)
         if method == "open3d_fpfh":
             try:
-                return self._open3d_fpfh_transform(source, target, voxel=self.voxel_size)
+                T = self._open3d_fpfh_transform(source, target, voxel=self.voxel_size)
             except Exception as e:
                 logger.warning(f"Open3D FPFH coarse registration failed: {e}; falling back to PCA.")
-                return self._pca_transform(source, target)
+                T = self._pca_transform(source, target)
+            return self._validate_or_fallback(source, target, T)
 
         logger.warning(f"Unknown coarse registration method '{self.method}', using identity.")
         return np.eye(4)
@@ -153,20 +155,36 @@ class CoarseRegistration:
         # Phase correlation: cross power spectrum
         FA = np.fft.rfftn(A)
         FB = np.fft.rfftn(B)
-        R = FA * np.conj(FB)
-        denom = np.abs(R)
+        # Cross power spectrum (A vs B)
+        R_ab = FA * np.conj(FB)
+        denom = np.abs(R_ab)
         denom[denom == 0] = 1.0
-        R /= denom
-        r = np.fft.irfftn(R, s=A.shape)
+        R_ab /= denom
+        r_ab = np.fft.irfftn(R_ab, s=A.shape)
 
         # Peak location => shift (wrap-aware)
-        peak = np.unravel_index(np.argmax(r), r.shape)
+        peak = np.unravel_index(np.argmax(r_ab), r_ab.shape)
         shift_y = peak[0]
         shift_x = peak[1]
         if shift_x > nx // 2:
             shift_x -= nx
         if shift_y > ny // 2:
             shift_y -= ny
+
+        # Ambiguity in correlation direction: test both signs quickly and pick best
+        # Roll A to align with B and compare L2 error
+        def roll_err(sign: int) -> float:
+            ry = -sign * shift_y
+            rx = -sign * shift_x
+            A_shift = np.roll(A, shift=(ry, rx), axis=(0, 1))
+            diff = A_shift - B
+            return float(np.sum(diff * diff))
+
+        err_pos = roll_err(+1)
+        err_neg = roll_err(-1)
+        if err_neg < err_pos:
+            shift_x = -shift_x
+            shift_y = -shift_y
 
         t_xy = np.array([shift_x * cell, shift_y * cell, 0.0], dtype=float)
         T = np.eye(4)
@@ -225,6 +243,51 @@ class CoarseRegistration:
         return T
 
     # ------------------------ Helpers ------------------------
+    def _validate_or_fallback(self, src: np.ndarray, dst: np.ndarray, T: np.ndarray, *, threshold: float = 1.1) -> np.ndarray:
+        """Quickly evaluate coarse transform; fallback to centroid if clearly worse.
+
+        Uses a small NN-based RMSE on random subsamples to score the candidate vs. centroid.
+        """
+        try:
+            rmse_T = self._score_rmse(src, dst, T)
+            T_cent = self._centroid_transform(src, dst)
+            rmse_C = self._score_rmse(src, dst, T_cent)
+            if not np.isfinite(rmse_T) or rmse_T > threshold * rmse_C:
+                logger.warning(
+                    "CoarseRegistration: candidate transform worse than centroid (rmse %.3f vs %.3f). Using centroid.",
+                    rmse_T, rmse_C,
+                )
+                return T_cent
+            return T
+        except Exception:
+            return T
+
+    def _score_rmse(self, src: np.ndarray, dst: np.ndarray, T: np.ndarray, *, max_pairs: int = 3000) -> float:
+        if src.size == 0 or dst.size == 0:
+            return float("inf")
+        rng = np.random.default_rng(0)
+        n_src = min(max_pairs, len(src))
+        # sample targets proportional so that brute force remains bounded
+        # cap product to ~2e6 distance evaluations
+        max_prod = 2_000_000
+        n_tgt = min(len(dst), max(1000, int(max_prod / max(1, n_src))))
+        idx_s = rng.choice(len(src), n_src, replace=False) if len(src) > n_src else np.arange(len(src))
+        idx_t = rng.choice(len(dst), n_tgt, replace=False) if len(dst) > n_tgt else np.arange(len(dst))
+        A = src[idx_s]
+        B = dst[idx_t]
+        # apply transform to sampled source
+        A1 = self.apply_transformation(A, T)
+        try:
+            from sklearn.neighbors import NearestNeighbors  # type: ignore
+            nn = NearestNeighbors(n_neighbors=1, algorithm="kd_tree")
+            nn.fit(B)
+            d, _ = nn.kneighbors(A1)
+            d = d.reshape(-1)
+        except Exception:
+            diff = A1[:, None, :] - B[None, :, :]
+            dsq = np.einsum("ijk,ijk->ij", diff, diff)
+            d = np.sqrt(np.min(dsq, axis=1))
+        return float(np.sqrt(np.mean(d ** 2)))
     @staticmethod
     def apply_transformation(points: np.ndarray, transform: np.ndarray) -> np.ndarray:
         if points.size == 0:
@@ -232,4 +295,3 @@ class CoarseRegistration:
         homog = np.column_stack([points, np.ones(len(points))])
         out = (transform @ homog.T).T
         return out[:, :3]
-

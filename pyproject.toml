@@ -22,3 +22,8 @@ dependencies = [
 # Optional accelerators/backends
 # Note: Open3D does not provide cp313 wheels yet; restrict to <3.13
 open3d = ["open3d>=0.18.0; python_version < '3.13'"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.3",
+]

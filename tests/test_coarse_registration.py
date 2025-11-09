@@ -10,7 +10,6 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from terrain_change_detection.alignment.coarse_registration import CoarseRegistration
-from terrain_change_detection.alignment.fine_registration import ICPRegistration
 
 
 def _nn_rmse(A: np.ndarray, B: np.ndarray) -> float:

@@ -60,7 +60,7 @@ def main():
     
     # Display discovered areas/area directories
     print(f"\n{'='*60}")
-    print(f"Data Discovery Summary")
+    print("Data Discovery Summary")
     print(f"{'='*60}")
     print(f"Found {len(areas)} area(s):\n")
 
@@ -78,15 +78,15 @@ def main():
             print(f"    │   Bounds: {dataset.bounds}")
             print(f"    │   Metadata dir: {dataset.metadata_dir}")
             if dataset.per_file_stats:
-                print(f"    │   Example file stats:")
+                print("    │   Example file stats:")
                 for stat in dataset.per_file_stats[:1]:
                     print(f"    │     - File: {stat['file']}")
                     print(f"    │       Num points: {stat['num_points']}")
                     print(f"    │       Ground points: {stat['ground_points']}")
                     print(f"    │       Bounds: {stat['bounds']}")
             else:
-                print(f"    │   No per-file stats available.")
-            print(f"    │   Example files:")
+                print("    │   No per-file stats available.")
+            print("    │   Example files:")
             for i, laz_file in enumerate(dataset.laz_files[:5]):
                 file_size_mb = laz_file.stat().st_size / (1024 * 1024)
                 print(f"    │     - {laz_file.name} ({file_size_mb:.1f} MB)")
@@ -138,8 +138,8 @@ def main():
         else:
             print(f"  {area_name} has {len(area_info.time_periods)} time period(s). ")
             print("  Two or more time periods are required for change detection analysis.")
-    print(f"\nTo run change detection, use:")
-    print(f"  uv run scripts/run_workflow.py")
+    print("\nTo run change detection, use:")
+    print("  uv run scripts/run_workflow.py")
 
 
 if __name__ == "__main__":

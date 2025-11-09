@@ -6,7 +6,7 @@ spatial alignment of multi-temporal point cloud datasets.
 """
 
 import numpy as np
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Optional
 from sklearn.neighbors import NearestNeighbors
 from ..utils.logging import setup_logger
 

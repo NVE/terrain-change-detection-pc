@@ -4,7 +4,7 @@ import sys
 
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 
-from terrain_change_detection.pipeline.tiling import GridAccumulator, Bounds2D, Tiler, MosaicAccumulator
+from terrain_change_detection.acceleration import GridAccumulator, Bounds2D, Tiler, MosaicAccumulator
 from terrain_change_detection.detection import ChangeDetector
 
 

@@ -1,249 +1,207 @@
-# Changelog and Implementation Notes — External Configuration System
+# Changelog and Implementation Notes
 
-Date: 2025-11-05
+## 2025-11-09 — Config Schema Completion
 
-This document summarizes the new features, improvements, and behavior changes introduced with the addition of a typed, external configuration system to the terrain-change-detection project.
+### Summary
+Finalized out-of-core configuration schema with missing fields for production readiness.
 
-## Overview
+### Changes
+- Changed `save_transformed_files` default from `true` to `false` for more conservative behavior (opt-in file writing).
+- Added `memmap_dir` field to `OutOfCoreConfig` for optional memory-mapped array backing in mosaicking operations.
+- Updated all config profiles (`default.yaml`, `large_scale.yaml`, `synthetic.yaml`) with complete outofcore section.
 
-We externalized central pipeline parameters into a human-readable YAML configuration, validated by a typed schema (pydantic). The main workflow now reads parameters from YAML while keeping safe defaults. This makes it easier to tune analyses without code changes and prepares the project for future UI-based configuration.
-
-## Highlights
-
-- YAML configuration with typed validation (pydantic) and sensible defaults.
-- New config files: `config/default.yaml` and `config/profiles/synthetic.yaml`.
-- Workflow accepts `--config` and `--base-dir` CLI flags.
-- Preprocessing and discovery stages are configurable (ground filtering; subfolder names).
-- Logging level/file, visualization backend/sample size, and performance threads are configurable.
-- Clearer loader logging: explicitly reports “ground points” when ground filtering is enabled.
-
-## New Features
-
-1) External Configuration (YAML)
-- Default config auto-loaded from `config/default.yaml`.
-- Example profile: `config/profiles/synthetic.yaml`.
-- Typed schema defined in `src/terrain_change_detection/utils/config.py` using pydantic.
-
-2) CLI Enhancements
-- `--config <path>`: specify YAML file path (optional).
-- `--base-dir <path>`: override `paths.base_dir` from YAML.
-
-3) Configurable Preprocessing and Discovery
-- Preprocessing:
-  - `preprocessing.ground_only` (default true).
-  - `preprocessing.classification_filter` (default `[2]`).
-- Data discovery:
-  - `discovery.data_dir_name` and `discovery.metadata_dir_name` (defaults `data`/`metadata`).
-- Shared loader instance is injected into discovery and batch loading to keep behavior consistent.
-
-4) Configurable Algorithms and Visualization
-- Alignment (ICP): `alignment.{max_iterations,tolerance,max_correspondence_distance,subsample_size}`.
-- DoD: `detection.dod.{cell_size,aggregator}`.
-- C2C: `detection.c2c.{max_points,max_distance}`.
-- M3C2: `detection.m3c2.core_points`, `detection.m3c2.autotune.*`, `detection.m3c2.ep.workers`.
-- Visualization: `visualization.{backend,sample_size}` (`plotly`/`pyvista`/`pyvistaqt`).
-
-5) Logging and Performance
-- Logging: `logging.{level,file}`. Console logging remains enabled; optional file output can be enabled.
-- Performance threads: `performance.numpy_threads` sets `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, and `NUMEXPR_NUM_THREADS`.
-
-## Improvements
-
-- Loader info logs now explicitly state “ground points” when `ground_only=True`; also warns if no ground points are found.
-- Aligned-cloud visualization and other steps now use config-driven sample sizes and parameters (no hardcoded constants).
-- Code paths constructed from config reduce the need to edit scripts when switching datasets.
-
-## Backward Compatibility
-
-- Default behavior is unchanged when run without flags: the workflow reads `config/default.yaml` which mirrors prior defaults.
-- CLI `--base-dir` continues to work and overrides YAML for that setting.
-- All modules retain function defaults for direct programmatic use.
-
-## Usage Changes (Summary)
-
-Run with defaults:
-```powershell
-uv run scripts/run_workflow.py
-```
-
-Run with explicit config:
-```powershell
-uv run scripts/run_workflow.py --config config/default.yaml
-```
-
-Override dataset root via CLI:
-```powershell
-uv run scripts/run_workflow.py --base-dir data/synthetic
-```
-
-Use profile for synthetic data:
-```powershell
-uv run scripts/run_workflow.py --config config/profiles/synthetic.yaml
-```
-
-## Configuration Keys (Quick Reference)
-
-- paths
-  - base_dir: dataset root folder (default `data/raw`).
-- preprocessing
-  - ground_only: filter to ground classes (default true).
-  - classification_filter: list of LAS class codes to keep (default `[2]`).
-- discovery
-  - data_dir_name: name of the subfolder that contains LAZ/LAS files (default `data`).
-  - metadata_dir_name: name of the metadata subfolder (default `metadata`).
-- alignment
-  - max_iterations, tolerance, max_correspondence_distance, subsample_size
-- detection.dod
-  - cell_size, aggregator (`mean|median|p95|p5`).
-- detection.c2c
-  - max_points, max_distance (optional cap).
-- detection.m3c2
-  - core_points
-  - autotune: target_neighbors, max_depth_factor, min_radius, max_radius
-  - ep: workers (null = OS-specific default: 1 on Windows, 4 elsewhere)
-- visualization
-  - backend (`plotly|pyvista|pyvistaqt`), sample_size
-- logging
-  - level (`DEBUG|INFO|WARNING|ERROR|CRITICAL`), file (optional path)
-- performance
-  - numpy_threads: `auto` (default) or an integer
-
-## File Changes
-
-- pyproject.toml
-  - Added dependencies: `pydantic`, `PyYAML`.
-- config/default.yaml
-  - New default configuration file.
-- config/profiles/synthetic.yaml
-  - Example profile for synthetic datasets.
-- src/terrain_change_detection/utils/config.py
-  - New: typed AppConfig model and `load_config` loader for YAML.
-- scripts/run_workflow.py
-  - Integrated config loading and CLI flags; replaced hardcoded constants with config values; applied logging/performance settings.
-- src/terrain_change_detection/preprocessing/loader.py
-  - Loader now accepts `ground_only` and `classification_filter`; info log explicitly mentions “ground points” when applicable.
-- src/terrain_change_detection/preprocessing/data_discovery.py
-  - Discovery accepts `data_dir_name` and `metadata_dir_name`; uses injected `PointCloudLoader`. `BatchLoader` accepts a loader instance.
-- README.md
-  - Updated with configuration usage, keys, and examples.
-
-## Upgrade Guide
-
-1) No code changes are required for typical usage — continue running the workflow as before.
-2) To customize behavior, edit `config/default.yaml` or point to an alternative file with `--config`.
-3) Override dataset root at the CLI with `--base-dir` for ad hoc runs.
-4) On Windows, M3C2-EP worker processes default to 1 when not specified; set `detection.m3c2.ep.workers` to override.
-
-## Known Considerations
-
-- Thread environment variables may be read by numerical libraries at import time. While we set them early in the script, some backends might require setting these before the Python process starts to take full effect.
-- Large datasets can be memory intensive; tune `alignment.subsample_size`, `detection.c2c.max_points`, and `detection.m3c2.core_points` accordingly.
-
-## Next Steps (Optional)
-
-- Add environment variable overrides (e.g., `TCD_paths__base_dir`) for containerized deployments.
-- Add small config parsing tests and a smoke test for config-driven parameters.
-- Consider exposing config parameters through a future web UI.
+### Why It Matters
+- `save_transformed_files: false` prevents unintended disk usage; users must explicitly enable transformed file output.
+- `memmap_dir` provides escape hatch for very large mosaicking operations that exceed available RAM.
+- Config schema is now complete and production-ready for merge.
 
 ---
 
-# Changelog and Implementation Notes — Coarse Registration, Open3D Optional, Config Fix
+## 2025-11-06 — Out-of-Core Processing & Tiling (Complete Implementation)
 
-Date: 2025-11-05
+### Summary
+Implemented complete out-of-core processing infrastructure with tiling support for all three change detection methods (DoD, C2C, M3C2). This enables processing of datasets that exceed available memory by dividing spatial domains into tiles and streaming point data in chunks.
 
-This entry documents the addition of a coarse registration stage ahead of ICP, optional Open3D support for feature-based global matching, integration details in the workflow, and a bug fix in configuration loading.
+### Core Infrastructure
+**Tiling System** (`src/terrain_change_detection/acceleration/tiling.py`):
+- `Tiler`, `Tile`, `Bounds2D` classes for grid-aligned tiling with inner/outer bounds and halo support.
+- `LaspyStreamReader` for chunked LAZ/LAS reading with bbox and classification filtering.
+- `GridAccumulator` for streaming mean aggregation over regular XY grids (memory-efficient DEM building).
+- `MosaicAccumulator` for seamlessly stitching tile DEMs with overlap averaging, includes optional memmap backing for very large grids.
 
-## Overview
+### Change Detection Methods
+**DoD (DEM of Difference)**:
+- `compute_dod_streaming_files_tiled()` - out-of-core DoD with grid-aligned mosaicking.
+- Single-pass chunk routing: each epoch scanned once; chunks routed to tile accumulators by XY position.
+- Supports mean aggregator in streaming mode (median/percentiles deferred for future work).
+- Optional on-disk mosaicking via `memmap_dir` parameter to reduce RAM for huge grids.
+  
+**C2C (Cloud-to-Cloud)**:
+- `compute_c2c_streaming_files_tiled()` - tiled C2C with radius-bounded nearest-neighbor queries.
+- Requires finite `max_distance` to bound search; tile halo = search radius.
+- Streams source (inner tile) and target (outer tile with halo) points per tile.
+- Uses sklearn k-d tree when available, with brute-force fallback.
+- Added `compute_c2c_vertical_plane()` for terrain-aware distances with local plane fitting.
+  
+**M3C2 (Multiscale Model-to-Model)**:
+- `compute_m3c2_streaming_files_tiled()` - tiled M3C2 processing with py4dgeo integration.
+- Partitions core points spatially, streams tile-local points from both epochs per tile.
+- Uses safe halo = `max(cylinder_radius, projection_scale)` by default for neighborhood completeness.
+- Stitches per-tile results back in input order.
 
-- New coarse registration module supports several initializers to bring clouds into rough alignment before ICP.
-- Workflow integrates the coarse stage and passes the resulting transform as an initial guess to ICP for faster convergence and greater robustness on misaligned pairs.
-- Optional Open3D-based global feature registration (FPFH + RANSAC) can be used when Open3D is available; otherwise we fall back gracefully to PCA.
-- Fixed config root path resolution so YAML overrides are honored reliably.
+### Configuration & Workflow
+**New `outofcore` Config Section**:
+- `enabled`: Master switch for streaming/tiling workflows.
+- `tile_size_m`: Tile size in meters for spatial partitioning.
+- `halo_m`: Halo/buffer width around tiles to avoid edge artifacts.
+- `chunk_points`: Max points per streaming chunk (memory/performance trade-off).
+- `streaming_mode`: Use streaming in preprocessing when enabled.
+- `save_transformed_files`: Optionally save aligned LAZ files (default: false).
+- `output_dir`: Directory for transformed files (auto-generated if null).
+- `memmap_dir`: Directory for memory-mapped mosaicking arrays (in-memory if null).
 
-## Highlights
+**Workflow Integration** (`scripts/run_workflow.py`):
+- Automatically detects and routes between in-memory vs. streaming execution paths based on config.
+- Streaming mode uses reservoir sampling for alignment subsampling (memory-safe).
+- File-based alignment transformations with `apply_transform_to_files()` for out-of-core workflows.
+- Enhanced logging: step framing, extent metrics (m/km), tile grids, chunk counts, timings.
+- Fallback to in-memory mode if streaming fails.
 
-- New: `CoarseRegistration` with methods:
-  - `centroid`: translation-only by centroid alignment.
-  - `pca`: rigid transform from principal axes + centroid (default).
-  - `phase`: 2D phase correlation on XY occupancy grid (translation).
-  - `open3d_fpfh`: feature-based global match via Open3D (optional dependency).
-- Workflow improvement: computes a pre-ICP RMSE (non-destructive) and passes `initial_transform` to ICP.
-- Optional dependency gating: Open3D extra is only offered for Python < 3.13 to avoid resolver failures.
-- Config loader bug fix: repository root detection corrected so `config/default.yaml` and profiles are found.
+**Configuration Profiles**:
+- `config/default.yaml`: Conservative defaults, out-of-core disabled.
+- `config/profiles/large_scale.yaml`: Optimized for datasets too large for memory.
+- `config/profiles/synthetic.yaml`: Small datasets for development/testing.
+- Config toggles to enable/disable individual detection methods (`dod.enabled`, `c2c.enabled`, `m3c2.enabled`).
 
-## New Features
+### Supporting Features
+- **Streaming Preprocessing**: `BatchLoader` supports `streaming_mode` returning file paths instead of loading all data.
+- **File-Based Alignment**: `streaming_alignment.py` module with `apply_transform_to_files()` for transforming large datasets in chunks.
+- **Shared Filtering**: `utils/point_cloud_filters.py` with reusable classification filtering logic.
+- **Discovery & Metadata**: Header-only metadata + streamed classification counts for accurate totals without loading full arrays.
+- **Streaming Transforms**: When transformed files aren't saved, T2 chunks are transformed on-the-fly for DoD/M3C2/C2C.
 
-1) Coarse Registration Module
-- File: `src/terrain_change_detection/alignment/coarse_registration.py`
-- Public API: `CoarseRegistration(method=..., voxel_size=..., phase_grid_cell=...)`
-- Returns a 4×4 transform; helper `apply_transformation(points, T)` provided.
+### Visualization
+- In-memory C2C 3D visualization via `PointCloudVisualizer.visualize_c2c_points()` (colors by distance).
+- Streaming C2C falls back to histogram visualization (point-level viz requires in-memory mode).
 
-2) Workflow Integration
-- File: `scripts/run_workflow.py`
-- Behavior:
-  - If `alignment.coarse.enabled: true`, compute `initial_transform` using the selected method.
-  - Log a pre-ICP RMSE computed on a temporary transformed copy of the moving cloud.
-  - Pass `initial_transform` to `ICPRegistration.align_point_clouds`.
-  - ICP returns the cumulative transform (initial × delta); that transform is applied to the full moving cloud.
+### Documentation
+- `docs/ALGORITHMS.md`: Comprehensive guide explaining DoD/C2C/M3C2 tiling applicability, halo sizing, and when to use each method.
+- All classes/methods in `tiling.py` have detailed docstrings.
 
-3) Configuration Additions
-- File: `src/terrain_change_detection/utils/config.py`
-- New model: `CoarseRegistrationConfig` (method, voxel_size, phase_grid_cell, enabled).
-- New key under alignment: `alignment.coarse`.
-- YAML defaults:
-  - `config/default.yaml`: coarse enabled, method `pca`.
-  - `config/profiles/synthetic.yaml`: coarse enabled, method `pca`.
+### Testing & Validation
+- Unit tests: grid accumulator mean parity, tiler/mosaic identity.
+- Integration tests: streaming mode, config validation, point cloud filtering.
+- Successfully validated with 15M + 20M point datasets using constant memory.
+- Tiled DoD computes 481K cells efficiently with 1000m tiles.
+- File transformation: 9M points processed in ~3 seconds.
+- All 40+ tests passing.
 
-4) Optional Dependency (Open3D)
-- File: `pyproject.toml`
-- `[project.optional-dependencies].open3d = ["open3d>=0.18.0; python_version < '3.13'"]`
-- Rationale: Open3D wheels are not available for Python 3.13 at the time of writing; gating avoids unsatisfiable dependency errors.
+### Bug Fixes
+- Fixed laspy 2.x API incompatibility in `tiling.py` - changed `len(las.points)` to `len(las)`.
+- Fixed `FileNotFoundError` when log directory doesn't exist - added `mkdir` in `setup_logger()`.
+- Fixed missing `Tile` import in detection module.
+- Fixed missing `LaspyStreamReader` import in workflow.
+- Normalized whitespace to avoid indentation errors.
+- Corrected tile grid computation order in streaming M3C2 logging.
+- Coarse registration guard: validates PCA/Phase/Open3D against centroid baseline; auto-fallback if worse.
 
-## Bug Fixes
+### Performance
+- Successfully processed 15M + 20M point datasets using constant memory.
+- Single-pass chunk routing eliminates O(#tiles × #files) I/O pattern.
 
-- Config loader root path resolution
-  - File: `src/terrain_change_detection/utils/config.py`
-  - Changed `_project_root()` from incorrect parent to the actual repo root.
-  - Impact: YAML files are found correctly; edits in `config/default.yaml` (e.g., `alignment.coarse.method`) now take effect.
+### Known Limitations (By Design)
+- DoD streaming supports only mean aggregator (median/percentiles require different approach).
+- No parallelization (CPU single-threaded) - deferred to future branch.
+- No GPU acceleration - deferred to future branch.
+- C2C streaming returns distances only, no target indices (memory optimization).
 
-## Backward Compatibility
+### Future Work
+- Parallelization: multi-process tile processing, threaded chunk reading.
+- GPU acceleration: CUDA-based neighborhood queries and grid operations.
+- Additional aggregators: streaming median/percentiles for DoD.
+- Cache per-file spatial subsets or integrate PDAL filters to reduce re-scans in tiled workflows.
+- Speed up alignment subsampling while staying memory-safe (fast mode, early-stop factor, parallel sampling).
 
-- Coarse registration is enabled by default with `method: pca`. This improves alignment without breaking existing workflows.
-- If `open3d_fpfh` is selected on Python 3.13 (no Open3D), a clear warning is logged and PCA is used as a safe fallback.
+---
 
-## Usage Changes (Summary)
+## 2025-11-05 — External Configuration System
 
-- Configure coarse registration in YAML:
-```yaml
-alignment:
-  max_iterations: 100
-  tolerance: 1.0e-6
-  max_correspondence_distance: 1.0
-  subsample_size: 50000
-  coarse:
-    enabled: true
-    method: pca        # centroid | pca | phase | open3d_fpfh | none
-    voxel_size: 2.0    # for open3d_fpfh only
-    phase_grid_cell: 2.0
-```
+### Summary
+Externalized central pipeline parameters into human-readable YAML configuration with typed validation (pydantic). Makes it easier to tune analyses without code changes and prepares for future UI-based configuration.
 
-- To use Open3D FPFH global matching:
-  - Use Python 3.12 (Open3D wheels are available up to cp312).
-  - Install the optional extra: `uv run -m pip install '.[open3d]'`.
-  - Set `alignment.coarse.method: open3d_fpfh`.
+### Features
+- **YAML Configuration**: Typed validation using pydantic with sensible defaults.
+- **Config Files**: `config/default.yaml` and `config/profiles/synthetic.yaml`.
+- **CLI Flags**: `--config` for YAML file path, `--base-dir` to override dataset root.
+- **Configurable Parameters**:
+  - Preprocessing: `ground_only`, `classification_filter`
+  - Discovery: `data_dir_name`, `metadata_dir_name`
+  - Alignment (ICP): `max_iterations`, `tolerance`, `max_correspondence_distance`, `subsample_size`
+  - Detection (DoD): `cell_size`, `aggregator`
+  - Detection (C2C): `max_points`, `max_distance`
+  - Detection (M3C2): `core_points`, autotune parameters, EP workers
+  - Visualization: `backend` (plotly/pyvista/pyvistaqt), `sample_size`
+  - Logging: `level`, `file`
+  - Performance: `numpy_threads`
 
-## Tests
+### Improvements
+- Loader info logs explicitly state "ground points" when `ground_only=True`.
+- Config-driven sample sizes eliminate hardcoded constants.
+- Shared loader instance injected into discovery and batch loading for consistency.
 
-- `tests/test_coarse_registration.py`:
-  - Verifies centroid translation recovery and PCA error reduction on synthetic data.
-- `tests/test_config_coarse_alignment.py`:
-  - Sanity checks for alignment.coarse defaults via `load_config`.
+### Backward Compatibility
+- Default behavior unchanged when run without flags.
+- All modules retain function defaults for direct programmatic use.
 
-## Documentation
+---
 
-- `README.md` updated to reflect optional coarse registration before ICP and mention Open3D extra.
+## 2025-11-05 — Coarse Registration & Open3D Integration
 
-## Known Limitations
+### Summary
+Added coarse registration stage ahead of ICP with multiple methods (centroid, PCA, phase correlation, Open3D FPFH) and made Open3D an optional dependency.
 
-- Open3D not available for Python 3.13: attempting `open3d_fpfh` on 3.13 logs a warning and falls back to PCA.
-- Phase correlation estimates XY translation only; rotation still handled by ICP.
+### Features
+- **Coarse Registration Module** (`alignment/coarse_registration.py`):
+  - `centroid`: Simple translation alignment
+  - `pca`: PCA-based orientation alignment
+  - `phase`: Phase correlation for translation estimation
+  - `open3d_fpfh`: FPFH feature-based RANSAC (requires Open3D)
+- **Config Integration**: `alignment.coarse.enabled`, `alignment.coarse.method`, `alignment.coarse.voxel_size`, `alignment.coarse.phase_grid_cell`
+- **Workflow Integration**: Coarse transform used to initialize ICP when enabled
+- **Validation Guard**: Validates coarse results against centroid baseline; auto-fallback if worse
+
+### Dependencies
+- Made Open3D optional - only required for `open3d_fpfh` method
+- Works without Open3D for other coarse methods and in-memory workflows
+
+### Testing
+- Added `test_coarse_registration.py` with tests for all methods
+- Config integration tests validate coarse registration settings
+
+---
+
+## Earlier Work (Pre-Out-of-Core Branch)
+
+### M3C2 Implementation
+- Integrated py4dgeo for M3C2 and M3C2-EP (Error Propagation) computation
+- Auto-tuning function for M3C2 parameters based on point density
+- M3C2-EP with significance testing and level-of-detection thresholds
+- Configurable via `detection.m3c2` section
+
+### Visualization Enhancements
+- Multiple backend support: plotly, pyvista, pyvistaqt
+- Interactive 3D point cloud visualization with sampling
+- DoD heatmaps with configurable colormaps
+- M3C2 core point visualization colored by distance
+- Distance histograms for C2C and M3C2 results
+
+### Testing Infrastructure
+- Comprehensive test suite covering preprocessing, alignment, detection
+- Sample data for reproducible testing
+- Integration tests for end-to-end workflows
+
+### Documentation
+- README with installation instructions and usage examples
+- Configuration guide explaining all parameters
+- Algorithm documentation (ALGORITHMS.md) explaining methods
+- Bug fix documentation (BUGFIX_LASPY_API.md)

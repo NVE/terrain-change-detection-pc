@@ -47,6 +47,10 @@ def setup_logger(name: str,
 
     # File handler (if log_file is provided)
     if log_file:
+        # Create parent directories if they don't exist
+        log_path = Path(log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        
         file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
