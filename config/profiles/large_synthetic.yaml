@@ -1,0 +1,118 @@
+# Configuration profile for large synthetic datasets (out-of-core testing)
+#
+# Use this to test parallelization performance with realistic dataset sizes (50M+ points).
+# This profile enables out-of-core processing and parallel execution to validate
+# the scalability infrastructure.
+#
+# Generate the dataset first:
+#   uv run scripts/generate_large_synthetic_laz.py
+#
+# Then run the workflow:
+#   uv run scripts/run_workflow.py --config config/profiles/large_synthetic.yaml
+
+paths:
+  # Root folder containing large synthetic dataset
+  base_dir: data/large_synthetic
+
+preprocessing:
+  # Keep only LAS class 2 (ground)
+  ground_only: true
+  # Optional list of LAS classification codes to include
+  classification_filter: [2]
+
+discovery:
+  # Subdirectory names used when discovering datasets
+  data_dir_name: data
+  metadata_dir_name: metadata
+
+alignment:
+  # ICP/registration parameters
+  max_iterations: 100
+  tolerance: 1.0e-6
+  max_correspondence_distance: 2.0
+  # Larger subsample for better alignment with big datasets
+  subsample_size: 100000
+  coarse:
+    # Disabled - no misalignment in synthetic data
+    enabled: false
+    # Coarse alignment method
+    method: phase
+    # Voxel size (m) for coarse features/downsampling
+    voxel_size: 3.0
+    # Cell size (m) for phase correlation grid
+    phase_grid_cell: 3.0
+
+detection:
+  dod:
+    enabled: true
+    # DEM grid resolution in meters
+    cell_size: 2.0
+    # Aggregation for per-cell elevation
+    aggregator: mean
+  c2c:
+    enabled: true
+    # Algorithm: euclidean | vertical_plane
+    mode: euclidean
+    # Upper bound for sampling/limits
+    max_points: 10000
+    # Search radius (m) - required for streaming C2C
+    max_distance: 10.0
+    # Local modeling parameters (for mode=vertical_plane)
+    radius: null
+    k_neighbors: 20
+    min_neighbors: 6
+  m3c2:
+    enabled: true
+    # Number of core points at which to compute M3C2 distances
+    core_points: 50000
+    autotune:
+      target_neighbors: 20
+      max_depth_factor: 0.6
+      min_radius: 2.0
+      max_radius: 50.0
+    ep:
+      # Number of worker processes/threads; null = OS default
+      workers: null
+
+visualization:
+  # plotly | pyvista | pyvistaqt
+  backend: plotly
+  # Max points to draw for interactive views
+  sample_size: 100000
+
+logging:
+  level: INFO
+  # Path to log file; null = stdout only
+  file: logs/large_synthetic_processing.log
+
+performance:
+  # Set to an integer to pin NumPy threads; 'auto' lets NumPy decide
+  numpy_threads: auto
+
+outofcore:
+  # Master switch for streaming/tiling out-of-core workflows
+  # ENABLED for large dataset processing
+  enabled: false
+  # Inner tile size in meters (processing region per tile)
+  tile_size_m: 500.0
+  # Halo width in meters (buffer around each tile to avoid edge effects)
+  halo_m: 30.0
+  # Max points per streaming chunk (memory/performance trade-off)
+  chunk_points: 2000000
+  # Use streaming mode in preprocessing when out-of-core is enabled
+  streaming_mode: true
+  # Save transformed LAZ files during alignment to disk
+  save_transformed_files: false
+  # Output directory for transformed files; null = auto-generate
+  output_dir: null
+  # Directory for memory-mapped arrays in mosaicking; null = in-memory
+  memmap_dir: null
+
+parallel:
+  # Master switch for CPU parallelization
+  # ENABLED to test parallel performance with large dataset
+  enabled: false
+  # Number of worker processes; null = auto-detect (cpu_count - 1)
+  n_workers: null
+  # Soft memory limit (GB) to guide worker count; null = no limit
+  memory_limit_gb: null

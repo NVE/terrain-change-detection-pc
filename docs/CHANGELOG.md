@@ -1,5 +1,61 @@
 # Changelog and Implementation Notes
 
+## 2025-11-09 — Large Synthetic Dataset for Performance Testing
+
+### Summary
+Created comprehensive large-scale synthetic dataset generation tools to properly test CPU parallelization performance at scale (50M+ points). The dataset includes realistic terrain features and controlled changes without misalignment complexity.
+
+### What Changed
+
+**New Dataset Generation**:
+- Created `scripts/generate_large_synthetic_laz.py`:
+  - Generates 51.2M total points (25.6M per epoch) across 16 tiles
+  - 4×4 km coverage area with 1000m × 1000m tiles
+  - Realistic multi-scale terrain: hills, valleys, ridges, roughness
+  - 6 controlled terrain change features: mounds, pits, landslides, ridges
+  - No misalignment - pure terrain changes for clean testing
+  - Proper Z-range overlap between epochs
+
+**Configuration**:
+- Created `config/profiles/large_synthetic.yaml`:
+  - Optimized for large dataset processing (50M+ points)
+  - Out-of-core and parallel processing enabled
+  - All three detection methods enabled
+  - 50,000 M3C2 core points for comprehensive testing
+  - Alignment disabled (no misalignment in synthetic data)
+
+**Dataset Characteristics**:
+- 16 LAZ tiles per epoch (32 files total)
+- Each tile: ~1.6M points, 1000m × 1000m area
+- Terrain changes: 1.2-3.0m magnitude across 6 locations
+- Z-ranges nearly identical between epochs (terrain changes only)
+- Perfect registration - no ICP alignment needed
+
+### Rationale
+
+Previous benchmarks on ~9M point dataset showed parallelization was slower due to overhead exceeding benefits. This larger dataset (51M points, 16 tiles) provides:
+- Better tile/worker ratio for load balancing
+- More computation per tile to amortize overhead
+- Realistic scale where parallel benefits should materialize
+- Clean test case without alignment complications
+
+### Usage
+
+```bash
+# Generate dataset (one-time setup)
+uv run scripts/generate_large_synthetic_laz.py
+
+# Run workflow with parallel processing
+uv run scripts/run_workflow.py --config config/profiles/large_synthetic.yaml
+```
+
+Expected performance improvements:
+- DoD: 2-3x speedup
+- C2C: 3-5x speedup
+- M3C2: 4-6x speedup
+
+---
+
 ## 2025-11-09 — CPU Parallelization Implementation Complete (Phase 1)
 
 ### Summary
