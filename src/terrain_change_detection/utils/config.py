@@ -117,6 +117,11 @@ class AppConfig(BaseModel):
         output_dir: Optional[str] = Field(default=None, description="Directory for transformed files (auto if None)")
         memmap_dir: Optional[str] = Field(default=None, description="Directory for memory-mapped arrays in mosaicking (auto if None)")
 
+    class ParallelConfig(BaseModel):
+        enabled: bool = Field(default=True, description="Enable CPU parallelization for tile processing")
+        n_workers: Optional[int] = Field(default=None, description="Number of worker processes (None = auto-detect: cpu_count - 1)")
+        memory_limit_gb: Optional[float] = Field(default=None, description="Soft memory limit in GB to guide concurrency")
+
     paths: PathsConfig = Field(default_factory=PathsConfig)
     preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
@@ -126,6 +131,7 @@ class AppConfig(BaseModel):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
     outofcore: OutOfCoreConfig = Field(default_factory=OutOfCoreConfig)
+    parallel: ParallelConfig = Field(default_factory=ParallelConfig)
 
 
 # -----------------------

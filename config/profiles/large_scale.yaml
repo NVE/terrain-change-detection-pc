@@ -53,16 +53,16 @@ detection:
     mode: euclidean
     # Upper bound used by some example flows for sampling/limits
     max_points: 10000
-    # Search radius (m). Required for streaming C2C; null may imply in-memory.
-    max_distance: null
+    # Search radius (m). Required for streaming C2C; set to reasonable max search distance
+    max_distance: 10.0
     # Local modeling parameters (for mode=vertical_plane)
     radius: null
     k_neighbors: 20
     min_neighbors: 6
   m3c2:
-    enabled: false
+    enabled: true
     # Number of core points for M3C2
-    core_points: 20000
+    core_points: 100000
     autotune:
       target_neighbors: 20
       max_depth_factor: 0.6
@@ -91,9 +91,9 @@ outofcore:
   # Master switch for streaming/tiling out-of-core workflows
   enabled: true
   # Inner tile size in meters (processing region per tile)
-  tile_size_m: 1000.0
+  tile_size_m: 500.0
   # Halo width in meters (buffer around each tile to avoid edge effects)
-  halo_m: 50.0
+  halo_m: 30.0
   # Max points per streaming chunk (memory/performance trade-off)
   chunk_points: 2000000
   # Use streaming mode in preprocessing when out-of-core is enabled
@@ -104,3 +104,11 @@ outofcore:
   output_dir: null
   # Directory for memory-mapped arrays in mosaicking; null = in-memory
   memmap_dir: null
+
+parallel:
+  # Master switch for CPU parallelization
+  enabled: true
+  # Number of worker processes; null = auto-detect (cpu_count - 1)
+  n_workers: null
+  # Soft memory limit (GB) to guide worker count; null = no limit
+  memory_limit_gb: null

@@ -1,5 +1,136 @@
 # Changelog and Implementation Notes
 
+## 2025-11-09 — CPU Parallelization Implementation Complete (Phase 1)
+
+### Summary
+Completed CPU parallelization of all three change detection methods (DoD, C2C, M3C2). Implemented tile-level parallel processing infrastructure with comprehensive benchmarking showing the optimization provides infrastructure for larger datasets but has limited benefit at current scale (~9M points).
+
+### What Changed
+
+**Core Parallelization Infrastructure**:
+- Created `src/terrain_change_detection/acceleration/tile_parallel.py`: 
+  - `TileParallelExecutor` class for managing worker pools and tile distribution
+  - Adaptive worker count estimation based on system resources
+  - Progress tracking and error handling for parallel tile processing
+  
+- Created `src/terrain_change_detection/acceleration/tile_workers.py`:
+  - Module-level picklable worker functions (`process_dod_tile`, `process_c2c_tile`, `process_m3c2_tile`)
+  - Handles tile data loading, processing, and result assembly
+  - Proper error handling and empty tile management
+
+**Change Detection Methods - Parallel Variants**:
+- `compute_dod_streaming_files_tiled_parallel()`: Parallel DoD with grid mosaicking
+- `compute_c2c_streaming_files_tiled_parallel()`: Parallel C2C with distance concatenation
+- `compute_m3c2_streaming_files_tiled_parallel()`: Parallel M3C2 with core point distribution
+
+**Workflow Integration**:
+- Updated `scripts/run_workflow.py`: Added parallel routing for all three methods
+- Configuration flag `parallel.enabled` controls sequential vs parallel execution
+- Automatic fallback to sequential on errors
+
+**Bug Fixes**:
+- Fixed M3C2Result dataclass field names: `uncertainties` → `uncertainty` (singular)
+- Added missing `core_points` field to M3C2Result construction
+- Removed invalid `stats` parameter from M3C2Result (moved to metadata)
+- Fixed C2CResult to use individual fields instead of stats dict
+- Corrected streaming API calls with proper `bbox` parameter usage
+
+**Configuration Files**:
+- Created benchmark configs: `bench_{dod,c2c,m3c2}_{seq,par}.yaml`
+- Updated `large_scale.yaml` with parallel settings
+
+**Benchmarking**:
+- Created `scripts/run_benchmark.ps1`: PowerShell script for performance testing
+- Created `BENCHMARK_RESULTS.md`: Comprehensive performance analysis
+- Tested all 6 scenarios (3 methods × 2 modes)
+
+### Performance Results
+
+**Dataset**: eksport_1225654 (~9M points, 12 tiles, 11 workers)
+
+| Method | Sequential | Parallel | Speedup | Status |
+|--------|-----------|----------|---------|---------|
+| DoD    | 77.67s    | 96.37s   | 0.81x   | Slower  |
+| C2C    | 149.09s   | 107.71s  | 1.38x   | Modest  |
+| M3C2   | 117.43s   | 125.97s  | 0.93x   | Slower  |
+
+**Key Finding**: Parallelization overhead (2-5s per run) exceeds benefits for small datasets (<20M points). Fixed costs (alignment ~45s, visualization ~15s) dominate total execution time.
+
+**When Parallelization Helps**:
+- Datasets > 50M points (overhead becomes <5%)
+- Batch processing multiple areas
+- Compute-intensive methods (M3C2-EP)
+- Many tiles (50+) for better load balancing
+
+### Architecture
+
+**Parallel Processing Flow**:
+1. Partition tiles among worker processes
+2. Each worker:
+   - Loads tile data via streaming (inner + halo regions)
+   - Applies transformations
+   - Computes change detection
+   - Returns results
+3. Main process assembles results (grid mosaicking or point concatenation)
+
+**Design Decisions**:
+- **Module-level workers**: Required for pickling with multiprocessing
+- **Streaming per tile**: Memory-efficient, no full dataset loading
+- **Result assembly varies by method**:
+  - DoD: Grid mosaicking with halo blending
+  - C2C: Distance array concatenation
+  - M3C2: Ordered reassembly by core point indices
+
+### Testing
+
+**Validation**:
+- ✅ DoD parallel: 12 tiles in 39.50s
+- ✅ C2C parallel: 9.06M points in 46.72s
+- ✅ M3C2 parallel: 20,000 cores in 46.31s
+- ✅ All methods produce correct results (verified statistics)
+- ✅ Error handling and empty tile management
+
+### Rationale
+
+**Why Implement Despite Current Scale Results**:
+1. **Scalability Foundation**: Infrastructure ready for 100M+ point datasets
+2. **Modular Architecture**: Clean separation of concerns for future optimization
+3. **Batch Processing**: Essential for processing multiple areas
+4. **GPU Preparation**: Parallel tile processing enables GPU acceleration per tile (Phase 2)
+
+**Why Limited Current Benefit**:
+1. Small dataset (12 tiles, ~750K points/tile)
+2. High overhead-to-computation ratio
+3. I/O bandwidth contention with 11 concurrent readers
+4. Fixed costs (alignment, visualization) dominate total time
+
+### Next Steps (Phase 1.3 - Week 3)
+
+**I/O Optimization** (if pursuing larger datasets):
+- Spatial pre-indexing to reduce redundant file reads
+- Lazy tile generation (stream on-demand)
+- Memory-mapped result arrays
+
+**Production Polish** (Week 4):
+- Adaptive worker count based on dataset size
+- Enhanced progress reporting
+- Configuration validation and tuning guide
+
+**Alternative Path** (if staying at current scale):
+- Focus on sequential optimizations
+- Skip to Phase 2 (GPU) only for methods with high per-point cost (M3C2-EP)
+
+### Files Changed
+- `src/terrain_change_detection/acceleration/tile_parallel.py` (new)
+- `src/terrain_change_detection/acceleration/tile_workers.py` (new)
+- `src/terrain_change_detection/detection/change_detection.py` (3 parallel methods added)
+- `scripts/run_workflow.py` (parallel routing added)
+- `scripts/run_benchmark.ps1` (new)
+- `config/profiles/bench_*.yaml` (6 new configs)
+- `BENCHMARK_RESULTS.md` (new)
+
+---
+
 ## 2025-11-09 — Performance Optimization Strategy Reassessment
 
 ### Summary

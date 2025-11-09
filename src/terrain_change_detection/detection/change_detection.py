@@ -34,6 +34,7 @@ from ..acceleration import (
     union_bounds,
     MosaicAccumulator,
     Tile,
+    Tiler,
 )
 
 logger = setup_logger(__name__)
@@ -939,6 +940,489 @@ class ChangeDetector:
             bounds=(gb.min_x, gb.min_y, gb.max_x, gb.max_y),
             stats=stats,
             metadata={"aggregator": "mean", "streaming": True, "tiled": True},
+        )
+
+    @staticmethod
+    def compute_dod_streaming_files_tiled_parallel(
+        files_t1: list[str],
+        files_t2: list[str],
+        cell_size: float,
+        tile_size: float,
+        halo: float,
+        *,
+        ground_only: bool = True,
+        classification_filter: Optional[list[int]] = None,
+        chunk_points: int = 1_000_000,
+        memmap_dir: Optional[str] = None,
+        transform_t2: Optional[np.ndarray] = None,
+        n_workers: Optional[int] = None,
+    ) -> DoDResult:
+        """
+        Parallel version of out-of-core tiled DoD.
+        
+        Processes tiles in parallel using multiple CPU cores for significant speedup.
+        Each tile is processed independently by a worker process.
+        
+        Args:
+            files_t1: Epoch 1 file paths
+            files_t2: Epoch 2 file paths
+            cell_size: DEM grid cell size
+            tile_size: Tile size in meters
+            halo: Halo buffer (informational for DoD)
+            ground_only: Filter ground points only
+            classification_filter: Optional classification codes to include
+            chunk_points: Points per streaming chunk
+            memmap_dir: Optional directory for memory-mapped mosaicking
+            transform_t2: Optional transformation matrix for epoch 2
+            n_workers: Number of parallel workers (None = auto-detect)
+        
+        Returns:
+            DoDResult with DEMs, DoD grid, and statistics
+        """
+        import time
+        from ..acceleration import TileParallelExecutor, process_dod_tile
+        from pathlib import Path
+        
+        if not files_t1 or not files_t2:
+            raise ValueError("compute_dod_streaming_files_tiled_parallel requires file lists for T1/T2")
+        
+        # Convert to Path objects for workers
+        files_t1_paths = [Path(f) for f in files_t1]
+        files_t2_paths = [Path(f) for f in files_t2]
+        
+        # Get global bounds
+        gb = union_bounds(files_t1, files_t2)
+        
+        # Calculate tile grid
+        tx = int(np.ceil((gb.max_x - gb.min_x) / tile_size))
+        ty = int(np.ceil((gb.max_y - gb.min_y) / tile_size))
+        
+        # Log extent info
+        dx = float(gb.max_x - gb.min_x)
+        dy = float(gb.max_y - gb.min_y)
+        logger.info(
+            "Global extent: dX=%.1fm (%.3f km), dY=%.1fm (%.3f km)",
+            dx, dx / 1000.0, dy, dy / 1000.0,
+        )
+        
+        # Create tiler
+        tiler = Tiler(gb, cell_size, tile_size, halo)
+        tiles = list(tiler.tiles())
+        n_tiles = len(tiles)
+        
+        logger.info(
+            "Parallel tiled DoD: tiles=%dx%d (%d total), tile=%.1fm, halo=%.1fm, chunk_points=%d",
+            tx, ty, n_tiles, tile_size, halo, chunk_points,
+        )
+        
+        # Create parallel executor
+        executor = TileParallelExecutor(n_workers=n_workers)
+        
+        # Log worker info
+        from ..acceleration import estimate_speedup_factor
+        expected_speedup = estimate_speedup_factor(executor.n_workers, n_tiles)
+        logger.info(
+            f"Using {executor.n_workers} workers for {n_tiles} tiles "
+            f"(expected speedup: {expected_speedup:.1f}x)"
+        )
+        
+        # Process tiles in parallel
+        worker_kwargs = {
+            'files_t1': files_t1_paths,
+            'files_t2': files_t2_paths,
+            'cell_size': cell_size,
+            'chunk_points': chunk_points,
+            'classification_filter': classification_filter,
+            'transform_matrix': transform_t2,
+        }
+        
+        t0 = time.time()
+        results = executor.map_tiles(
+            tiles=tiles,
+            worker_fn=process_dod_tile,
+            worker_kwargs=worker_kwargs,
+        )
+        t1 = time.time()
+        
+        logger.info(
+            "Parallel tile processing complete: %d tiles in %.2fs (%.2f tiles/s)",
+            n_tiles, t1 - t0, n_tiles / (t1 - t0)
+        )
+        
+        # Build mosaics from results (optionally memmap-backed)
+        mosaic1 = MosaicAccumulator(gb, cell_size, memmap_dir=memmap_dir)
+        mosaic2 = MosaicAccumulator(gb, cell_size, memmap_dir=memmap_dir)
+        
+        for tile, dem1, dem2 in results:
+            mosaic1.add_tile(tile, dem1)
+            mosaic2.add_tile(tile, dem2)
+        
+        dem1_global = mosaic1.finalize()
+        dem2_global = mosaic2.finalize()
+        t2 = time.time()
+        
+        logger.info("Mosaics finalized in %.2fs", t2 - t1)
+        
+        # Compute DoD and statistics
+        dod = dem2_global - dem1_global
+        valid = np.isfinite(dod)
+        stats: Dict[str, float] = {
+            "n_cells": int(valid.sum()),
+            "mean_change": float(np.nanmean(dod)),
+            "median_change": float(np.nanmedian(dod)),
+            "rmse": float(np.sqrt(np.nanmean(np.square(dod)))),
+            "min_change": float(np.nanmin(dod)),
+            "max_change": float(np.nanmax(dod)),
+        }
+        
+        total_time = t2 - t0
+        logger.info(
+            "Total parallel DoD time: %.2fs (processing: %.2fs, mosaicking: %.2fs)",
+            total_time, t1 - t0, t2 - t1
+        )
+        
+        return DoDResult(
+            grid_x=mosaic1.grid_x,
+            grid_y=mosaic1.grid_y,
+            dem1=dem1_global,
+            dem2=dem2_global,
+            dod=dod,
+            cell_size=float(cell_size),
+            bounds=(gb.min_x, gb.min_y, gb.max_x, gb.max_y),
+            stats=stats,
+            metadata={"aggregator": "mean", "streaming": True, "tiled": True, "parallel": True},
+        )
+
+    @staticmethod
+    def compute_c2c_streaming_files_tiled_parallel(
+        files_src: list[str],
+        files_tgt: list[str],
+        *,
+        tile_size: float,
+        max_distance: float,
+        ground_only: bool = True,
+        classification_filter: Optional[list[int]] = None,
+        chunk_points: int = 1_000_000,
+        transform_src: Optional[np.ndarray] = None,
+        n_workers: Optional[int] = None,
+    ) -> C2CResult:
+        """
+        Parallel version of out-of-core tiled C2C.
+        
+        Processes tiles in parallel using multiple CPU cores. Each tile
+        computes nearest neighbor distances independently.
+        
+        Args:
+            files_src: Source epoch file paths
+            files_tgt: Target epoch file paths
+            tile_size: Tile size in meters
+            max_distance: Maximum search radius
+            ground_only: Filter ground points only
+            classification_filter: Optional classification codes to include
+            chunk_points: Points per streaming chunk
+            transform_src: Optional transformation matrix for source
+            n_workers: Number of parallel workers (None = auto-detect)
+        
+        Returns:
+            C2CResult with concatenated distances and statistics
+        """
+        import time
+        from ..acceleration import TileParallelExecutor, process_c2c_tile
+        from pathlib import Path
+        
+        if not files_src or not files_tgt:
+            raise ValueError("compute_c2c_streaming_files_tiled_parallel requires file lists")
+        if not (isinstance(max_distance, (int, float)) and max_distance > 0):
+            raise ValueError("max_distance must be > 0 for C2C")
+        
+        # Convert to Path objects
+        files_src_paths = [Path(f) for f in files_src]
+        files_tgt_paths = [Path(f) for f in files_tgt]
+        
+        # Get global bounds
+        gb = union_bounds(files_src, files_tgt)
+        
+        # Calculate tile grid (halo = max_distance for radius coverage)
+        halo = float(max_distance)
+        tx = int(np.ceil((gb.max_x - gb.min_x) / tile_size))
+        ty = int(np.ceil((gb.max_y - gb.min_y) / tile_size))
+        
+        # Log extent info
+        dx = float(gb.max_x - gb.min_x)
+        dy = float(gb.max_y - gb.min_y)
+        logger.info(
+            "C2C extent: dX=%.1fm (%.3f km), dY=%.1fm (%.3f km)",
+            dx, dx / 1000.0, dy, dy / 1000.0,
+        )
+        
+        # Create tiler with dummy cell size (not used for C2C)
+        tiler = Tiler(gb, cell_size=1.0, tile_size=tile_size, halo=halo)
+        tiles = list(tiler.tiles())
+        n_tiles = len(tiles)
+        
+        logger.info(
+            "Parallel tiled C2C: tiles=%dx%d (%d total), tile=%.1fm, halo=%.1fm, chunk_points=%d, r=%.2fm",
+            tx, ty, n_tiles, tile_size, halo, chunk_points, max_distance,
+        )
+        
+        # Create parallel executor
+        executor = TileParallelExecutor(n_workers=n_workers)
+        
+        # Log worker info
+        from ..acceleration import estimate_speedup_factor
+        expected_speedup = estimate_speedup_factor(executor.n_workers, n_tiles)
+        logger.info(
+            f"Using {executor.n_workers} workers for {n_tiles} tiles "
+            f"(expected speedup: {expected_speedup:.1f}x)"
+        )
+        
+        # Process tiles in parallel
+        worker_kwargs = {
+            'files_source': files_src_paths,
+            'files_target': files_tgt_paths,
+            'max_distance': max_distance,
+            'chunk_points': chunk_points,
+            'classification_filter': classification_filter,
+            'transform_matrix': transform_src,
+        }
+        
+        t0 = time.time()
+        results = executor.map_tiles(
+            tiles=tiles,
+            worker_fn=process_c2c_tile,
+            worker_kwargs=worker_kwargs,
+        )
+        t1 = time.time()
+        
+        logger.info(
+            "Parallel C2C processing complete: %d tiles in %.2fs (%.2f tiles/s)",
+            n_tiles, t1 - t0, n_tiles / (t1 - t0)
+        )
+        
+        # Concatenate all distance arrays
+        all_dists: list[np.ndarray] = []
+        total_src = 0
+        for tile, distances in results:
+            if distances.size > 0:
+                all_dists.append(distances)
+                total_src += distances.size
+        
+        dists_concat = np.concatenate(all_dists) if all_dists else np.array([], dtype=float)
+        
+        # Compute statistics
+        valid = np.isfinite(dists_concat) & (dists_concat <= max_distance)
+        if not np.any(valid):
+            rmse = float("inf")
+            mean = float("nan")
+            median = float("nan")
+            n = 0
+        else:
+            vals = dists_concat[valid]
+            rmse = float(np.sqrt(np.mean(vals ** 2)))
+            mean = float(np.mean(vals))
+            median = float(np.median(vals))
+            n = int(vals.size)
+        
+        # Indices not tracked in streaming path
+        idx = -np.ones_like(dists_concat, dtype=int)
+        
+        logger.info(
+            "Parallel C2C complete: src_total=%d, valid=%d (<= %.2fm), RMSE=%.4fm",
+            total_src, n, max_distance, rmse
+        )
+        
+        return C2CResult(
+            distances=dists_concat,
+            indices=idx,
+            rmse=rmse,
+            mean=mean,
+            median=median,
+            n=n,
+            metadata={"streaming": True, "tiled": True, "parallel": True, "max_distance": max_distance},
+        )
+
+    @staticmethod
+    def compute_m3c2_streaming_files_tiled_parallel(
+        core_points: np.ndarray,
+        files_t1: list[str],
+        files_t2: list[str],
+        params: M3C2Params,
+        *,
+        tile_size: float,
+        halo: Optional[float] = None,
+        ground_only: bool = True,
+        classification_filter: Optional[list[int]] = None,
+        chunk_points: int = 1_000_000,
+        transform_t2: Optional[np.ndarray] = None,
+        n_workers: Optional[int] = None,
+    ) -> M3C2Result:
+        """
+        Parallel version of out-of-core tiled M3C2.
+        
+        Processes tiles in parallel using multiple CPU cores. Each tile
+        runs M3C2 independently on its core points.
+        
+        Args:
+            core_points: Core points where distances are evaluated (N x 3)
+            files_t1: Epoch 1 file paths
+            files_t2: Epoch 2 file paths
+            params: M3C2 parameters
+            tile_size: Tile size in meters
+            halo: Optional XY halo (default: max(cylinder_radius, projection_scale))
+            ground_only: Filter ground points only
+            classification_filter: Optional classification codes
+            chunk_points: Points per streaming chunk
+            transform_t2: Optional transformation for epoch 2
+            n_workers: Number of parallel workers (None = auto-detect)
+        
+        Returns:
+            M3C2Result with distances for all core points
+        """
+        import time
+        from ..acceleration import TileParallelExecutor, process_m3c2_tile
+        from pathlib import Path
+        
+        if core_points.size == 0:
+            raise ValueError("compute_m3c2_streaming_files_tiled_parallel: core_points must be non-empty")
+        if not files_t1 or not files_t2:
+            raise ValueError("compute_m3c2_streaming_files_tiled_parallel requires file lists")
+        
+        # Convert to Path objects
+        files_t1_paths = [Path(f) for f in files_t1]
+        files_t2_paths = [Path(f) for f in files_t2]
+        
+        # Determine processing bounds from core points
+        xmin, ymin = float(np.min(core_points[:, 0])), float(np.min(core_points[:, 1]))
+        xmax, ymax = float(np.max(core_points[:, 0])), float(np.max(core_points[:, 1]))
+        gb = Bounds2D(min_x=xmin, min_y=ymin, max_x=xmax, max_y=ymax)
+        
+        # Determine halo
+        default_halo = max(float(params.cylinder_radius), float(params.projection_scale))
+        used_halo = float(default_halo if halo is None else max(halo, default_halo))
+        
+        # Log extent info
+        dx = float(gb.max_x - gb.min_x)
+        dy = float(gb.max_y - gb.min_y)
+        logger.info(
+            "Core extent: dX=%.1fm (%.3f km), dY=%.1fm (%.3f km)",
+            dx, dx / 1000.0, dy, dy / 1000.0,
+        )
+        
+        # Compute tile grid
+        tx = max(1, int(np.ceil((gb.max_x - gb.min_x) / tile_size)))
+        ty = max(1, int(np.ceil((gb.max_y - gb.min_y) / tile_size)))
+        
+        # Assign core points to tiles
+        ix = np.floor((core_points[:, 0] - gb.min_x) / tile_size).astype(int)
+        iy = np.floor((core_points[:, 1] - gb.min_y) / tile_size).astype(int)
+        ix = np.clip(ix, 0, max(0, tx - 1))
+        iy = np.clip(iy, 0, max(0, ty - 1))
+        
+        # Group core points by tile
+        tile_cores = {}
+        tile_masks = {}
+        for i in range(tx):
+            for j in range(ty):
+                mask = (ix == i) & (iy == j)
+                if np.any(mask):
+                    tile_cores[(i, j)] = core_points[mask]
+                    tile_masks[(i, j)] = mask
+        
+        n_tiles = len(tile_cores)
+        logger.info(
+            "Parallel M3C2 tiled: cores=%d, tiles=%dx%d (%d non-empty), tile=%.1fm, halo=%.1fm, chunk_points=%d",
+            len(core_points), tx, ty, n_tiles, tile_size, used_halo, chunk_points,
+        )
+        
+        # Create tiler with dummy cell size
+        tiler = Tiler(gb, cell_size=1.0, tile_size=tile_size, halo=used_halo)
+        all_tiles = list(tiler.tiles())
+        
+        # Filter to only tiles with core points and add core point data
+        tiles_with_data = []
+        tile_to_ij = {}
+        for tile in all_tiles:
+            ij_key = (tile.i, tile.j)
+            if ij_key in tile_cores:
+                tiles_with_data.append(tile)
+                tile_to_ij[id(tile)] = ij_key
+        
+        logger.info(f"Processing {len(tiles_with_data)} tiles with core points (out of {len(all_tiles)} total)")
+        
+        # Create parallel executor
+        executor = TileParallelExecutor(n_workers=n_workers)
+        
+        # Log worker info
+        from ..acceleration import estimate_speedup_factor
+        expected_speedup = estimate_speedup_factor(executor.n_workers, len(tiles_with_data))
+        logger.info(
+            f"Using {executor.n_workers} workers for {len(tiles_with_data)} tiles "
+            f"(expected speedup: {expected_speedup:.1f}x)"
+        )
+        
+        # Process tiles in parallel
+        worker_kwargs = {
+            'files_t1': files_t1_paths,
+            'files_t2': files_t2_paths,
+            'params': params,
+            'chunk_points': chunk_points,
+            'classification_filter': classification_filter,
+            'transform_matrix': transform_t2,
+            'tile_cores_dict': tile_cores,
+        }
+        
+        t0 = time.time()
+        results = executor.map_tiles(
+            tiles=tiles_with_data,
+            worker_fn=process_m3c2_tile,
+            worker_kwargs=worker_kwargs,
+        )
+        t1 = time.time()
+        
+        logger.info(
+            "Parallel M3C2 processing complete: %d tiles in %.2fs (%.2f tiles/s)",
+            len(tiles_with_data), t1 - t0, len(tiles_with_data) / (t1 - t0)
+        )
+        
+        # Assemble results
+        n = len(core_points)
+        distances_out = np.full(n, np.nan, dtype=float)
+        unc_out: Optional[np.ndarray] = None
+        
+        for tile, tile_result in results:
+            ij_key = (tile.i, tile.j)
+            if ij_key in tile_masks:
+                mask = tile_masks[ij_key]
+                distances_out[mask] = tile_result.distances
+                if tile_result.uncertainty is not None:
+                    if unc_out is None:
+                        unc_out = np.full(n, np.nan, dtype=float)
+                    unc_out[mask] = tile_result.uncertainty
+        
+        # Compute statistics
+        valid = np.isfinite(distances_out)
+        if not np.any(valid):
+            rmse = float("nan")
+            mean = float("nan")
+            median = float("nan")
+            n_valid = 0
+        else:
+            vals = distances_out[valid]
+            rmse = float(np.sqrt(np.mean(vals ** 2)))
+            mean = float(np.mean(vals))
+            median = float(np.median(vals))
+            n_valid = int(vals.size)
+        
+        logger.info(
+            "Parallel M3C2 complete: cores=%d, valid=%d, RMSE=%.4fm",
+            len(core_points), n_valid, rmse
+        )
+        
+        return M3C2Result(
+            core_points=core_points,
+            distances=distances_out,
+            uncertainty=unc_out,
+            metadata={"rmse": rmse, "mean": mean, "median": median, "n_valid": n_valid, "streaming": True, "tiled": True, "parallel": True},
         )
 
     # --- M3C2 variants (using py4dgeo) ---

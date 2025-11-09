@@ -94,3 +94,12 @@ outofcore:
   output_dir: null
   # Directory for memory-mapped arrays in mosaicking; null = in-memory
   memmap_dir: null
+
+parallel:
+  # Master switch for CPU parallelization
+  # Disabled by default for small synthetic datasets (overhead not worth it)
+  enabled: false
+  # Number of worker processes; null = auto-detect (cpu_count - 1)
+  n_workers: null
+  # Soft memory limit (GB) to guide worker count; null = no limit
+  memory_limit_gb: null

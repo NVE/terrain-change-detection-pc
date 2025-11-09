@@ -397,17 +397,34 @@ def main():
                     logger.info(f"Tile size: {cfg.outofcore.tile_size_m}m, Halo: {cfg.outofcore.halo_m}m")
 
                     try:
-                        dod_res = ChangeDetector.compute_dod_streaming_files_tiled(
-                            files_t1=files_t1,
-                            files_t2=files_t2,
-                            cell_size=cfg.detection.dod.cell_size,
-                            tile_size=cfg.outofcore.tile_size_m,
-                            halo=cfg.outofcore.halo_m,
-                            ground_only=cfg.preprocessing.ground_only,
-                            classification_filter=cfg.preprocessing.classification_filter,
-                            chunk_points=cfg.outofcore.chunk_points,
-                            transform_t2=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
-                        )
+                        # Choose parallel or sequential based on config
+                        if cfg.parallel.enabled:
+                            logger.info(f"Using PARALLEL tile processing (workers={cfg.parallel.n_workers or 'auto'})")
+                            dod_res = ChangeDetector.compute_dod_streaming_files_tiled_parallel(
+                                files_t1=files_t1,
+                                files_t2=files_t2,
+                                cell_size=cfg.detection.dod.cell_size,
+                                tile_size=cfg.outofcore.tile_size_m,
+                                halo=cfg.outofcore.halo_m,
+                                ground_only=cfg.preprocessing.ground_only,
+                                classification_filter=cfg.preprocessing.classification_filter,
+                                chunk_points=cfg.outofcore.chunk_points,
+                                transform_t2=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
+                                n_workers=cfg.parallel.n_workers,
+                            )
+                        else:
+                            logger.info("Using SEQUENTIAL tile processing")
+                            dod_res = ChangeDetector.compute_dod_streaming_files_tiled(
+                                files_t1=files_t1,
+                                files_t2=files_t2,
+                                cell_size=cfg.detection.dod.cell_size,
+                                tile_size=cfg.outofcore.tile_size_m,
+                                halo=cfg.outofcore.halo_m,
+                                ground_only=cfg.preprocessing.ground_only,
+                                classification_filter=cfg.preprocessing.classification_filter,
+                                chunk_points=cfg.outofcore.chunk_points,
+                                transform_t2=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
+                            )
                     except Exception as stream_error:
                         logger.error(f"Streaming DoD failed: {stream_error}")
                         logger.info("Falling back to in-memory DoD computation...")
@@ -454,19 +471,36 @@ def main():
                 if use_streaming_c2c:
                     files_src = pc2_data.get('aligned_file_paths') or pc2_data['file_paths']
                     files_tgt = pc1_data['file_paths']
-                    logger.info("Using streaming tiled C2C...")
-                    if getattr(cfg.detection.c2c, 'mode', 'euclidean') != 'euclidean':
-                        logger.warning("C2C mode '%s' not supported in streaming; falling back to euclidean distances.", cfg.detection.c2c.mode)
-                    c2c_res = ChangeDetector.compute_c2c_streaming_files_tiled(
-                        files_src=files_src,
-                        files_tgt=files_tgt,
-                        tile_size=cfg.outofcore.tile_size_m,
-                        max_distance=float(cfg.detection.c2c.max_distance),
-                        ground_only=cfg.preprocessing.ground_only,
-                        classification_filter=cfg.preprocessing.classification_filter,
-                        chunk_points=cfg.outofcore.chunk_points,
-                        transform_src=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
-                    )
+                    
+                    # Check if parallel processing is enabled
+                    use_parallel = getattr(cfg.parallel, 'enabled', False)
+                    if use_parallel:
+                        logger.info("Using PARALLEL streaming tiled C2C...")
+                        c2c_res = ChangeDetector.compute_c2c_streaming_files_tiled_parallel(
+                            files_src=files_src,
+                            files_tgt=files_tgt,
+                            tile_size=cfg.outofcore.tile_size_m,
+                            max_distance=float(cfg.detection.c2c.max_distance),
+                            ground_only=cfg.preprocessing.ground_only,
+                            classification_filter=cfg.preprocessing.classification_filter,
+                            chunk_points=cfg.outofcore.chunk_points,
+                            transform_src=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
+                            n_workers=None,  # auto-detect
+                        )
+                    else:
+                        logger.info("Using streaming tiled C2C...")
+                        if getattr(cfg.detection.c2c, 'mode', 'euclidean') != 'euclidean':
+                            logger.warning("C2C mode '%s' not supported in streaming; falling back to euclidean distances.", cfg.detection.c2c.mode)
+                        c2c_res = ChangeDetector.compute_c2c_streaming_files_tiled(
+                            files_src=files_src,
+                            files_tgt=files_tgt,
+                            tile_size=cfg.outofcore.tile_size_m,
+                            max_distance=float(cfg.detection.c2c.max_distance),
+                            ground_only=cfg.preprocessing.ground_only,
+                            classification_filter=cfg.preprocessing.classification_filter,
+                            chunk_points=cfg.outofcore.chunk_points,
+                            transform_src=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
+                        )
                     # 3D scatter not supported in streaming; fallback to histogram if plotly
                     try:
                         if cfg.visualization.backend == 'plotly':
@@ -558,22 +592,43 @@ def main():
                 if use_streaming_m3c2:
                     files_t1 = pc1_data['file_paths']
                     files_t2 = pc2_data.get('aligned_file_paths') or pc2_data['file_paths']
-                    logger.info("Using streaming tiled M3C2...")
+                    
+                    # Check if parallel processing is enabled
+                    use_parallel = getattr(cfg.parallel, 'enabled', False)
+                    if use_parallel:
+                        logger.info("Using PARALLEL streaming tiled M3C2...")
+                    else:
+                        logger.info("Using streaming tiled M3C2...")
                     logger.info(f"T1 files: {files_t1}")
                     logger.info(f"T2 files: {files_t2}")
                     try:
-                        m3c2_res = ChangeDetector.compute_m3c2_streaming_files_tiled(
-                            core_points=core_src,
-                            files_t1=files_t1,
-                            files_t2=files_t2,
-                            params=m3c2_params,
-                            tile_size=cfg.outofcore.tile_size_m,
-                            halo=None,
-                            ground_only=cfg.preprocessing.ground_only,
-                            classification_filter=cfg.preprocessing.classification_filter,
-                            chunk_points=cfg.outofcore.chunk_points,
-                            transform_t2=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
-                        )
+                        if use_parallel:
+                            m3c2_res = ChangeDetector.compute_m3c2_streaming_files_tiled_parallel(
+                                core_points=core_src,
+                                files_t1=files_t1,
+                                files_t2=files_t2,
+                                params=m3c2_params,
+                                tile_size=cfg.outofcore.tile_size_m,
+                                halo=None,
+                                ground_only=cfg.preprocessing.ground_only,
+                                classification_filter=cfg.preprocessing.classification_filter,
+                                chunk_points=cfg.outofcore.chunk_points,
+                                transform_t2=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
+                                n_workers=None,  # auto-detect
+                            )
+                        else:
+                            m3c2_res = ChangeDetector.compute_m3c2_streaming_files_tiled(
+                                core_points=core_src,
+                                files_t1=files_t1,
+                                files_t2=files_t2,
+                                params=m3c2_params,
+                                tile_size=cfg.outofcore.tile_size_m,
+                                halo=None,
+                                ground_only=cfg.preprocessing.ground_only,
+                                classification_filter=cfg.preprocessing.classification_filter,
+                                chunk_points=cfg.outofcore.chunk_points,
+                                transform_t2=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
+                            )
                     except Exception as stream_err:
                         logger.error(f"Streaming M3C2 failed: {stream_err}")
                         logger.info("Falling back to in-memory M3C2 (Original)...")
