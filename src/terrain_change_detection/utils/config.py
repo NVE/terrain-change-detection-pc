@@ -113,8 +113,9 @@ class AppConfig(BaseModel):
         halo_m: float = Field(default=20.0, description="Halo/buffer width around tiles in meters")
         chunk_points: int = Field(default=1_000_000, description="Number of points per chunk for streaming")
         streaming_mode: bool = Field(default=True, description="Use streaming for preprocessing when enabled")
-        save_transformed_files: bool = Field(default=True, description="Save transformed LAZ files during alignment")
+        save_transformed_files: bool = Field(default=False, description="Save transformed LAZ files during alignment")
         output_dir: Optional[str] = Field(default=None, description="Directory for transformed files (auto if None)")
+        memmap_dir: Optional[str] = Field(default=None, description="Directory for memory-mapped arrays in mosaicking (auto if None)")
 
     paths: PathsConfig = Field(default_factory=PathsConfig)
     preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)

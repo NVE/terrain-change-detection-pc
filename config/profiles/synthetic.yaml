@@ -92,3 +92,5 @@ outofcore:
   save_transformed_files: false
   # Output directory for transformed files; null = auto-generate
   output_dir: null
+  # Directory for memory-mapped arrays in mosaicking; null = in-memory
+  memmap_dir: null

@@ -99,6 +99,8 @@ outofcore:
   # Use streaming mode in preprocessing when out-of-core is enabled
   streaming_mode: true
   # Save transformed LAZ files during alignment to disk
-  save_transformed_files: true
+  save_transformed_files: false
   # Output directory for transformed files; null = auto-generate
-  output_dir: data/processed
+  output_dir: null
+  # Directory for memory-mapped arrays in mosaicking; null = in-memory
+  memmap_dir: null

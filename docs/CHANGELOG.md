@@ -1,5 +1,24 @@
 # Changelog and Implementation Notes
 
+## 2025-11-09 — Config Schema Completion
+
+### Summary
+Finalized out-of-core configuration schema with missing fields for production readiness.
+
+### Changes
+- **Config Schema Updates**:
+  - Changed `save_transformed_files` default from `true` to `false` for more conservative behavior (opt-in file writing).
+  - Added `memmap_dir` field to `OutOfCoreConfig` for optional memory-mapped array backing in mosaicking operations.
+  - Updated all config profiles (`default.yaml`, `large_scale.yaml`, `synthetic.yaml`) with complete outofcore section.
+- **Documentation**: Updated root `CHANGELOG.md` with comprehensive out-of-core feature summary.
+
+### Why It Matters
+- `save_transformed_files: false` prevents unintended disk usage; users must explicitly enable transformed file output.
+- `memmap_dir` provides escape hatch for very large mosaicking operations that exceed available RAM.
+- Config schema is now complete and production-ready for merge.
+
+---
+
 ## 2025-11-06 — Out-of-Core Reliability & UX
 
 Summary
