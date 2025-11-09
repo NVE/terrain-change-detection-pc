@@ -4,34 +4,63 @@
 # and sampling sizes are smaller for faster iteration.
 
 paths:
-  # Root folder containing your synthetic datasets
+  # Root folder containing your datasets
   base_dir: data/synthetic
 
+preprocessing:
+  # If true, keep only LAS class 2 (ground) unless classification_filter is set
+  ground_only: true
+  # Optional list of LAS classification codes to include; overrides ground_only
+  classification_filter: [2]
+
+discovery:
+  # Subdirectory names used when discovering datasets under base_dir
+  data_dir_name: data
+  metadata_dir_name: metadata
+
 visualization:
+  # plotly | pyvista | pyvistaqt
   backend: plotly
-  # Fewer points for faster local visualization
+  # Max points to draw for interactive views
   sample_size: 20000
 
 alignment:
+  # ICP/registration parameters
   max_iterations: 80
   tolerance: 1.0e-6
   max_correspondence_distance: 1.0
-  # Fewer samples for speed
+  # Number of points sampled per epoch for alignment (approx.)
   subsample_size: 30000
   coarse:
     enabled: true
+    # Coarse alignment method: centroid | pca | phase | open3d_fpfh | none
     method: phase
+    # Voxel size (m) for coarse features/downsampling
     voxel_size: 2.0
+    # Cell size (m) for phase correlation grid
     phase_grid_cell: 2.0
 
 detection:
   dod:
+    enabled: false
+    # DEM grid resolution in meters
     cell_size: 1.0
+    # Aggregation for per-cell elevation: mean | median | p95 | p5
     aggregator: mean
   c2c:
+    enabled: true
+    # Algorithm: euclidean | vertical_plane
+    mode: vertical_plane
     # Lower point budget for quick C2C tests
     max_points: 8000
+    # Search radius (m). Required for streaming C2C; null may imply in-memory.
+    max_distance: null
+    # Local modeling parameters (for mode=vertical_plane)
+    radius: 2.0
+    k_neighbors: 20
+    min_neighbors: 6
   m3c2:
+    enabled: false
     # Fewer core points for fast runs
     core_points: 8000
     autotune:
@@ -40,22 +69,26 @@ detection:
       min_radius: 1.0
       max_radius: 20.0
     ep:
-      # Null = OS default worker configuration
+      # Number of worker processes/threads; null = OS default
       workers: null
 
 logging:
   level: INFO
+  # Path to log file; null = stdout only
+  file: null
 
 outofcore:
-  # Out-of-core disabled for small datasets
+  # Master switch for streaming/tiling out-of-core workflows
   enabled: false
-  # Smaller tiles if enabled
+  # Inner tile size in meters (processing region per tile)
   tile_size_m: 300.0
-  # Halo (m) around tiles
+  # Halo width in meters (buffer around each tile to avoid edge effects)
   halo_m: 20.0
-  # Small streaming chunks for quick tests
+  # Max points per streaming chunk (memory/performance trade-off)
   chunk_points: 20000
+  # Use streaming mode in preprocessing when out-of-core is enabled
   streaming_mode: true
-  # Smaller datasets don't need file transforms
+  # Save transformed LAZ files during alignment to disk
   save_transformed_files: false
+  # Output directory for transformed files; null = auto-generate
   output_dir: null

@@ -48,13 +48,23 @@ class AlignmentICPConfig(BaseModel):
 
 
 class DetectionDoDConfig(BaseModel):
+    enabled: bool = Field(default=True)
     cell_size: float = Field(default=1.0)
     aggregator: Literal["mean", "median", "p95", "p5"] = Field(default="mean")
 
 
 class DetectionC2CConfig(BaseModel):
+    enabled: bool = Field(default=True)
+    # Algorithm mode: 'euclidean' uses nearest-neighbor 3D distances;
+    # 'vertical_plane' fits a local plane in the target and measures vertical offset.
+    mode: Literal["euclidean", "vertical_plane"] = Field(default="euclidean")
     max_points: int = Field(default=10000)
+    # For streaming C2C, a finite max_distance is required
     max_distance: Optional[float] = Field(default=None)
+    # Local modeling parameters (used when mode='vertical_plane')
+    radius: Optional[float] = Field(default=None, description="Search radius (m) for local plane fit")
+    k_neighbors: int = Field(default=20, description="If radius is None, use k-NN for local plane fit")
+    min_neighbors: int = Field(default=6, description="Minimum neighbors required to fit a plane")
 
 
 class DetectionM3C2AutotuneConfig(BaseModel):
@@ -70,6 +80,7 @@ class DetectionM3C2EPConfig(BaseModel):
 
 
 class DetectionM3C2Config(BaseModel):
+    enabled: bool = Field(default=True)
     core_points: int = Field(default=10000)
     autotune: DetectionM3C2AutotuneConfig = Field(default_factory=DetectionM3C2AutotuneConfig)
     ep: DetectionM3C2EPConfig = Field(default_factory=DetectionM3C2EPConfig)

@@ -137,6 +137,14 @@ class PointCloudVisualizer:
         )
         plotter.show()
 
+    def visualize_c2c_points(self, source_points: np.ndarray, distances: np.ndarray, sample_size: Optional[int] = None, title: str = "C2C distances"):
+        """
+        Visualize C2C per-point distances by coloring the source points.
+
+        Reuses the same rendering as M3C2 core points visualization.
+        """
+        return self.visualize_m3c2_corepoints(source_points, distances, sample_size=sample_size, title=title)
+
     # ----------------- Internal helpers -----------------
     def _downsample(self, point_cloud: np.ndarray, sample_size: int) -> np.ndarray:
         if sample_size >= len(point_cloud):

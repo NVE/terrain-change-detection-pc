@@ -333,6 +333,153 @@ class ChangeDetector:
             metadata={"max_distance": max_distance},
         )
 
+    @staticmethod
+    def compute_c2c_vertical_plane(
+        source: np.ndarray,
+        target: np.ndarray,
+        *,
+        radius: Optional[float] = None,
+        k_neighbors: int = 20,
+        min_neighbors: int = 6,
+    ) -> C2CResult:
+        """
+        Compute per-point signed vertical distances from the source cloud to a local plane
+        fitted on the target cloud around each source point.
+
+        This emulates CloudCompare's "C2C with local modeling" but measures the vertical
+        offset (along Z) to the locally fitted plane, which is often more meaningful for
+        terrain.
+
+        Args:
+            source: Source point cloud (N x 3)
+            target: Target point cloud (M x 3)
+            radius: If provided, use radius-neighborhoods; otherwise use k-NN
+            k_neighbors: Number of neighbors when radius is None
+            min_neighbors: Minimum neighbors required to fit a plane; otherwise fallback
+
+        Returns:
+            C2CResult with signed distances (positive up), indices of nearest NN for bookkeeping,
+            and summary stats.
+        """
+        if source.size == 0 or target.size == 0:
+            raise ValueError("Input point arrays must be non-empty.")
+
+        try:
+            from sklearn.neighbors import NearestNeighbors  # type: ignore
+        except Exception as e:  # pragma: no cover - dependency optional
+            raise ImportError(
+                "compute_c2c_vertical_plane requires scikit-learn. Add 'scikit-learn' to dependencies."
+            ) from e
+
+        # Build neighbor structure on target
+        if radius is not None and radius > 0:
+            nbrs = NearestNeighbors(radius=radius, algorithm="kd_tree")
+            nbrs.fit(target)
+            # Precompute nearest neighbor as fallback/index provider
+            nn1 = NearestNeighbors(n_neighbors=1, algorithm="kd_tree")
+            nn1.fit(target)
+            nn_dist, nn_idx = nn1.kneighbors(source)
+            nearest_idx = nn_idx.flatten()
+        else:
+            nbrs = NearestNeighbors(n_neighbors=max(1, int(k_neighbors)), algorithm="kd_tree")
+            nbrs.fit(target)
+            idx_matrix = nbrs.kneighbors(source, return_distance=False)
+            nearest_idx = idx_matrix[:, 0].astype(int)
+
+        N = len(source)
+        out = np.full(N, np.nan, dtype=float)
+        indices = np.full(N, -1, dtype=int)
+
+        if radius is not None and radius > 0:
+            ind_lists = nbrs.radius_neighbors(source, radius=radius, return_distance=False)
+            # Use precomputed nearest NN for indices
+            for i in range(N):
+                idxs = ind_lists[i]
+                if idxs is None or len(idxs) < max(3, min_neighbors):
+                    # Fallback: vertical difference to nearest neighbor
+                    j = int(nearest_idx[i])
+                    indices[i] = j
+                    out[i] = float(source[i, 2] - target[j, 2])
+                    continue
+                P = target[np.asarray(idxs, dtype=int)]
+                c = P.mean(axis=0)
+                Q = P - c
+                # SVD for plane normal (least-squares fit)
+                try:
+                    _, _, Vt = np.linalg.svd(Q, full_matrices=False)
+                    n = Vt[-1]
+                except Exception:
+                    j = int(nearest_idx[i])
+                    indices[i] = j
+                    out[i] = float(source[i, 2] - target[j, 2])
+                    continue
+
+                # Predict plane Z at source XY; handle near-vertical normals
+                if abs(n[2]) < 1e-8:
+                    j = int(nearest_idx[i])
+                    indices[i] = j
+                    out[i] = float(source[i, 2] - target[j, 2])
+                    continue
+
+                x, y, z = source[i]
+                z_plane = c[2] - (n[0] * (x - c[0]) + n[1] * (y - c[1])) / n[2]
+                out[i] = float(z - z_plane)
+                # Keep nearest neighbor index for bookkeeping/coloring fallback
+                indices[i] = int(nearest_idx[i])
+        else:
+            # k-NN neighborhoods for all points
+            idx_matrix = nbrs.kneighbors(source, return_distance=False)
+            for i in range(N):
+                idxs = idx_matrix[i]
+                if idxs is None or len(idxs) < max(3, min_neighbors):
+                    j = int(idxs[0])
+                    indices[i] = j
+                    out[i] = float(source[i, 2] - target[j, 2])
+                    continue
+                P = target[np.asarray(idxs, dtype=int)]
+                c = P.mean(axis=0)
+                Q = P - c
+                try:
+                    _, _, Vt = np.linalg.svd(Q, full_matrices=False)
+                    n = Vt[-1]
+                except Exception:
+                    j = int(idxs[0])
+                    indices[i] = j
+                    out[i] = float(source[i, 2] - target[j, 2])
+                    continue
+                if abs(n[2]) < 1e-8:
+                    j = int(idxs[0])
+                    indices[i] = j
+                    out[i] = float(source[i, 2] - target[j, 2])
+                    continue
+                x, y, z = source[i]
+                z_plane = c[2] - (n[0] * (x - c[0]) + n[1] * (y - c[1])) / n[2]
+                out[i] = float(z - z_plane)
+                indices[i] = int(idxs[0])
+
+        # Stats (signed distances)
+        valid = np.isfinite(out)
+        if not np.any(valid):
+            rmse = float("inf")
+            mean = float("nan")
+            median = float("nan")
+            n = 0
+        else:
+            rmse = float(np.sqrt(np.mean(np.square(out[valid]))))
+            mean = float(np.mean(out[valid]))
+            median = float(np.median(out[valid]))
+            n = int(np.count_nonzero(valid))
+
+        return C2CResult(
+            distances=out,
+            indices=indices,
+            rmse=rmse,
+            mean=mean,
+            median=median,
+            n=n,
+            metadata={"mode": "vertical_plane", "radius": radius, "k_neighbors": k_neighbors, "min_neighbors": min_neighbors},
+        )
+
     # --- Streaming C2C from files (tiled) ---
     @staticmethod
     def compute_c2c_streaming_files_tiled(

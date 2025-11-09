@@ -5,7 +5,7 @@
 # enable the outofcore section here.
 
 paths:
-  # Root folder containing your raw datasets
+  # Root folder containing your datasets
   base_dir: data/raw
 
 preprocessing:
@@ -37,16 +37,25 @@ alignment:
 
 detection:
   dod:
+    enabled: false
     # DEM grid resolution in meters
     cell_size: 1.0
     # Aggregation for per-cell elevation: mean | median | p95 | p5
     aggregator: mean
   c2c:
+    enabled: false
+    # Algorithm: euclidean | vertical_plane
+    mode: euclidean
     # Upper bound used by some example flows for sampling/limits
     max_points: 10000
     # Search radius (m). Required for streaming C2C; null may imply in-memory.
     max_distance: null
+    # Local modeling parameters (for mode=vertical_plane)
+    radius: null
+    k_neighbors: 20
+    min_neighbors: 6
   m3c2:
+    enabled: false
     # Number of core points at which to compute M3C2 distances
     core_points: 10000
     autotune:

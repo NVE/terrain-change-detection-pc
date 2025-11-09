@@ -7,10 +7,10 @@
 # - File-based alignment transformations
 # - Memory-efficient workflows
 #
-# Usage: run_workflow.py --config config/profiles/large_scale.yaml
+# Usage: uv run scripts/run_workflow.py --config config/profiles/large_scale.yaml
 
 paths:
-  # Root folder containing your raw datasets
+  # Root folder containing your datasets
   base_dir: data/raw
 
 preprocessing:
@@ -20,35 +20,47 @@ preprocessing:
   classification_filter: [2]
 
 discovery:
+  # Subdirectory names used when discovering datasets under base_dir
   data_dir_name: data
   metadata_dir_name: metadata
 
 alignment:
+  # ICP/registration parameters
   max_iterations: 100
   tolerance: 1.0e-6
-  # Slightly larger for coarser/large-area data
   max_correspondence_distance: 2.0
-  # Larger sample for better alignment on large datasets
+  # Number of points sampled per epoch for alignment (approx.)
   subsample_size: 100000
   coarse:
     enabled: true
-    # Phase correlation works well for large areas
+    # Coarse alignment method: centroid | pca | phase | open3d_fpfh | none
     method: phase
-    # Coarser voxels for large-scale data
+    # Voxel size (m) for coarse features/downsampling
     voxel_size: 5.0
+    # Cell size (m) for phase correlation grid
     phase_grid_cell: 5.0
 
 detection:
   dod:
-    # Coarser grid for large-scale analysis
+    enabled: false
+    # DEM grid resolution in meters
     cell_size: 2.0
+    # Aggregation for per-cell elevation: mean | median | p95 | p5
     aggregator: mean
   c2c:
-    # More points for better statistics (sampling/limits in examples)
-    max_points: 50000
-    # Search radius (m). Required for streaming C2C.
-    max_distance: 10
+    enabled: false
+    # Algorithm: euclidean | vertical_plane
+    mode: euclidean
+    # Upper bound used by some example flows for sampling/limits
+    max_points: 10000
+    # Search radius (m). Required for streaming C2C; null may imply in-memory.
+    max_distance: null
+    # Local modeling parameters (for mode=vertical_plane)
+    radius: null
+    k_neighbors: 20
+    min_neighbors: 6
   m3c2:
+    enabled: false
     # Number of core points for M3C2
     core_points: 20000
     autotune:
@@ -57,35 +69,36 @@ detection:
       min_radius: 2.0
       max_radius: 30.0
     ep:
-      # Null = OS default worker configuration
+      # Number of worker processes/threads; null = OS default
       workers: null
 
 visualization:
+  # plotly | pyvista | pyvistaqt
   backend: plotly
-  # Larger sample for visualization
+  # Max points to draw for interactive views
   sample_size: 100000
 
 logging:
   level: INFO
+  # Path to log file; null = stdout only
   file: logs/large_scale_processing.log
 
 performance:
   # Set to an integer to pin NumPy threads; 'auto' lets NumPy decide
   numpy_threads: auto
 
-# Out-of-core processing configuration (ENABLED)
 outofcore:
-  # Enable streaming/tiling
+  # Master switch for streaming/tiling out-of-core workflows
   enabled: true
-  # 1 km inner tile size
+  # Inner tile size in meters (processing region per tile)
   tile_size_m: 1000.0
-  # Halo (m) around each tile to avoid edge effects
+  # Halo width in meters (buffer around each tile to avoid edge effects)
   halo_m: 50.0
-  # 2M points per streaming chunk (memory/perf trade-off)
+  # Max points per streaming chunk (memory/performance trade-off)
   chunk_points: 2000000
-  # Use streaming for preprocessing
+  # Use streaming mode in preprocessing when out-of-core is enabled
   streaming_mode: true
-  # Save transformed LAZ files to disk
+  # Save transformed LAZ files during alignment to disk
   save_transformed_files: true
-  # Where to save transformed files
+  # Output directory for transformed files; null = auto-generate
   output_dir: data/processed
