@@ -1,5 +1,84 @@
 # Changelog and Implementation Notes
 
+## 2025-11-09 — Performance Optimization Strategy Reassessment
+
+### Summary
+Reassessed performance optimization approach based on completed out-of-core tiling infrastructure. Created new two-phase implementation plan: CPU parallelization first, then GPU acceleration.
+
+### What Changed
+**Branch Synchronization**:
+- Merged `feat/outofcore-tiling` into `feat/gpu-acceleration` branch (19 commits)
+- Now have complete tiling infrastructure as foundation for optimization
+
+**Documentation Reorganization**:
+- Archived outdated planning documents to `docs/archive/`:
+  - `REVISED_PLAN.md` (pre-tiling assessment)
+  - `PERFORMANCE_OPTIMIZATION_PLAN.md` (assumed no tiling existed)
+  - `GPU_IMPLEMENTATION_GUIDE.md` (premature GPU focus)
+  - `OPTIMIZATION_SUMMARY.md` (outdated analysis)
+  - `ROADMAP.md` (old roadmap)
+  - `QUICK_REFERENCE.md` (old reference)
+
+**New Planning Documents**:
+- Created `PARALLELIZATION_PLAN.md`: Comprehensive Phase 1 plan for CPU parallelization
+  - 4-week implementation plan
+  - Tile-level multiprocessing using existing tiling infrastructure
+  - Target: 6-12x speedup on typical hardware
+  - Detailed implementation tasks, code examples, testing strategy
+  
+- Created `GPU_ACCELERATION_PLAN.md`: Phase 2 plan for GPU acceleration
+  - 5-week implementation plan (after Phase 1 complete)
+  - Operation-level GPU acceleration (NN searches, grid ops)
+  - Target: Additional 5-15x speedup (30-50x total)
+  - CuPy/cuML/Numba technology stack
+  
+- Created `ROADMAP.md`: High-level timeline and strategy overview
+  - Two-phase approach with clear milestones
+  - Performance targets per phase
+  - Hardware requirements
+  - Risk management and success criteria
+
+### Rationale
+
+**Why Two Phases**:
+1. **Foundation First**: Out-of-core tiling creates naturally independent units of work (tiles) perfect for parallelization
+2. **Lower Complexity**: CPU parallelization is simpler, more portable, and delivers significant gains (6-12x)
+3. **Compounding Benefits**: Parallel CPU workers + GPU acceleration = multiplicative speedup (30-180x total)
+4. **Risk Mitigation**: Validate parallel architecture before adding GPU complexity
+
+**Key Insight**: The sequential tile processing loop is the primary bottleneck. On 8-core machines, we're using only 12-15% of CPU capacity. Parallelization is the highest-priority, lowest-risk optimization.
+
+**Why Not GPU First**:
+- GPU acceleration is more complex (memory management, CUDA, driver issues)
+- GPU benefits are largest for operations within tiles (NN searches, grid ops)
+- Better to parallelize tiles first, then accelerate per-tile operations
+- Phase 1 delivers substantial value quickly; Phase 2 builds on stable foundation
+
+### Implementation Status
+- **Phase 1** (CPU Parallelization): Ready to begin Week 1
+  - Target: Parallel tile processing for DoD, C2C, M3C2
+  - Infrastructure: `parallel_executor.py`, `tile_workers.py`, spatial indexing
+  - Expected: 6-12x speedup in 4 weeks
+
+- **Phase 2** (GPU Acceleration): Starts after Phase 1 complete
+  - Target: GPU NN searches, grid operations, JIT kernels
+  - Technology: CuPy, cuML, Numba
+  - Expected: Additional 5-15x speedup (30-50x total)
+
+### Next Steps
+1. Begin Phase 1 Week 1: Parallel executor infrastructure
+2. Implement parallel DoD with initial benchmarks
+3. Extend to C2C and M3C2 in Week 2
+4. Optimize I/O in Week 3
+5. Polish and production-ready in Week 4
+
+### References
+- Planning: `docs/PARALLELIZATION_PLAN.md`, `docs/GPU_ACCELERATION_PLAN.md`, `docs/ROADMAP.md`
+- Foundation: `src/terrain_change_detection/acceleration/tiling.py`
+- Archived docs: `docs/archive/`
+
+---
+
 ## 2025-11-09 — Config Schema Completion
 
 ### Summary
