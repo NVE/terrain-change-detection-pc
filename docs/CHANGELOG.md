@@ -19,6 +19,86 @@ Finalized out-of-core configuration schema with missing fields for production re
 
 ---
 
+## 2025-11-07 — Feature Branch Summary & Pre-Merge Review
+
+### Summary
+Comprehensive summary of all out-of-core processing and tiling features developed in the `feat/outofcore-tiling` branch, prepared for merge to main.
+
+### Core Infrastructure Added
+- **Tiling System**:
+  - `Tiler`, `Tile`, `Bounds2D` classes for grid-aligned tiling with inner/outer bounds and halo support.
+  - Enables processing large datasets by dividing into manageable spatial tiles.
+  - Halo regions around tiles prevent edge artifacts in neighborhood operations.
+  
+- **Streaming Data Loading**:
+  - `LaspyStreamReader` for chunked LAZ/LAS reading with bbox and classification filtering.
+  - `GridAccumulator` for streaming mean aggregation over regular XY grids (memory-efficient DEM building).
+  - `MosaicAccumulator` for seamlessly stitching tile DEMs with overlap averaging, includes optional memmap backing.
+
+### Change Detection Methods (Streaming/Tiled)
+- **DoD (DEM of Difference)**:
+  - `compute_dod_streaming_files_tiled()` - out-of-core DoD with grid-aligned mosaicking.
+  - Single-pass chunk routing: each epoch scanned once; chunks routed to tile accumulators.
+  - Supports mean aggregator in streaming mode (median/percentiles deferred for future work).
+  
+- **C2C (Cloud-to-Cloud)**:
+  - `compute_c2c_streaming_files_tiled()` - tiled C2C with radius-bounded nearest-neighbor queries.
+  - Requires `max_distance` to bound search; tile halo = radius.
+  - Streams source (inner) and target (outer) per tile; uses sklearn NN when available.
+  - Also added `compute_c2c_vertical_plane()` for terrain-aware distances with local plane fitting.
+  
+- **M3C2**:
+  - `compute_m3c2_streaming_files_tiled()` - tiled M3C2 processing core points with py4dgeo integration.
+  - Uses safe halo = `max(cylinder_radius, projection_scale)` by default.
+  - Per-tile streaming and execution with stitched results; clear timing and counts.
+
+### Configuration & Workflow
+- **Configuration Support**:
+  - New `outofcore` config section with `enabled`, `tile_size_m`, `halo_m`, `chunk_points`, `streaming_mode`.
+  - `save_transformed_files` flag (default: false) to optionally save aligned LAZ files.
+  - `output_dir` for controlling transformed file output location.
+  - `memmap_dir` for memory-mapped array backing in very large mosaicking operations.
+  - Config toggles to enable/disable individual detection methods (`dod`, `c2c`, `m3c2`).
+
+- **Workflow Integration**:
+  - `run_workflow.py` automatically detects and routes between in-memory vs. streaming execution paths.
+  - Streaming mode includes reservoir sampling for alignment subsampling.
+  - File-based alignment transformations with `apply_transform_to_files()` for out-of-core workflows.
+  - Enhanced logging with transparency on chunk processing, tile statistics, and processing times.
+  
+- **Configuration Profiles**:
+  - `large_scale.yaml` profile configured for out-of-core processing of large datasets.
+  - `synthetic.yaml` for small in-memory development/testing.
+  - Standardized comments and structure across all YAML configs.
+
+### Visualization Enhancements
+- In-memory C2C 3D visualization similar to M3C2.
+- `PointCloudVisualizer.visualize_c2c_points()` colors source points by C2C distances.
+- Streaming C2C falls back to histogram visualization (point-level viz requires in-memory mode).
+
+### Documentation
+- Comprehensive `docs/ALGORITHMS.md` explaining DoD/C2C/M3C2 tiling applicability.
+- Clear guidance on when to use each method and how tiling applies to each.
+- All classes/methods in `tiling.py` have detailed docstrings.
+
+### Testing & Validation
+- Unit tests for grid accumulator mean parity and tiler/mosaic identity.
+- Successfully validated with 15M + 20M point datasets using constant memory.
+- All 40+ tests passing.
+
+### Known Limitations (By Design)
+- DoD streaming supports only mean aggregator (median/percentiles require different approach).
+- No parallelization (CPU single-threaded) - deferred to future branch.
+- No GPU acceleration - deferred to future branch.
+- C2C streaming returns distances only, no target indices (memory optimization).
+
+### What's Next
+- Parallelization: multi-process tile processing, threaded chunk reading.
+- GPU acceleration: CUDA-based neighborhood queries and grid operations.
+- Additional aggregators: streaming median/percentiles for DoD.
+
+---
+
 ## 2025-11-06 — Out-of-Core Reliability & UX
 
 Summary
