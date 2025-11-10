@@ -92,7 +92,7 @@ performance:
 outofcore:
   # Master switch for streaming/tiling out-of-core workflows
   # ENABLED for large dataset processing
-  enabled: false
+  enabled: true
   # Inner tile size in meters (processing region per tile)
   tile_size_m: 500.0
   # Halo width in meters (buffer around each tile to avoid edge effects)
@@ -111,7 +111,7 @@ outofcore:
 parallel:
   # Master switch for CPU parallelization
   # ENABLED to test parallel performance with large dataset
-  enabled: false
+  enabled: true
   # Number of worker processes; null = auto-detect (cpu_count - 1)
   n_workers: null
   # Soft memory limit (GB) to guide worker count; null = no limit
