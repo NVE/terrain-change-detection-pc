@@ -103,5 +103,4 @@ parallel:
   n_workers: null
   # Soft memory limit (GB) to guide worker count; null = no limit
   memory_limit_gb: null
-  # BLAS/NumPy threads per worker process (kept at 1)
-  threads_per_worker: 1
+  
