@@ -1,5 +1,6 @@
 # Manually added files
 docs/cloudcompare_cloudcompy_assessment.md
+experiments/
 
 # Python-generated files
 __pycache__/
