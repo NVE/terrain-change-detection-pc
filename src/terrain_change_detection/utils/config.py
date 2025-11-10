@@ -121,6 +121,7 @@ class AppConfig(BaseModel):
         enabled: bool = Field(default=True, description="Enable CPU parallelization for tile processing")
         n_workers: Optional[int] = Field(default=None, description="Number of worker processes (None = auto-detect: cpu_count - 1)")
         memory_limit_gb: Optional[float] = Field(default=None, description="Soft memory limit in GB to guide concurrency")
+        threads_per_worker: Optional[int] = Field(default=1, description="BLAS/NumPy threads per worker process (mitigate oversubscription)")
 
     paths: PathsConfig = Field(default_factory=PathsConfig)
     preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)

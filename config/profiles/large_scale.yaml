@@ -42,13 +42,13 @@ alignment:
 
 detection:
   dod:
-    enabled: false
+    enabled: true
     # DEM grid resolution in meters
     cell_size: 2.0
     # Aggregation for per-cell elevation: mean | median | p95 | p5
     aggregator: mean
   c2c:
-    enabled: false
+    enabled: true
     # Algorithm: euclidean | vertical_plane
     mode: euclidean
     # Upper bound used by some example flows for sampling/limits
@@ -112,3 +112,4 @@ parallel:
   n_workers: null
   # Soft memory limit (GB) to guide worker count; null = no limit
   memory_limit_gb: null
+  

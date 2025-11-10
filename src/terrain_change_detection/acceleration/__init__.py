@@ -18,6 +18,8 @@ from .tiling import (
     Tile,
     Tiler,
     union_bounds,
+    scan_las_bounds,
+    bounds_intersect,
 )
 
 __all__ = [
@@ -29,6 +31,8 @@ __all__ = [
     "MosaicAccumulator",
     "LaspyStreamReader",
     "union_bounds",
+    "scan_las_bounds",
+    "bounds_intersect",
     # Parallel processing
     "TileParallelExecutor",
     "estimate_speedup_factor",

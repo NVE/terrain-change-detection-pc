@@ -135,6 +135,7 @@ def main():
     )
 
     try:
+        # No pooled executor reuse; each phase manages its own pool
         # Step 1: Load Data (or prepare for streaming)
         if use_streaming:
             logger.info("--- Step 1: Preparing datasets for streaming/out-of-core processing ---")
@@ -411,6 +412,7 @@ def main():
                                 chunk_points=cfg.outofcore.chunk_points,
                                 transform_t2=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
                                 n_workers=cfg.parallel.n_workers,
+                                threads_per_worker=getattr(cfg.parallel, 'threads_per_worker', 1),
                             )
                         else:
                             logger.info("Using SEQUENTIAL tile processing")
@@ -486,6 +488,7 @@ def main():
                             chunk_points=cfg.outofcore.chunk_points,
                             transform_src=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
                             n_workers=None,  # auto-detect
+                            threads_per_worker=getattr(cfg.parallel, 'threads_per_worker', 1),
                         )
                     else:
                         logger.info("Using streaming tiled C2C...")
@@ -615,6 +618,7 @@ def main():
                                 chunk_points=cfg.outofcore.chunk_points,
                                 transform_t2=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
                                 n_workers=None,  # auto-detect
+                                threads_per_worker=getattr(cfg.parallel, 'threads_per_worker', 1),
                             )
                         else:
                             m3c2_res = ChangeDetector.compute_m3c2_streaming_files_tiled(
@@ -698,6 +702,8 @@ def main():
     except Exception as e:
         logger.error(f"Change detection workflow failed: {e}")
         return
+    finally:
+        pass
 
 if __name__ == "__main__":
     main()

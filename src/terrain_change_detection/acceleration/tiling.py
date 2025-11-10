@@ -19,11 +19,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator, List, Optional, Tuple
+from typing import Iterable, Iterator, List, Optional, Tuple, Dict
 
 import numpy as np
 
 from ..utils.point_cloud_filters import create_classification_mask
+
+# Simple in-process cache for LAS/LAZ header bounds to avoid rescanning
+_BOUNDS_CACHE: Dict[str, Bounds2D] = {}
 
 
 @dataclass
@@ -500,3 +503,38 @@ def union_bounds(files_a: Iterable[str | Path], files_b: Iterable[str | Path]) -
         max_x=max(ax1, bx1),
         max_y=max(ay1, by1),
     )
+
+
+def scan_las_bounds(files: Iterable[str | Path]) -> List[Tuple[Path, Bounds2D]]:
+    """Scan LAS/LAZ file headers to get 2D bounds per file.
+
+    Args:
+        files: Iterable of LAS/LAZ file paths
+
+    Returns:
+        List of (Path, Bounds2D) tuples with header extents.
+    """
+    import laspy
+
+    out: List[Tuple[Path, Bounds2D]] = []
+    for f in files:
+        fp = Path(f)
+        key = str(fp)
+        b = _BOUNDS_CACHE.get(key)
+        if b is None:
+            with laspy.open(str(fp)) as r:
+                h = r.header
+                b = Bounds2D(
+                    float(h.x_min),
+                    float(h.y_min),
+                    float(h.x_max),
+                    float(h.y_max),
+                )
+            _BOUNDS_CACHE[key] = b
+        out.append((fp, b))
+    return out
+
+
+def bounds_intersect(a: Bounds2D, b: Bounds2D) -> bool:
+    """Check if two 2D bounding boxes intersect (inclusive edges)."""
+    return not (a.max_x < b.min_x or a.min_x > b.max_x or a.max_y < b.min_y or a.min_y > b.max_y)

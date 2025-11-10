@@ -38,6 +38,32 @@ def _worker_wrapper(args: Tuple[int, Any, Callable, Dict[str, Any]]) -> Tuple[in
         return (idx, None, error_msg)
 
 
+def _worker_initializer(threads_per_worker: Optional[int] = 1) -> None:
+    """Initializer for worker processes.
+
+    - Pins BLAS/NumPy threads in each worker to avoid oversubscription when
+      using multiple processes. This mitigates Nproc x Nthreads explosions.
+
+    Args:
+        threads_per_worker: Desired number of threads for BLAS-backed libs.
+            If None, leaves environment unchanged (not recommended for heavy
+            NumPy usage under multiprocessing).
+    """
+    try:
+        if threads_per_worker is None:
+            return
+        threads = max(1, int(threads_per_worker))
+        os.environ["OMP_NUM_THREADS"] = str(threads)
+        os.environ["MKL_NUM_THREADS"] = str(threads)
+        os.environ["NUMEXPR_NUM_THREADS"] = str(threads)
+        # Optional: OpenBLAS/BLIS envs if present in the runtime
+        os.environ.setdefault("OPENBLAS_NUM_THREADS", str(threads))
+        os.environ.setdefault("BLIS_NUM_THREADS", str(threads))
+    except Exception:
+        # Best-effort; do not fail worker startup on env issues
+        pass
+
+
 class TileParallelExecutor:
     """
     Parallel executor for tile-based processing.
@@ -59,6 +85,7 @@ class TileParallelExecutor:
         self,
         n_workers: Optional[int] = None,
         memory_limit_gb: Optional[float] = None,
+        threads_per_worker: Optional[int] = 1,
     ):
         """
         Initialize parallel executor.
@@ -76,17 +103,22 @@ class TileParallelExecutor:
         
         self.n_workers = n_workers
         self.memory_limit_gb = memory_limit_gb
+        self.threads_per_worker = threads_per_worker
         
         logger.info(
             f"Initialized TileParallelExecutor with {self.n_workers} workers "
             f"(total CPUs: {cpu_count()})"
         )
+
     
     def map_tiles(
         self,
         tiles: List[Any],
         worker_fn: Callable,
         worker_kwargs: Dict[str, Any],
+        *,
+        per_tile_kwargs: Optional[List[Dict[str, Any]]] = None,
+        worker_kwargs_fn: Optional[Callable[[Any], Dict[str, Any]]] = None,
         progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> List[Any]:
         """
@@ -101,6 +133,10 @@ class TileParallelExecutor:
             worker_fn: Function to apply to each tile. Must be picklable and
                 have signature: worker_fn(tile, **worker_kwargs) -> result
             worker_kwargs: Fixed keyword arguments passed to each worker call
+            per_tile_kwargs: Optional list of kwargs dicts aligned to tiles; if
+                provided, overrides worker_kwargs per tile.
+            worker_kwargs_fn: Optional function generating kwargs per tile. Only
+                used if per_tile_kwargs is None. Signature: fn(tile) -> dict.
             progress_callback: Optional callback function called after each tile
                 completes. Signature: callback(completed_count, total_count)
         
@@ -116,7 +152,12 @@ class TileParallelExecutor:
             logger.warning("No tiles to process")
             return []
         
-        logger.info(f"Processing {n_tiles} tiles with {self.n_workers} workers")
+        # Clamp workers to work available to avoid overspawn
+        effective_workers = min(self.n_workers, n_tiles)
+        logger.info(
+            f"Processing {n_tiles} tiles with {effective_workers} workers "
+            f"(requested={self.n_workers})"
+        )
         start_time = time.time()
         
         # If only 1 worker or 1 tile, use sequential processing (no pool overhead)
@@ -154,14 +195,21 @@ class TileParallelExecutor:
         # Parallel processing with multiprocessing.Pool
         try:
             results = self._parallel_map(
-                tiles, worker_fn, worker_kwargs, progress_callback, start_time
+                tiles,
+                worker_fn,
+                worker_kwargs,
+                per_tile_kwargs,
+                worker_kwargs_fn,
+                progress_callback,
+                start_time,
             )
             
             total_time = time.time() - start_time
+            expected = estimate_speedup_factor(effective_workers, n_tiles)
+            throughput = n_tiles / total_time if total_time > 0 else 0.0
             logger.info(
                 f"Parallel processing complete: {n_tiles} tiles in {total_time:.1f}s "
-                f"({n_tiles / total_time:.2f} tiles/s) - "
-                f"Speedup: {n_tiles / total_time / (n_tiles / total_time / self.n_workers):.2f}x theoretical"
+                f"({throughput:.2f} tiles/s). Expected speedup (heuristic): {expected:.1f}x"
             )
             
             return results
@@ -175,6 +223,8 @@ class TileParallelExecutor:
         tiles: List[Any],
         worker_fn: Callable,
         worker_kwargs: Dict[str, Any],
+        per_tile_kwargs: Optional[List[Dict[str, Any]]],
+        worker_kwargs_fn: Optional[Callable[[Any], Dict[str, Any]]],
         progress_callback: Optional[Callable],
         start_time: float,
     ) -> List[Any]:
@@ -186,17 +236,42 @@ class TileParallelExecutor:
         """
         n_tiles = len(tiles)
         
-        # Create arguments for worker wrapper (need worker_fn and kwargs for each tile)
-        worker_args = [(i, tile, worker_fn, worker_kwargs) for i, tile in enumerate(tiles)]
+        # Resolve per-tile kwargs if provided/generatable
+        worker_args: List[Tuple[int, Any, Callable, Dict[str, Any]]] = []
+        if per_tile_kwargs is not None:
+            if len(per_tile_kwargs) != n_tiles:
+                raise ValueError("per_tile_kwargs length must match tiles length")
+            for i, tile in enumerate(tiles):
+                wk = per_tile_kwargs[i]
+                # Merge fixed worker_kwargs as defaults overridden by per-tile
+                merged = {**worker_kwargs, **(wk or {})}
+                worker_args.append((i, tile, worker_fn, merged))
+        elif worker_kwargs_fn is not None:
+            for i, tile in enumerate(tiles):
+                wk = worker_kwargs_fn(tile) or {}
+                merged = {**worker_kwargs, **wk}
+                worker_args.append((i, tile, worker_fn, merged))
+        else:
+            # Uniform kwargs for all tiles
+            worker_args = [(i, tile, worker_fn, worker_kwargs) for i, tile in enumerate(tiles)]
         
+        # Determine effective workers and a reasonable chunksize for dispatch
+        n_workers_eff = min(self.n_workers, n_tiles)
+        # Heuristic: a few chunks per worker keeps workers busy without too much IPC
+        chunksize = max(1, n_tiles // (n_workers_eff * 4) if n_workers_eff > 0 else 1)
+
         # Process with pool
-        with Pool(processes=self.n_workers) as pool:
+        with Pool(
+            processes=n_workers_eff,
+            initializer=_worker_initializer,
+            initargs=(self.threads_per_worker,),
+        ) as pool:
             # Use imap_unordered for better responsiveness
             results_dict = {}
             errors = []
             
             for i, (idx, result, error) in enumerate(
-                pool.imap_unordered(_worker_wrapper, worker_args)
+                pool.imap_unordered(_worker_wrapper, worker_args, chunksize)
             ):
                 if error:
                     errors.append((idx, error))

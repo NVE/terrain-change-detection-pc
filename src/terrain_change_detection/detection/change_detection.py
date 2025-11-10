@@ -956,6 +956,7 @@ class ChangeDetector:
         memmap_dir: Optional[str] = None,
         transform_t2: Optional[np.ndarray] = None,
         n_workers: Optional[int] = None,
+        threads_per_worker: Optional[int] = 1,
     ) -> DoDResult:
         """
         Parallel version of out-of-core tiled DoD.
@@ -986,9 +987,8 @@ class ChangeDetector:
         if not files_t1 or not files_t2:
             raise ValueError("compute_dod_streaming_files_tiled_parallel requires file lists for T1/T2")
         
-        # Convert to Path objects for workers
-        files_t1_paths = [Path(f) for f in files_t1]
-        files_t2_paths = [Path(f) for f in files_t2]
+        # Note: File header bounds are scanned below and filtered per tile.
+        # Paths are passed per-tile to workers to avoid redundant I/O.
         
         # Get global bounds
         gb = union_bounds(files_t1, files_t2)
@@ -1016,31 +1016,46 @@ class ChangeDetector:
         )
         
         # Create parallel executor
-        executor = TileParallelExecutor(n_workers=n_workers)
+        executor = TileParallelExecutor(n_workers=n_workers, threads_per_worker=threads_per_worker)
         
         # Log worker info
         from ..acceleration import estimate_speedup_factor
-        expected_speedup = estimate_speedup_factor(executor.n_workers, n_tiles)
+        eff_workers = min(executor.n_workers, n_tiles)
+        expected_speedup = estimate_speedup_factor(eff_workers, n_tiles)
         logger.info(
-            f"Using {executor.n_workers} workers for {n_tiles} tiles "
+            f"Using {eff_workers} workers for {n_tiles} tiles "
             f"(expected speedup: {expected_speedup:.1f}x)"
         )
         
-        # Process tiles in parallel
+        # Pre-filter files per tile using LAS/LAZ header bounds to avoid
+        # rescanning non-overlapping files in each worker
+        from ..acceleration import scan_las_bounds, bounds_intersect
+        t1_bounds = scan_las_bounds(files_t1)
+        t2_bounds = scan_las_bounds(files_t2)
+
+        per_tile_kwargs = []
+        for tile in tiles:
+            files1 = [fp for fp, b in t1_bounds if bounds_intersect(b, tile.outer)]
+            files2 = [fp for fp, b in t2_bounds if bounds_intersect(b, tile.outer)]
+            per_tile_kwargs.append({
+                'files_t1': files1,
+                'files_t2': files2,
+            })
+
+        # Process tiles in parallel (with per-tile file lists)
         worker_kwargs = {
-            'files_t1': files_t1_paths,
-            'files_t2': files_t2_paths,
             'cell_size': cell_size,
             'chunk_points': chunk_points,
             'classification_filter': classification_filter,
             'transform_matrix': transform_t2,
         }
-        
+
         t0 = time.time()
         results = executor.map_tiles(
             tiles=tiles,
             worker_fn=process_dod_tile,
             worker_kwargs=worker_kwargs,
+            per_tile_kwargs=per_tile_kwargs,
         )
         t1 = time.time()
         
@@ -1105,6 +1120,7 @@ class ChangeDetector:
         chunk_points: int = 1_000_000,
         transform_src: Optional[np.ndarray] = None,
         n_workers: Optional[int] = None,
+        threads_per_worker: Optional[int] = 1,
     ) -> C2CResult:
         """
         Parallel version of out-of-core tiled C2C.
@@ -1135,9 +1151,8 @@ class ChangeDetector:
         if not (isinstance(max_distance, (int, float)) and max_distance > 0):
             raise ValueError("max_distance must be > 0 for C2C")
         
-        # Convert to Path objects
-        files_src_paths = [Path(f) for f in files_src]
-        files_tgt_paths = [Path(f) for f in files_tgt]
+        # Note: File header bounds are scanned below and filtered per tile.
+        # Paths are passed per-tile to workers to avoid redundant I/O.
         
         # Get global bounds
         gb = union_bounds(files_src, files_tgt)
@@ -1166,31 +1181,42 @@ class ChangeDetector:
         )
         
         # Create parallel executor
-        executor = TileParallelExecutor(n_workers=n_workers)
+        executor = TileParallelExecutor(n_workers=n_workers, threads_per_worker=threads_per_worker)
         
         # Log worker info
         from ..acceleration import estimate_speedup_factor
-        expected_speedup = estimate_speedup_factor(executor.n_workers, n_tiles)
+        eff_workers = min(executor.n_workers, n_tiles)
+        expected_speedup = estimate_speedup_factor(eff_workers, n_tiles)
         logger.info(
-            f"Using {executor.n_workers} workers for {n_tiles} tiles "
+            f"Using {eff_workers} workers for {n_tiles} tiles "
             f"(expected speedup: {expected_speedup:.1f}x)"
         )
         
+        # Pre-filter files per tile using LAS/LAZ header bounds
+        from ..acceleration import scan_las_bounds, bounds_intersect
+        src_bounds = scan_las_bounds(files_src)
+        tgt_bounds = scan_las_bounds(files_tgt)
+
+        per_tile_kwargs = []
+        for tile in tiles:
+            fsrc = [fp for fp, b in src_bounds if bounds_intersect(b, tile.outer)]
+            ftgt = [fp for fp, b in tgt_bounds if bounds_intersect(b, tile.outer)]
+            per_tile_kwargs.append({'files_source': fsrc, 'files_target': ftgt})
+
         # Process tiles in parallel
         worker_kwargs = {
-            'files_source': files_src_paths,
-            'files_target': files_tgt_paths,
             'max_distance': max_distance,
             'chunk_points': chunk_points,
             'classification_filter': classification_filter,
             'transform_matrix': transform_src,
         }
-        
+
         t0 = time.time()
         results = executor.map_tiles(
             tiles=tiles,
             worker_fn=process_c2c_tile,
             worker_kwargs=worker_kwargs,
+            per_tile_kwargs=per_tile_kwargs,
         )
         t1 = time.time()
         
@@ -1255,6 +1281,7 @@ class ChangeDetector:
         chunk_points: int = 1_000_000,
         transform_t2: Optional[np.ndarray] = None,
         n_workers: Optional[int] = None,
+        threads_per_worker: Optional[int] = 1,
     ) -> M3C2Result:
         """
         Parallel version of out-of-core tiled M3C2.
@@ -1287,9 +1314,8 @@ class ChangeDetector:
         if not files_t1 or not files_t2:
             raise ValueError("compute_m3c2_streaming_files_tiled_parallel requires file lists")
         
-        # Convert to Path objects
-        files_t1_paths = [Path(f) for f in files_t1]
-        files_t2_paths = [Path(f) for f in files_t2]
+        # Note: File header bounds are scanned below and filtered per tile.
+        # Paths are passed per-tile to workers to avoid redundant I/O.
         
         # Determine processing bounds from core points
         xmin, ymin = float(np.min(core_points[:, 0])), float(np.min(core_points[:, 1]))
@@ -1350,32 +1376,50 @@ class ChangeDetector:
         logger.info(f"Processing {len(tiles_with_data)} tiles with core points (out of {len(all_tiles)} total)")
         
         # Create parallel executor
-        executor = TileParallelExecutor(n_workers=n_workers)
+        executor = TileParallelExecutor(n_workers=n_workers, threads_per_worker=threads_per_worker)
         
         # Log worker info
         from ..acceleration import estimate_speedup_factor
-        expected_speedup = estimate_speedup_factor(executor.n_workers, len(tiles_with_data))
+        eff_workers = min(executor.n_workers, len(tiles_with_data))
+        expected_speedup = estimate_speedup_factor(eff_workers, len(tiles_with_data))
         logger.info(
-            f"Using {executor.n_workers} workers for {len(tiles_with_data)} tiles "
+            f"Using {eff_workers} workers for {len(tiles_with_data)} tiles "
             f"(expected speedup: {expected_speedup:.1f}x)"
         )
         
+        # Pre-filter files per tile using LAS/LAZ header bounds and pass only
+        # the core points for that tile to minimize serialization overhead
+        from ..acceleration import scan_las_bounds, bounds_intersect
+        t1_bounds = scan_las_bounds(files_t1)
+        t2_bounds = scan_las_bounds(files_t2)
+
+        per_tile_kwargs = []
+        for tile in tiles_with_data:
+            ij_key = (tile.i, tile.j)
+            files1 = [fp for fp, b in t1_bounds if bounds_intersect(b, tile.outer)]
+            files2 = [fp for fp, b in t2_bounds if bounds_intersect(b, tile.outer)]
+            # Only pass the core points for this tile to reduce pickle cost
+            tile_core_dict_shallow = {ij_key: tile_cores[ij_key]}
+            per_tile_kwargs.append({
+                'files_t1': files1,
+                'files_t2': files2,
+                'tile_cores_dict': tile_core_dict_shallow,
+            })
+
         # Process tiles in parallel
         worker_kwargs = {
-            'files_t1': files_t1_paths,
-            'files_t2': files_t2_paths,
             'params': params,
             'chunk_points': chunk_points,
             'classification_filter': classification_filter,
             'transform_matrix': transform_t2,
-            'tile_cores_dict': tile_cores,
         }
-        
+
         t0 = time.time()
         results = executor.map_tiles(
             tiles=tiles_with_data,
             worker_fn=process_m3c2_tile,
             worker_kwargs=worker_kwargs,
+            per_tile_kwargs=per_tile_kwargs,
         )
         t1 = time.time()
         

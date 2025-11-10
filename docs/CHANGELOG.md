@@ -1,5 +1,45 @@
 # Changelog and Implementation Notes
 
+## 2025-11-10 — CPU Parallelization Refinements and I/O Pruning
+
+### Summary
+Focused improvements to the CPU parallel path: reduced redundant I/O per tile, prevented BLAS/NumPy thread oversubscription in workers, improved scheduling, and corrected misleading speedup logs. Pool reuse and fail‑fast were explored but intentionally not shipped to avoid regressions.
+
+### What Changed
+
+- Parallel executor (CPU):
+  - Clamp effective workers to `min(n_workers, n_tiles)` to avoid overspawn.
+  - Pin BLAS/NumPy per‑process threads via pool initializer (default `threads_per_worker=1`).
+  - Use a small `chunksize` heuristic for `imap_unordered` to lower IPC overhead on many tiles.
+  - Replace misleading “theoretical speedup” log with throughput plus heuristic expected speedup.
+  - File: `src/terrain_change_detection/acceleration/parallel_executor.py`
+
+- Tiled I/O pruning:
+  - Added `scan_las_bounds(files)` and `bounds_intersect(a, b)` utilities with a simple header‑bounds cache to avoid rescanning the same files.
+  - DoD/C2C/M3C2 parallel methods now pass only per‑tile intersecting files to workers, cutting repeated reads/decompression.
+  - Files:
+    - `src/terrain_change_detection/acceleration/tiling.py`
+    - `src/terrain_change_detection/detection/change_detection.py`
+    - `src/terrain_change_detection/acceleration/__init__.py`
+
+- Configuration and workflow:
+  - Added `parallel.threads_per_worker` (default 1) to config model and wired through runner and compute APIs.
+  - Present in `config/default.yaml` and `config/profiles/large_scale.yaml`; optional in other profiles (defaults apply).
+  - Files:
+    - `src/terrain_change_detection/utils/config.py`
+    - `config/default.yaml`, `config/profiles/large_scale.yaml`, `config/profiles/synthetic.yaml`
+    - `scripts/run_workflow.py`
+
+### Notes
+
+- Pool reuse and fail‑fast threshold were prototyped but reverted to maintain stability across platforms and to keep behavior simple (per‑call pools, aggregate error reporting).
+- The per‑tile file pruning provides the biggest win on multi‑file datasets by avoiding O(#tiles×#files) rescans.
+
+### Expected Impact
+
+- Better scaling on medium/large datasets due to reduced redundant I/O and no thread oversubscription.
+- More accurate logs for expected speedup; easier to reason about throughput.
+
 ## 2025-11-09 — Large Synthetic Dataset for Performance Testing
 
 ### Summary
