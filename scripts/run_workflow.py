@@ -667,12 +667,27 @@ def main():
                         cloud_t2=points2_full_aligned,
                         params=m3c2_params,
                     )
+                # Compute NaN-robust stats (py4dgeo may return NaN for some cores)
+                dists = np.asarray(m3c2_res.distances, dtype=float)
+                valid_mask = np.isfinite(dists)
+                n_all = int(dists.size)
+                n_valid = int(valid_mask.sum())
+                if n_valid > 0:
+                    mean_v = float(np.nanmean(dists))
+                    median_v = float(np.nanmedian(dists))
+                    std_v = float(np.nanstd(dists))
+                else:
+                    mean_v = float("nan")
+                    median_v = float("nan")
+                    std_v = float("nan")
+
                 logger.info(
-                    "M3C2 stats: n=%d, mean=%.4f m, median=%.4f m, std=%.4f m",
-                    m3c2_res.distances.size,
-                    float(np.mean(m3c2_res.distances)),
-                    float(np.median(m3c2_res.distances)),
-                    float(np.std(m3c2_res.distances)),
+                    "M3C2 stats: n=%d (valid=%d), mean=%.4f m, median=%.4f m, std=%.4f m",
+                    n_all,
+                    n_valid,
+                    mean_v,
+                    median_v,
+                    std_v,
                 )
                 # Visualize M3C2 core points immediately
                 visualizer.visualize_m3c2_corepoints(

@@ -1,5 +1,51 @@
 # Changelog and Implementation Notes
 
+## 2025-11-11 — M3C2 Stats Robustness and Streaming Consistency
+
+### Summary
+Improved consistency between in-memory and streaming M3C2 reporting and fixed
+confusing NaN statistics when a subset of core points has undefined distances.
+This change does not alter the underlying M3C2 distance calculations; it makes
+summary statistics robust and consistent across execution modes and ensures the
+parallel streaming path respects classification filtering like other paths.
+
+### What Changed
+
+- NaN‑robust stats and valid counts for M3C2:
+  - In the workflow runner, M3C2 logs now compute mean/median/std with
+    NaN‑aware reducers and include a count of valid distances.
+  - File: `scripts/run_workflow.py`.
+
+- Enriched M3C2 metadata:
+  - `ChangeDetector.compute_m3c2_original` now adds `n_valid`, `mean`,
+    `median`, and `std` to `M3C2Result.metadata` using NaN‑robust reducers.
+  - File: `src/terrain_change_detection/detection/change_detection.py`.
+
+- Streaming/parallel M3C2 respects `ground_only`:
+  - Wired `ground_only` through the parallel tiled M3C2 worker path and reader,
+    aligning class filtering behavior with in‑memory and sequential streaming.
+  - Files:
+    - `src/terrain_change_detection/detection/change_detection.py`
+    - `src/terrain_change_detection/acceleration/tile_workers.py`
+
+### Expected Impact
+
+- In-memory runs no longer report all‑NaN summary stats if only a fraction of
+  cores are undefined; summaries are computed over valid distances only.
+- Streaming and in‑memory runs present comparable summary logs
+  (`n` and `valid` counts), reducing confusion across modes.
+- Parallel streaming M3C2 applies the same ground/class filtering as other
+  paths, improving reproducibility.
+
+### Notes
+
+- If many core points yield NaN distances, consider increasing effective
+  neighborhoods via `detection.m3c2.autotune` (e.g., larger `min_radius`,
+  `target_neighbors`, or `max_depth_factor`).
+- The DoD warning about missing transformed files is unrelated to M3C2: for
+  streaming M3C2, the ICP transform is applied on‑the‑fly when aligned files
+  are not written.
+
 ## 2025-11-11 — Logging + Progress UX Overhaul
 
 ### Summary

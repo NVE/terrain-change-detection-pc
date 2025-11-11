@@ -1415,6 +1415,7 @@ class ChangeDetector:
         worker_kwargs = {
             'params': params,
             'chunk_points': chunk_points,
+            'ground_only': ground_only,
             'classification_filter': classification_filter,
             'transform_matrix': transform_t2,
         }
@@ -1612,6 +1613,13 @@ class ChangeDetector:
                 except Exception:
                     unc_vec = None
 
+        # Compute NaN-robust summary and valid count
+        valid_mask = np.isfinite(distances)
+        n_valid = int(valid_mask.sum())
+        mean_v = float(np.nanmean(distances)) if n_valid > 0 else float("nan")
+        median_v = float(np.nanmedian(distances)) if n_valid > 0 else float("nan")
+        std_v = float(np.nanstd(distances)) if n_valid > 0 else float("nan")
+
         result = M3C2Result(
             core_points=core_points,
             distances=distances,
@@ -1624,16 +1632,21 @@ class ChangeDetector:
                 "max_depth": float(params.max_depth),
                 "min_neighbors": int(params.min_neighbors),
                 "confidence": float(params.confidence),
+                "n_valid": n_valid,
+                "mean": mean_v,
+                "median": median_v,
+                "std": std_v,
                 **meta_extra,
             },
         )
 
         logger.debug(
-            "M3C2 finished: n=%d, mean=%.4f m, median=%.4f m, std=%.4f m",
+            "M3C2 finished: n=%d (valid=%d), mean=%.4f m, median=%.4f m, std=%.4f m",
             result.distances.size,
-            float(np.mean(result.distances)),
-            float(np.median(result.distances)),
-            float(np.std(result.distances)),
+            n_valid,
+            mean_v,
+            median_v,
+            std_v,
         )
 
         return result

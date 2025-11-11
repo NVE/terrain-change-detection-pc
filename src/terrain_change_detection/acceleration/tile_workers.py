@@ -221,6 +221,7 @@ def process_m3c2_tile(
     files_t2: List[Path],
     params,  # M3C2Params object
     chunk_points: int,
+    ground_only: bool = True,
     classification_filter: Optional[List[int]] = None,
     transform_matrix: Optional[np.ndarray] = None,
     tile_cores_dict: Optional[Dict] = None,
@@ -258,7 +259,7 @@ def process_m3c2_tile(
     points_t1 = []
     reader1 = LaspyStreamReader(
         files_t1,
-        ground_only=False,
+        ground_only=ground_only,
         classification_filter=classification_filter,
         chunk_points=chunk_points
     )
@@ -271,7 +272,7 @@ def process_m3c2_tile(
     points_t2 = []
     reader2 = LaspyStreamReader(
         files_t2,
-        ground_only=False,
+        ground_only=ground_only,
         classification_filter=classification_filter,
         chunk_points=chunk_points
     )
