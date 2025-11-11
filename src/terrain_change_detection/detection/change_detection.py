@@ -26,7 +26,12 @@ from typing import Optional, Tuple, Dict, Literal
 
 import numpy as np
 
-from ..utils.logging import setup_logger
+import logging
+from ..utils.logging import (
+    setup_logger,
+    redirect_stdout_stderr_to_logger,
+    capture_c_streams_to_logger,
+)
 from ..acceleration import (
     GridAccumulator,
     LaspyStreamReader,
@@ -1555,7 +1560,7 @@ class ChangeDetector:
                 "py4dgeo is required for M3C2. Please ensure it is installed."
             ) from e
 
-        logger.info(
+        logger.debug(
             "Running M3C2: core_points=%d, cloud_t1=%d, cloud_t2=%d, cyl_radius=%.3f, max_depth=%.3f",
             len(core_points), len(cloud_t1), len(cloud_t2), params.cylinder_radius, params.max_depth,
         )
@@ -1577,8 +1582,10 @@ class ChangeDetector:
             normal_radii=[float(params.normal_scale if params.normal_scale is not None else params.projection_scale)],
         )
 
-        # Run algorithm
-        distances, uncertainties = algo.run()
+        # Run algorithm, capturing both Python and C-level prints (e.g., KDTree build)
+        with capture_c_streams_to_logger(logger, level=logging.DEBUG, include_patterns=["Building KDTree"]), \
+             redirect_stdout_stderr_to_logger(logger, level=logging.DEBUG, pattern="Building KDTree"):
+            distances, uncertainties = algo.run()
 
         # distances is a float array; uncertainties may be structured
         distances = np.asarray(distances, dtype=float).reshape(-1)
@@ -1621,7 +1628,7 @@ class ChangeDetector:
             },
         )
 
-        logger.info(
+        logger.debug(
             "M3C2 finished: n=%d, mean=%.4f m, median=%.4f m, std=%.4f m",
             result.distances.size,
             float(np.mean(result.distances)),
@@ -1983,7 +1990,10 @@ class ChangeDetector:
             normal_radii=[float(normal_scale)],
         )
 
-        distances, uncertainties, covariance = algo.run()
+        # Capture verbose stdout from py4dgeo internals (both Python and C streams)
+        with capture_c_streams_to_logger(logger, level=logging.DEBUG, include_patterns=["Building KDTree"]), \
+             redirect_stdout_stderr_to_logger(logger, level=logging.DEBUG, pattern="Building KDTree"):
+            distances, uncertainties, covariance = algo.run()
 
         d = np.asarray(distances, dtype=float).reshape(-1)
         sig_mask: Optional[np.ndarray] = None

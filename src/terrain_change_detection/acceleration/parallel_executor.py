@@ -164,27 +164,63 @@ class TileParallelExecutor:
         if self.n_workers == 1 or n_tiles == 1:
             logger.info("Using sequential processing (1 worker or 1 tile)")
             results = []
-            for i, tile in enumerate(tiles):
-                try:
-                    result = worker_fn(tile, **worker_kwargs)
-                    results.append(result)
-                    
-                    if progress_callback:
-                        progress_callback(i + 1, n_tiles)
-                    
-                    if (i + 1) % 10 == 0 or i + 1 == n_tiles:
-                        elapsed = time.time() - start_time
-                        rate = (i + 1) / elapsed
-                        eta = (n_tiles - i - 1) / rate if rate > 0 else 0
-                        logger.info(
-                            f"Progress: {i + 1}/{n_tiles} tiles "
-                            f"({100 * (i + 1) / n_tiles:.1f}%) - "
-                            f"Rate: {rate:.2f} tiles/s - ETA: {eta:.1f}s"
-                        )
-                except Exception as e:
-                    logger.error(f"Error processing tile {i}: {e}", exc_info=True)
-                    raise RuntimeError(f"Tile processing failed: {e}") from e
-            
+            # Optional Rich progress bar
+            _use_rich = False
+            try:
+                from rich.progress import Progress, BarColumn, TimeElapsedColumn, TimeRemainingColumn, MofNCompleteColumn
+                _use_rich = True
+            except Exception:
+                _use_rich = False
+
+            if _use_rich:
+                raw_name = getattr(worker_fn, "__name__", "tiles")
+                pretty = {
+                    "process_dod_tile": "DoD tiles",
+                    "process_c2c_tile": "C2C tiles",
+                    "process_m3c2_tile": "M3C2 tiles",
+                }.get(raw_name, raw_name)
+                with Progress(
+                    "{task.description}",
+                    BarColumn(),
+                    MofNCompleteColumn(),
+                    TimeElapsedColumn(),
+                    TimeRemainingColumn(),
+                    transient=True,
+                ) as progress:
+                    task_id = progress.add_task(f"{pretty}", total=n_tiles)
+                    for i, tile in enumerate(tiles):
+                        try:
+                            result = worker_fn(tile, **worker_kwargs)
+                            results.append(result)
+                            if progress_callback:
+                                progress_callback(i + 1, n_tiles)
+                            progress.update(task_id, advance=1)
+                        except Exception as e:
+                            logger.error(f"Error processing tile {i}: {e}", exc_info=True)
+                            raise RuntimeError(f"Tile processing failed: {e}") from e
+            else:
+                for i, tile in enumerate(tiles):
+                    try:
+                        result = worker_fn(tile, **worker_kwargs)
+                        results.append(result)
+                        
+                        if progress_callback:
+                            progress_callback(i + 1, n_tiles)
+                        
+                        interval = max(1, n_tiles // 10)
+                        if (i + 1) % interval == 0 or i + 1 == n_tiles:
+                            elapsed = time.time() - start_time
+                            rate = (i + 1) / elapsed
+                            eta = (n_tiles - i - 1) / rate if rate > 0 else 0
+                            logger.info(
+                                f"Progress: {i + 1}/{n_tiles} tiles "
+                                f"({100 * (i + 1) / n_tiles:.1f}%) - "
+                                f"Rate: {rate:.2f} tiles/s - ETA: {eta:.1f}s"
+                            )
+                    except Exception as e:
+                        logger.error(f"Error processing tile {i}: {e}", exc_info=True)
+                        raise RuntimeError(f"Tile processing failed: {e}") from e
+
             total_time = time.time() - start_time
             logger.info(
                 f"Sequential processing complete: {n_tiles} tiles in {total_time:.1f}s "
@@ -269,34 +305,87 @@ class TileParallelExecutor:
             # Use imap_unordered for better responsiveness
             results_dict = {}
             errors = []
-            
-            for i, (idx, result, error) in enumerate(
-                pool.imap_unordered(_worker_wrapper, worker_args, chunksize)
-            ):
-                if error:
-                    errors.append((idx, error))
-                    logger.error(f"Tile {idx} failed: {error}")
-                else:
-                    results_dict[idx] = result
-                
-                # Progress reporting
-                completed = i + 1
-                if progress_callback:
-                    progress_callback(completed, n_tiles)
-                
-                # Log progress at intervals
-                if completed % 10 == 0 or completed == n_tiles:
-                    elapsed = time.time() - start_time
-                    rate = completed / elapsed
-                    eta = (n_tiles - completed) / rate if rate > 0 else 0
-                    success_rate = 100 * len(results_dict) / completed
-                    
-                    logger.info(
-                        f"Progress: {completed}/{n_tiles} tiles "
-                        f"({100 * completed / n_tiles:.1f}%) - "
-                        f"Rate: {rate:.2f} tiles/s - ETA: {eta:.1f}s - "
-                        f"Success: {success_rate:.1f}%"
-                    )
+
+            # Optional Rich progress bar
+            _use_rich = False
+            try:
+                from rich.progress import Progress, BarColumn, TimeElapsedColumn, TimeRemainingColumn, MofNCompleteColumn
+                _use_rich = True
+            except Exception:
+                _use_rich = False
+
+            if _use_rich:
+                raw_name = getattr(worker_fn, "__name__", "tiles")
+                pretty = {
+                    "process_dod_tile": "DoD tiles",
+                    "process_c2c_tile": "C2C tiles",
+                    "process_m3c2_tile": "M3C2 tiles",
+                }.get(raw_name, raw_name)
+                from contextlib import nullcontext
+                with Progress(
+                    "{task.description}",
+                    BarColumn(),
+                    MofNCompleteColumn(),
+                    TimeElapsedColumn(),
+                    TimeRemainingColumn(),
+                    transient=True,
+                ) as progress:
+                    task_id = progress.add_task(f"{pretty}", total=n_tiles)
+                    for i, (idx, result, error) in enumerate(
+                        pool.imap_unordered(_worker_wrapper, worker_args, chunksize)
+                    ):
+                        if error:
+                            errors.append((idx, error))
+                            logger.error(f"Tile {idx} failed: {error}")
+                        else:
+                            results_dict[idx] = result
+
+                        # Progress reporting
+                        completed = i + 1
+                        if progress_callback:
+                            progress_callback(completed, n_tiles)
+                        progress.update(task_id, advance=1)
+
+                        # Keep occasional summary logs (every ~25%)
+                        interval = max(1, n_tiles // 4)
+                        if (completed % interval == 0) or (completed == n_tiles):
+                            elapsed = time.time() - start_time
+                            rate = completed / elapsed
+                            eta = (n_tiles - completed) / rate if rate > 0 else 0
+                            success_rate = 100 * len(results_dict) / completed
+                            logger.info(
+                                f"Progress: {completed}/{n_tiles} tiles "
+                                f"({100 * completed / n_tiles:.1f}%) - Rate: {rate:.2f} tiles/s - "
+                                f"ETA: {eta:.1f}s - Success: {success_rate:.1f}%"
+                            )
+            else:
+                for i, (idx, result, error) in enumerate(
+                    pool.imap_unordered(_worker_wrapper, worker_args, chunksize)
+                ):
+                    if error:
+                        errors.append((idx, error))
+                        logger.error(f"Tile {idx} failed: {error}")
+                    else:
+                        results_dict[idx] = result
+
+                    # Progress reporting
+                    completed = i + 1
+                    if progress_callback:
+                        progress_callback(completed, n_tiles)
+
+                    # Log progress at adaptive intervals (every ~10% or every tile if small)
+                    interval = max(1, n_tiles // 10)
+                    if (completed % interval == 0) or (completed == n_tiles):
+                        elapsed = time.time() - start_time
+                        rate = completed / elapsed
+                        eta = (n_tiles - completed) / rate if rate > 0 else 0
+                        success_rate = 100 * len(results_dict) / completed
+                        logger.info(
+                            f"Progress: {completed}/{n_tiles} tiles "
+                            f"({100 * completed / n_tiles:.1f}%) - "
+                            f"Rate: {rate:.2f} tiles/s - ETA: {eta:.1f}s - "
+                            f"Success: {success_rate:.1f}%"
+                        )
         
         # Check for errors
         if errors:

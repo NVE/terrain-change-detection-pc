@@ -75,8 +75,8 @@ def main():
     except Exception:
         pass
 
-    print("Terrain Change Detection Workflow")
-    print("=================================")
+    logger.info("Terrain Change Detection Workflow")
+    logger.info("=================================")
 
     base_dir = Path(cfg.paths.base_dir)
     # base_dir = Path(__file__).parent.parent / "tests" / "test_preprocessing" / "sample_data" / "raw"
@@ -393,8 +393,18 @@ def main():
                         logger.warning("Transformed files not available, using original T2 files (misalignment may affect results)")
 
                     logger.info("Using out-of-core streaming DoD (mean aggregator, tiled)...")
-                    logger.info(f"T1 files: {files_t1}")
-                    logger.info(f"T2 files: {files_t2}")
+
+                    def _fmt_files(files, max_show: int = 2) -> str:
+                        try:
+                            names = [Path(f).name for f in files]
+                        except Exception:
+                            names = list(files)
+                        if len(names) <= max_show:
+                            return f"{len(files)} files: {names}"
+                        return f"{len(files)} files: {names[:max_show]} + {len(files)-max_show} more"
+
+                    logger.info("T1 files: %s", _fmt_files(files_t1))
+                    logger.info("T2 files: %s", _fmt_files(files_t2))
                     logger.info(f"Tile size: {cfg.outofcore.tile_size_m}m, Halo: {cfg.outofcore.halo_m}m")
 
                     try:
@@ -602,8 +612,16 @@ def main():
                         logger.info("Using PARALLEL streaming tiled M3C2...")
                     else:
                         logger.info("Using streaming tiled M3C2...")
-                    logger.info(f"T1 files: {files_t1}")
-                    logger.info(f"T2 files: {files_t2}")
+                    def _fmt_files(files, max_show: int = 2) -> str:
+                        try:
+                            names = [Path(f).name for f in files]
+                        except Exception:
+                            names = list(files)
+                        if len(names) <= max_show:
+                            return f"{len(files)} files: {names}"
+                        return f"{len(files)} files: {names[:max_show]} + {len(files)-max_show} more"
+                    logger.info("T1 files: %s", _fmt_files(files_t1))
+                    logger.info("T2 files: %s", _fmt_files(files_t2))
                     try:
                         if use_parallel:
                             m3c2_res = ChangeDetector.compute_m3c2_streaming_files_tiled_parallel(

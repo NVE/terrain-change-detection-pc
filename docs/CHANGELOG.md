@@ -1,5 +1,49 @@
 # Changelog and Implementation Notes
 
+## 2025-11-11 — Logging + Progress UX Overhaul
+
+### Summary
+Significant improvements to runtime logging and user feedback during long operations. Console logs are cleaner and more focused; parallel and sequential tile processing now display a Rich progress bar with elapsed time and ETA. Noisy third‑party prints (KDTree builds) are captured and demoted to DEBUG, including Windows‑safe handling.
+
+### What Changed
+
+- Console/file log formats:
+  - Console: simplified to `time | level | logger | message` (no process name/PID).
+  - File logs (when configured): keep detailed `processName[pid]` for debugging.
+  - File: `src/terrain_change_detection/utils/logging.py`.
+
+- Rich progress bars for tile processing (DoD, C2C, M3C2):
+  - Added progress bars in `TileParallelExecutor` for both sequential and parallel paths.
+  - Fallback to adaptive interval INFO logs when Rich is unavailable.
+  - File: `src/terrain_change_detection/acceleration/parallel_executor.py`.
+
+- Less noisy INFO logs:
+  - Demoted per‑run M3C2 start/finish lines from INFO → DEBUG.
+  - Shortened file list logs to counts + a few basenames.
+  - Replaced banner `print()` with `logger.info()` for consistent formatting.
+  - Files: `src/terrain_change_detection/detection/change_detection.py`, `scripts/run_workflow.py`.
+
+- Capture and demote third‑party stdout/stderr:
+  - New helpers to redirect/capture Python stdout/stderr and C‑level fd(1/2) output.
+  - Filtered to only log KDTree build messages at DEBUG.
+  - Windows‑safe fd redirection to prevent `OSError: [WinError 6] Handle is invalid` in workers.
+  - Files: `src/terrain_change_detection/utils/logging.py`, `src/terrain_change_detection/detection/change_detection.py`.
+
+- Dependency updates:
+  - Added `rich>=13.7.0` for progress bars.
+  - File: `pyproject.toml`.
+
+### Expected Impact
+
+- Cleaner console logs by default; detailed process information still available in file logs.
+- Better user feedback during long, parallel operations with minimal log spam.
+- KDTree and similar library prints no longer clutter INFO output; visible only at DEBUG.
+
+### Notes
+
+- If you want to surface the KDTree messages, set `logging.level: DEBUG` in your profile.
+- Progress bars are transient in the console and complemented by occasional summary INFO lines.
+
 ## 2025-11-10 — CPU Parallelization Refinements and I/O Pruning
 
 ### Summary
