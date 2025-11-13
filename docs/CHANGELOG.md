@@ -47,9 +47,8 @@ This release resolves cross-mode differences between in-memory and streaming/til
 - For reproducible production runs, set fixed M3C2 parameters in YAML.
 - To keep autotune but avoid mode sensitivity, set `detection.m3c2.autotune.source: header` (profiles already default to this).
 - Use `--cores-file` to compare streaming and in-memory on identical core sets during validation.
-# Changelog and Implementation Notes
 
-## 2025-11-11 â€” M3C2 Stats Robustness and Streaming Consistency
+## 2025-11-11 - M3C2 Stats Robustness and Streaming Consistency
 
 ### Summary
 Improved consistency between in-memory and streaming M3C2 reporting and fixed
@@ -95,7 +94,7 @@ parallel streaming path respects classification filtering like other paths.
   streaming M3C2, the ICP transform is applied onâ€‘theâ€‘fly when aligned files
   are not written.
 
-## 2025-11-11 â€” Logging + Progress UX Overhaul
+## 2025-11-11 - Logging + Progress UX Overhaul
 
 ### Summary
 Significant improvements to runtime logging and user feedback during long operations. Console logs are cleaner and more focused; parallel and sequential tile processing now display a Rich progress bar with elapsed time and ETA. Noisy thirdâ€‘party prints (KDTree builds) are captured and demoted to DEBUG, including Windowsâ€‘safe handling.
@@ -139,7 +138,7 @@ Significant improvements to runtime logging and user feedback during long operat
 - If you want to surface the KDTree messages, set `logging.level: DEBUG` in your profile.
 - Progress bars are transient in the console and complemented by occasional summary INFO lines.
 
-## 2025-11-10 â€” CPU Parallelization Refinements and I/O Pruning
+## 2025-11-10 - CPU Parallelization Refinements and I/O Pruning
 
 ### Summary
 Focused improvements to the CPU parallel path: reduced redundant I/O per tile, prevented BLAS/NumPy thread oversubscription in workers, improved scheduling, and corrected misleading speedup logs. Pool reuse and failâ€‘fast were explored but intentionally not shipped to avoid regressions.
@@ -179,7 +178,7 @@ Focused improvements to the CPU parallel path: reduced redundant I/O per tile, p
 - Better scaling on medium/large datasets due to reduced redundant I/O and no thread oversubscription.
 - More accurate logs for expected speedup; easier to reason about throughput.
 
-## 2025-11-09 â€” Large Synthetic Dataset for Performance Testing
+## 2025-11-09 - Large Synthetic Dataset for Performance Testing
 
 ### Summary
 Created comprehensive large-scale synthetic dataset generation tools to properly test CPU parallelization performance at scale (50M+ points). The dataset includes realistic terrain features and controlled changes without misalignment complexity.
@@ -235,7 +234,7 @@ Expected performance improvements:
 
 ---
 
-## 2025-11-09 â€” CPU Parallelization Implementation Complete (Phase 1)
+## 2025-11-09 - CPU Parallelization Implementation Complete (Phase 1)
 
 ### Summary
 Completed CPU parallelization of all three change detection methods (DoD, C2C, M3C2). Implemented tile-level parallel processing infrastructure with comprehensive benchmarking showing the optimization provides infrastructure for larger datasets but has limited benefit at current scale (~9M points).
@@ -366,7 +365,7 @@ Completed CPU parallelization of all three change detection methods (DoD, C2C, M
 
 ---
 
-## 2025-11-09 â€” Performance Optimization Strategy Reassessment
+## 2025-11-09 - Performance Optimization Strategy Reassessment
 
 ### Summary
 Reassessed performance optimization approach based on completed out-of-core tiling infrastructure. Created new two-phase implementation plan: CPU parallelization first, then GPU acceleration.
@@ -445,7 +444,7 @@ Reassessed performance optimization approach based on completed out-of-core tili
 
 ---
 
-## 2025-11-09 â€” Config Schema Completion
+## 2025-11-09 - Config Schema Completion
 
 ### Summary
 Finalized out-of-core configuration schema with missing fields for production readiness.
@@ -462,7 +461,7 @@ Finalized out-of-core configuration schema with missing fields for production re
 
 ---
 
-## 2025-11-06 â€” Out-of-Core Processing & Tiling (Complete Implementation)
+## 2025-11-06 - Out-of-Core Processing & Tiling (Complete Implementation)
 
 ### Summary
 Implemented complete out-of-core processing infrastructure with tiling support for all three change detection methods (DoD, C2C, M3C2). This enables processing of datasets that exceed available memory by dividing spatial domains into tiles and streaming point data in chunks.
@@ -569,7 +568,7 @@ Implemented complete out-of-core processing infrastructure with tiling support f
 
 ---
 
-## 2025-11-05 â€” External Configuration System
+## 2025-11-05 - External Configuration System
 
 ### Summary
 Externalized central pipeline parameters into human-readable YAML configuration with typed validation (pydantic). Makes it easier to tune analyses without code changes and prepares for future UI-based configuration.
@@ -600,7 +599,7 @@ Externalized central pipeline parameters into human-readable YAML configuration 
 
 ---
 
-## 2025-11-05 â€” Coarse Registration & Open3D Integration
+## 2025-11-05 - Coarse Registration & Open3D Integration
 
 ### Summary
 Added coarse registration stage ahead of ICP with multiple methods (centroid, PCA, phase correlation, Open3D FPFH) and made Open3D an optional dependency.
@@ -650,43 +649,3 @@ Added coarse registration stage ahead of ICP with multiple methods (centroid, PC
 - Configuration guide explaining all parameters
 - Algorithm documentation (ALGORITHMS.md) explaining methods
 - Bug fix documentation (BUGFIX_LASPY_API.md)
-## 2025-11-13 – Alignment, Tiling, and M3C2 Autotune Consistency
-
-### Highlights
-- Fixed mosaic accumulation bug (masked writes on views) causing lost cells in DoD mosaics.
-- Respected ground_only/classification filtering in parallel tile workers (DoD, C2C, M3C2) to match in-memory behavior.
-- Ensured T2?T1 transform is applied in all streaming/tiled paths (DoD/C2C/M3C2), including per-chunk application.
-- M3C2: Resolved cross-mode discrepancies by introducing consistent parameter handling and diagnostics.
-  - Added header-based autotune option for density (utotune.source: header|sample).
-  - Added fixed-parameter mode (detection.m3c2.use_autotune: false + ixed.{radius, normal_scale, depth_factor}).
-  - Exposed CLI overrides: --m3c2-radius, --m3c2-normal-scale, --m3c2-depth-factor.
-  - Added reproducibility helpers: --seed, --cores-file to save/load core sets.
-  - Added --debug-m3c2-compare to print corr(stream,inmem), corr(..., dZ) and sign/quantile summaries.
-
-### Files Touched
-- DoD/tiling
-  - src/terrain_change_detection/acceleration/tiling.py: fix MosaicAccumulator.add_tile to index global arrays directly.
-- Parallel workers
-  - src/terrain_change_detection/acceleration/tile_workers.py: pass ground_only; apply transforms per chunk.
-- Change detection API
-  - src/terrain_change_detection/detection/change_detection.py:
-    - utotune_m3c2_params_from_headers(...) (new) for mode-agnostic autotune.
-    - Minor logging/param propagation improvements.
-  - src/terrain_change_detection/detection/__init__.py: export new API.
-- Workflow
-  - scripts/run_workflow.py:
-    - Respect use_autotune/ixed params from YAML.
-    - Implement header/sample autotune selection per config and log chosen params.
-    - Add --seed, --cores-file, --debug-m3c2-compare, --m3c2-*.
-- Config
-  - src/terrain_change_detection/utils/config.py:
-    - Add detection.m3c2.use_autotune, detection.m3c2.fixed, and utotune.source.
-  - YAML profiles (default, synthetic, large_synthetic, large_scale): include the new keys.
-
-### Notes for Users
-- For reproducible production runs, prefer fixed M3C2 parameters via YAML.
-- For mode-agnostic autotune, set detection.m3c2.autotune.source: header (now default in profiles).
-- Use --cores-file to compare streaming vs in-memory on identical core points.
-
-
-
