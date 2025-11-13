@@ -60,14 +60,22 @@ detection:
     k_neighbors: 20
     min_neighbors: 6
   m3c2:
-    enabled: false
+    enabled: true
+    # Use automatic parameter tuning (true) or fixed parameters below (false)
+    use_autotune: true
     # Fewer core points for fast runs
     core_points: 8000
     autotune:
+      source: header
       target_neighbors: 16
       max_depth_factor: 0.6
       min_radius: 1.0
       max_radius: 20.0
+    # Fixed parameters (used only when use_autotune: false). Leave as null to accept defaults.
+    fixed:
+      radius: null          # If set, projection_scale=cylinder_radius=radius
+      normal_scale: null    # Defaults to radius when null
+      depth_factor: null    # If null, falls back to autotune.max_depth_factor
     ep:
       # Number of worker processes/threads; null = OS default
       workers: null
@@ -79,7 +87,7 @@ logging:
 
 outofcore:
   # Master switch for streaming/tiling out-of-core workflows
-  enabled: false
+  enabled: true
   # Inner tile size in meters (processing region per tile)
   tile_size_m: 300.0
   # Halo width in meters (buffer around each tile to avoid edge effects)
@@ -98,7 +106,7 @@ outofcore:
 parallel:
   # Master switch for CPU parallelization
   # Disabled by default for small synthetic datasets (overhead not worth it)
-  enabled: false
+  enabled: true
   # Number of worker processes; null = auto-detect (cpu_count - 1)
   n_workers: null
   # Soft memory limit (GB) to guide worker count; null = no limit

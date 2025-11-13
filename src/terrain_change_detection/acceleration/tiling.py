@@ -340,8 +340,12 @@ class MosaicAccumulator:
         
         # Only accumulate valid (finite) values
         valid = np.isfinite(dem_tile)
-        self.sum[y_slice, x_slice][valid] += dem_tile[valid]
-        self.cnt[y_slice, x_slice][valid] += 1
+        if not np.any(valid):
+            return
+        # Compute global indices for valid cells to avoid temporary-view writes
+        ys, xs = np.nonzero(valid)
+        self.sum[tile.y0_idx + ys, tile.x0_idx + xs] += dem_tile[ys, xs]
+        self.cnt[tile.y0_idx + ys, tile.x0_idx + xs] += 1
 
     def finalize(self) -> np.ndarray:
         """Compute the final global DEM by averaging accumulated tiles.

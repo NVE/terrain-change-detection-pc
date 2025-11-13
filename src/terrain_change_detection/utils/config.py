@@ -68,6 +68,9 @@ class DetectionC2CConfig(BaseModel):
 
 
 class DetectionM3C2AutotuneConfig(BaseModel):
+    # Source for density estimation: 'header' uses LAS headers/union
+    # extent; 'sample' uses array points provided to the workflow.
+    source: Literal["header", "sample"] = Field(default="header")
     target_neighbors: int = Field(default=16)
     max_depth_factor: float = Field(default=0.6)
     min_radius: float = Field(default=1.0)
@@ -79,10 +82,22 @@ class DetectionM3C2EPConfig(BaseModel):
     workers: Optional[int] = Field(default=None)
 
 
+class DetectionM3C2FixedConfig(BaseModel):
+    # When use_autotune is False, use these fixed parameters
+    # If normal_scale is None, defaults to radius
+    # If depth_factor is None, defaults to autotune.max_depth_factor
+    radius: Optional[float] = Field(default=None)
+    normal_scale: Optional[float] = Field(default=None)
+    depth_factor: Optional[float] = Field(default=None)
+
+
 class DetectionM3C2Config(BaseModel):
     enabled: bool = Field(default=True)
     core_points: int = Field(default=10000)
+    # Choose between autotuned parameters or fixed ones from config
+    use_autotune: bool = Field(default=True)
     autotune: DetectionM3C2AutotuneConfig = Field(default_factory=DetectionM3C2AutotuneConfig)
+    fixed: DetectionM3C2FixedConfig = Field(default_factory=DetectionM3C2FixedConfig)
     ep: DetectionM3C2EPConfig = Field(default_factory=DetectionM3C2EPConfig)
 
 

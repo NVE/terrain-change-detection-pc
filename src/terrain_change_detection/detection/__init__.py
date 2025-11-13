@@ -14,6 +14,7 @@ from .change_detection import (
 
 # Re-export function for convenience
 autotune_m3c2_params = ChangeDetector.autotune_m3c2_params
+autotune_m3c2_params_from_headers = ChangeDetector.autotune_m3c2_params_from_headers
 
 __all__ = [
 	"ChangeDetector",
@@ -22,4 +23,5 @@ __all__ = [
 	"M3C2Result",
 	"M3C2Params",
 	"autotune_m3c2_params",
+	"autotune_m3c2_params_from_headers",
 ]

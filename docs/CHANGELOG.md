@@ -601,3 +601,41 @@ Added coarse registration stage ahead of ICP with multiple methods (centroid, PC
 - Configuration guide explaining all parameters
 - Algorithm documentation (ALGORITHMS.md) explaining methods
 - Bug fix documentation (BUGFIX_LASPY_API.md)
+## 2025-11-13 – Alignment, Tiling, and M3C2 Autotune Consistency
+
+### Highlights
+- Fixed mosaic accumulation bug (masked writes on views) causing lost cells in DoD mosaics.
+- Respected ground_only/classification filtering in parallel tile workers (DoD, C2C, M3C2) to match in-memory behavior.
+- Ensured T2?T1 transform is applied in all streaming/tiled paths (DoD/C2C/M3C2), including per-chunk application.
+- M3C2: Resolved cross-mode discrepancies by introducing consistent parameter handling and diagnostics.
+  - Added header-based autotune option for density (utotune.source: header|sample).
+  - Added fixed-parameter mode (detection.m3c2.use_autotune: false + ixed.{radius, normal_scale, depth_factor}).
+  - Exposed CLI overrides: --m3c2-radius, --m3c2-normal-scale, --m3c2-depth-factor.
+  - Added reproducibility helpers: --seed, --cores-file to save/load core sets.
+  - Added --debug-m3c2-compare to print corr(stream,inmem), corr(..., dZ) and sign/quantile summaries.
+
+### Files Touched
+- DoD/tiling
+  - src/terrain_change_detection/acceleration/tiling.py: fix MosaicAccumulator.add_tile to index global arrays directly.
+- Parallel workers
+  - src/terrain_change_detection/acceleration/tile_workers.py: pass ground_only; apply transforms per chunk.
+- Change detection API
+  - src/terrain_change_detection/detection/change_detection.py:
+    - utotune_m3c2_params_from_headers(...) (new) for mode-agnostic autotune.
+    - Minor logging/param propagation improvements.
+  - src/terrain_change_detection/detection/__init__.py: export new API.
+- Workflow
+  - scripts/run_workflow.py:
+    - Respect use_autotune/ixed params from YAML.
+    - Implement header/sample autotune selection per config and log chosen params.
+    - Add --seed, --cores-file, --debug-m3c2-compare, --m3c2-*.
+- Config
+  - src/terrain_change_detection/utils/config.py:
+    - Add detection.m3c2.use_autotune, detection.m3c2.fixed, and utotune.source.
+  - YAML profiles (default, synthetic, large_synthetic, large_scale): include the new keys.
+
+### Notes for Users
+- For reproducible production runs, prefer fixed M3C2 parameters via YAML.
+- For mode-agnostic autotune, set detection.m3c2.autotune.source: header (now default in profiles).
+- Use --cores-file to compare streaming vs in-memory on identical core points.
+

@@ -20,7 +20,12 @@ from terrain_change_detection.alignment.fine_registration import ICPRegistration
 from terrain_change_detection.alignment.coarse_registration import CoarseRegistration
 from terrain_change_detection.alignment import apply_transform_to_files, save_transform_matrix
 from terrain_change_detection.utils.logging import setup_logger
-from terrain_change_detection.detection import ChangeDetector, autotune_m3c2_params
+from terrain_change_detection.detection import (
+    ChangeDetector,
+    autotune_m3c2_params,
+    autotune_m3c2_params_from_headers,
+    M3C2Params,
+)
 from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
 from terrain_change_detection.utils.config import load_config, AppConfig
 from terrain_change_detection.acceleration import LaspyStreamReader
@@ -52,6 +57,41 @@ def main():
         default=None,
         help="Path to YAML configuration file (defaults to config/default.yaml)",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Seed for NumPy RNG to make subsampling/core selection reproducible.",
+    )
+    parser.add_argument(
+        "--cores-file",
+        type=str,
+        default=None,
+        help="Path to a .npy file with core points to LOAD if it exists; otherwise SAVE selected cores to this path.",
+    )
+    parser.add_argument(
+        "--m3c2-radius",
+        type=float,
+        default=None,
+        help="Override M3C2 radius (meters). Sets projection_scale=cylinder_radius=radius for both modes.",
+    )
+    parser.add_argument(
+        "--m3c2-normal-scale",
+        type=float,
+        default=None,
+        help="Override M3C2 normal_scale (meters). Defaults to radius when not set.",
+    )
+    parser.add_argument(
+        "--m3c2-depth-factor",
+        type=float,
+        default=None,
+        help="Override max_depth factor so that max_depth = depth_factor * radius (default from config).",
+    )
+    parser.add_argument(
+        "--debug-m3c2-compare",
+        action="store_true",
+        help="Run both streaming and in-memory M3C2 on the same core points and print sign/correlation diagnostics.",
+    )
     args, unknown = parser.parse_known_args()
 
     # Load configuration
@@ -62,6 +102,15 @@ def main():
     # Setup logging from config
     log_level = getattr(logging, cfg.logging.level.upper(), logging.INFO)
     logger = setup_logger(__name__, level=log_level, log_file=cfg.logging.file)
+
+    # Optional deterministic seed for NumPy RNG (affects subsampling/core selection)
+    try:
+        if args.seed is not None:
+            import numpy as _np_seed
+            _np_seed.random.seed(int(args.seed))
+            logger.info(f"NumPy RNG seeded with {int(args.seed)}")
+    except Exception:
+        pass
 
     # Performance: set thread env vars if configured
     try:
@@ -567,26 +616,146 @@ def main():
         else:
             logger.info("Skipping C2C (disabled in config).")
 
-        # 3c) M3C2
+    # 3c) M3C2
         if getattr(cfg.detection.m3c2, "enabled", True):
             try:
                 logger.info("Computing M3C2 distances on core points (downsampled)...")
 
-                # Generate core points by uniform subsampling of target (T1)
+                # Core points selection or load from file for reproducibility across runs
                 max_core = cfg.detection.m3c2.core_points
-                core_src = points1
-                if len(core_src) > max_core:
-                    idx = np.random.choice(len(core_src), max_core, replace=False)
-                    core_src = core_src[idx]
+                cores_path = Path(args.cores_file) if args.cores_file else None
+                core_src = None
+                if cores_path is not None and cores_path.exists():
+                    try:
+                        core_loaded = np.load(str(cores_path))
+                        if core_loaded.ndim != 2 or core_loaded.shape[1] != 3:
+                            raise ValueError("cores-file must contain an array of shape (N,3)")
+                        core_src = core_loaded.astype(np.float64, copy=False)
+                        logger.info(f"Loaded {len(core_src)} core points from {cores_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to load cores from {cores_path}: {e}; falling back to selection")
+                        core_src = None
+                if core_src is None:
+                    # Uniform subsample of T1 to 'max_core'
+                    if len(points1) > max_core:
+                        idx = np.random.choice(len(points1), max_core, replace=False)
+                        core_src = points1[idx]
+                    else:
+                        core_src = points1
+                    # Save if a path was provided but did not exist
+                    if cores_path is not None:
+                        try:
+                            cores_path.parent.mkdir(parents=True, exist_ok=True)
+                            np.save(str(cores_path), core_src)
+                            logger.info(f"Saved {len(core_src)} core points to {cores_path}")
+                        except Exception as e:
+                            logger.warning(f"Could not save cores to {cores_path}: {e}")
 
                 # Auto-tune M3C2 parameters based on point density
-                m3c2_params = autotune_m3c2_params(
-                    points1,
-                    target_neighbors=cfg.detection.m3c2.autotune.target_neighbors,
-                    max_depth_factor=cfg.detection.m3c2.autotune.max_depth_factor,
-                    min_radius=cfg.detection.m3c2.autotune.min_radius,
-                    max_radius=cfg.detection.m3c2.autotune.max_radius,
-                )
+                # Select M3C2 parameters: fixed from config or autotuned from data
+                if getattr(cfg.detection.m3c2, 'use_autotune', True) is False and getattr(cfg.detection.m3c2, 'fixed', None) is not None and cfg.detection.m3c2.fixed.radius is not None:
+                    r = float(cfg.detection.m3c2.fixed.radius)
+                    depth_factor = (
+                        float(cfg.detection.m3c2.fixed.depth_factor)
+                        if cfg.detection.m3c2.fixed.depth_factor is not None
+                        else float(cfg.detection.m3c2.autotune.max_depth_factor)
+                    )
+                    normal_scale = (
+                        float(cfg.detection.m3c2.fixed.normal_scale)
+                        if cfg.detection.m3c2.fixed.normal_scale is not None
+                        else r
+                    )
+                    m3c2_params = M3C2Params(
+                        projection_scale=r,
+                        cylinder_radius=r,
+                        max_depth=r * depth_factor,
+                        min_neighbors=10,
+                        normal_scale=normal_scale,
+                        confidence=0.95,
+                    )
+                    logger.info(
+                        "M3C2 fixed params from config: radius=%.2f, normal_scale=%.2f, max_depth=%.2f (factor=%.2f)",
+                        r, normal_scale, r * depth_factor, depth_factor,
+                    )
+                else:
+                    # Optional header-based density for autotune (mode-agnostic)
+                    at = cfg.detection.m3c2.autotune
+                    use_header = getattr(at, 'source', 'header') == 'header'
+                    # Build file lists for header-based density whether streaming or not
+                    if use_streaming:
+                        files_t1_params = pc1_data['file_paths'] if 'file_paths' in pc1_data else []
+                        files_t2_params = pc2_data.get('aligned_file_paths') or pc2_data.get('file_paths') or []
+                    else:
+                        files_t1_params = [str(p) for p in ds1.laz_files]
+                        files_t2_params = [str(p) for p in ds2.laz_files]
+
+                    if use_header and files_t1_params:
+                        m3c2_params = None
+                        try:
+                            m3c2_params = autotune_m3c2_params_from_headers(
+                                files_t1=files_t1_params,
+                                files_t2=files_t2_params,
+                                target_neighbors=at.target_neighbors,
+                                max_depth_factor=at.max_depth_factor,
+                                min_radius=at.min_radius,
+                                max_radius=at.max_radius,
+                            )
+                        except Exception as _e:
+                            logger.warning(
+                                f"Header-based autotune failed ({_e}); falling back to sample-based."
+                            )
+                        if m3c2_params is not None:
+                            logger.info(
+                                "M3C2 autotune (header): radius=%.2f, max_depth=%.2f",
+                                m3c2_params.projection_scale, m3c2_params.max_depth,
+                            )
+                        else:
+                            # Fallback to sample-based
+                            m3c2_params = autotune_m3c2_params(
+                                points1,
+                                target_neighbors=at.target_neighbors,
+                                max_depth_factor=at.max_depth_factor,
+                                min_radius=at.min_radius,
+                                max_radius=at.max_radius,
+                            )
+                            logger.info(
+                                "M3C2 autotune (sample): radius=%.2f, max_depth=%.2f",
+                                m3c2_params.projection_scale, m3c2_params.max_depth,
+                            )
+                    else:
+                        # Sample-based (current behavior)
+                        m3c2_params = autotune_m3c2_params(
+                            points1,
+                            target_neighbors=at.target_neighbors,
+                            max_depth_factor=at.max_depth_factor,
+                            min_radius=at.min_radius,
+                            max_radius=at.max_radius,
+                        )
+                        logger.info(
+                            "M3C2 autotune (sample): radius=%.2f, max_depth=%.2f",
+                            m3c2_params.projection_scale, m3c2_params.max_depth,
+                        )
+                # Optional CLI override to enforce identical parameters across modes
+                if args.m3c2_radius is not None:
+                    r = float(args.m3c2_radius)
+                    depth_factor = (
+                        float(args.m3c2_depth_factor)
+                        if args.m3c2_depth_factor is not None
+                        else float(cfg.detection.m3c2.autotune.max_depth_factor)
+                    )
+                    normal_scale = float(args.m3c2_normal_scale) if args.m3c2_normal_scale is not None else r
+                    m3c2_params = M3C2Params(
+                        projection_scale=r,
+                        cylinder_radius=r,
+                        max_depth=r * depth_factor,
+                        min_neighbors=m3c2_params.min_neighbors,
+                        normal_scale=normal_scale,
+                        confidence=m3c2_params.confidence,
+                    )
+                    logger.info(
+                        "M3C2 overrides: radius=%.2f, normal_scale=%.2f, max_depth=%.2f (factor=%.2f)",
+                        r, normal_scale, r * depth_factor, depth_factor,
+                    )
                 logger.info(
                     "M3C2 auto-tuned params: proj_scale=%.2f, cyl_radius=%.2f, max_depth=%.2f, min_neighbors=%d",
                     m3c2_params.projection_scale,
@@ -624,7 +793,7 @@ def main():
                     logger.info("T2 files: %s", _fmt_files(files_t2))
                     try:
                         if use_parallel:
-                            m3c2_res = ChangeDetector.compute_m3c2_streaming_files_tiled_parallel(
+                            m3c2_res_stream = ChangeDetector.compute_m3c2_streaming_files_tiled_parallel(
                                 core_points=core_src,
                                 files_t1=files_t1,
                                 files_t2=files_t2,
@@ -639,7 +808,7 @@ def main():
                                 threads_per_worker=getattr(cfg.parallel, 'threads_per_worker', 1),
                             )
                         else:
-                            m3c2_res = ChangeDetector.compute_m3c2_streaming_files_tiled(
+                            m3c2_res_stream = ChangeDetector.compute_m3c2_streaming_files_tiled(
                                 core_points=core_src,
                                 files_t1=files_t1,
                                 files_t2=files_t2,
@@ -651,6 +820,73 @@ def main():
                                 chunk_points=cfg.outofcore.chunk_points,
                                 transform_t2=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
                             )
+                        # Optionally compute in-memory M3C2 using the same core points and compare
+                        if args.debug_m3c2_compare:
+                            logger.info("Debug: also running in-memory M3C2 for comparison...")
+                            m3c2_res_mem = ChangeDetector.compute_m3c2_original(
+                                core_points=core_src,
+                                cloud_t1=points1,
+                                cloud_t2=points2_full_aligned,
+                                params=m3c2_params,
+                            )
+                            import numpy as _np
+                            def _pearson(a, b):
+                                a = _np.asarray(a, dtype=float).ravel()
+                                b = _np.asarray(b, dtype=float).ravel()
+                                m = _np.isfinite(a) & _np.isfinite(b)
+                                if not _np.any(m):
+                                    return float('nan')
+                                a = a[m]; b = b[m]
+                                n = a.size
+                                if n < 2:
+                                    return float('nan')
+                                a = a - a.mean(); b = b - b.mean()
+                                sa = a.std(); sb = b.std()
+                                denom = sa * sb * n
+                                num = float(a.dot(b))
+                                return float(num / denom) if denom > 0 else float('nan')
+                            def _summary(name: str, arr):
+                                d = _np.asarray(arr, dtype=float).ravel()
+                                d = d[_np.isfinite(d)]
+                                n = d.size
+                                if n == 0:
+                                    logger.info("Debug M3C2 summary (%s): n=0", name)
+                                    return
+                                pos = float(_np.sum(d > 0)) / n * 100.0
+                                neg = float(_np.sum(d < 0)) / n * 100.0
+                                med = float(_np.median(d))
+                                p5 = float(_np.percentile(d, 5))
+                                p95 = float(_np.percentile(d, 95))
+                                a95 = float(_np.percentile(_np.abs(d), 95))
+                                logger.info(
+                                    "Debug M3C2 summary (%s): n=%d, pos=%.1f%%, neg=%.1f%%, med=%.4f, p5=%.4f, p95=%.4f, abs_p95=%.4f",
+                                    name, n, pos, neg, med, p5, p95, a95,
+                                )
+                            r_same = _pearson(m3c2_res_stream.distances, m3c2_res_mem.distances)
+                            r_flip = _pearson(m3c2_res_stream.distances, -_np.asarray(m3c2_res_mem.distances))
+                            logger.info("Debug M3C2: corr(stream, inmem)=%.6f, corr(stream, -inmem)=%.6f", r_same, r_flip)
+                            try:
+                                # Vertical proxy using nearest neighbors in each epoch
+                                from sklearn.neighbors import NearestNeighbors as _NN
+                                nn1 = _NN(n_neighbors=1, algorithm='kd_tree').fit(points1)
+                                nn2 = _NN(n_neighbors=1, algorithm='kd_tree').fit(points2_full_aligned)
+                                i1 = nn1.kneighbors(core_src, return_distance=False).ravel()
+                                i2 = nn2.kneighbors(core_src, return_distance=False).ravel()
+                                dz = points2_full_aligned[i2, 2] - points1[i1, 2]
+                                rz_stream = _pearson(m3c2_res_stream.distances, dz)
+                                rz_mem = _pearson(m3c2_res_mem.distances, dz)
+                                rz_mem_flip = _pearson(-_np.asarray(m3c2_res_mem.distances), dz)
+                                logger.info(
+                                    "Debug M3C2: corr(stream, dZ)=%.6f, corr(inmem, dZ)=%.6f, corr(-inmem, dZ)=%.6f",
+                                    rz_stream, rz_mem, rz_mem_flip,
+                                )
+                            except Exception as _e:
+                                logger.warning(f"Debug M3C2: dZ proxy check skipped ({_e})")
+                            # Sign/quantile summaries
+                            _summary("stream", m3c2_res_stream.distances)
+                            _summary("inmem", m3c2_res_mem.distances)
+                        # Use streaming result for downstream visualization/output
+                        m3c2_res = m3c2_res_stream
                     except Exception as stream_err:
                         logger.error(f"Streaming M3C2 failed: {stream_err}")
                         logger.info("Falling back to in-memory M3C2 (Original)...")

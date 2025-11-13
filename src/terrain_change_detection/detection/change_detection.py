@@ -1053,6 +1053,7 @@ class ChangeDetector:
             'chunk_points': chunk_points,
             'classification_filter': classification_filter,
             'transform_matrix': transform_t2,
+            'ground_only': ground_only,
         }
 
         t0 = time.time()
@@ -1214,6 +1215,7 @@ class ChangeDetector:
             'chunk_points': chunk_points,
             'classification_filter': classification_filter,
             'transform_matrix': transform_src,
+            'ground_only': ground_only,
         }
 
         t0 = time.time()
@@ -1322,13 +1324,14 @@ class ChangeDetector:
         # Note: File header bounds are scanned below and filtered per tile.
         # Paths are passed per-tile to workers to avoid redundant I/O.
         
-        # Determine processing bounds from core points
-        xmin, ymin = float(np.min(core_points[:, 0])), float(np.min(core_points[:, 1]))
-        xmax, ymax = float(np.max(core_points[:, 0])), float(np.max(core_points[:, 1]))
-        gb = Bounds2D(min_x=xmin, min_y=ymin, max_x=xmax, max_y=ymax)
+        # Determine processing bounds from the union of LAS headers, not only core extents.
+        # Using core-point bounds can clip tile halos at the dataset edge and change neighborhoods.
+        gb = union_bounds(files_t1, files_t2)
         
         # Determine halo
-        default_halo = max(float(params.cylinder_radius), float(params.projection_scale))
+        # Halo must cover all XY neighborhoods used by M3C2: cylinder_radius and normal radius.
+        normal_r = float(params.normal_scale) if getattr(params, "normal_scale", None) is not None else float(params.projection_scale)
+        default_halo = max(float(params.cylinder_radius), float(params.projection_scale), normal_r)
         used_halo = float(default_halo if halo is None else max(halo, default_halo))
         
         # Log extent info
@@ -1532,6 +1535,57 @@ class ChangeDetector:
             normal_scale=None,
             confidence=0.95,
         )
+
+    @staticmethod
+    def autotune_m3c2_params_from_headers(
+        files_t1: list[str],
+        files_t2: list[str],
+        target_neighbors: int = 16,
+        max_depth_factor: float = 0.6,
+        min_radius: float = 1.0,
+        max_radius: float = 20.0,
+    ) -> M3C2Params:
+        """
+        Suggest M3C2 parameter scales using LAS header counts and union extent.
+
+        Mode-agnostic alternative to sample-based autotune: uses only headers
+        so results are consistent across streaming/in-memory paths.
+        """
+        # Compute union bounds for conservative area
+        gb = union_bounds(files_t1, files_t2)
+        area = max(1e-6, float((gb.max_x - gb.min_x) * (gb.max_y - gb.min_y)))
+
+        # Sum header point counts for T1 epoch
+        try:
+            import laspy  # type: ignore
+        except Exception as e:  # pragma: no cover - optional dependency
+            raise ImportError("Header-based autotune requires laspy") from e
+
+        n_total = 0.0
+        for f in files_t1:
+            with laspy.open(str(f)) as r:
+                n_total += float(r.header.point_count)
+
+        density = n_total / area  # pts per m^2
+        if density <= 0:
+            r_est = float(max_radius)
+        else:
+            r_est = float(np.sqrt(max(1e-9, target_neighbors) / (np.pi * density)))
+        r_est = float(np.clip(r_est, min_radius, max_radius))
+
+        proj_scale = r_est
+        cyl_radius = r_est
+        max_depth = float(max(0.5, max_depth_factor * r_est))
+        min_neigh = int(max(5, min(20, target_neighbors // 2)))
+
+        return M3C2Params(
+            projection_scale=proj_scale,
+            cylinder_radius=cyl_radius,
+            max_depth=max_depth,
+            min_neighbors=min_neigh,
+            normal_scale=None,
+            confidence=0.95,
+        )
     @staticmethod
     def compute_m3c2_original(
         core_points: np.ndarray,
@@ -1691,13 +1745,13 @@ class ChangeDetector:
         if not files_t1 or not files_t2:
             raise ValueError("compute_m3c2_streaming_files_tiled requires file lists for T1/T2")
 
-        # Determine processing bounds from core points (safe and minimal)
-        xmin, ymin = float(np.min(core_points[:, 0])), float(np.min(core_points[:, 1]))
-        xmax, ymax = float(np.max(core_points[:, 0])), float(np.max(core_points[:, 1]))
-        gb = Bounds2D(min_x=xmin, min_y=ymin, max_x=xmax, max_y=ymax)
+        # Determine processing bounds from the union of LAS headers, not only core extents.
+        # Using core-point bounds can clip halos at the dataset edge and alter neighborhoods.
+        gb = union_bounds(files_t1, files_t2)
 
         # Determine halo
-        default_halo = max(float(params.cylinder_radius), float(params.projection_scale))
+        normal_r = float(params.normal_scale) if getattr(params, "normal_scale", None) is not None else float(params.projection_scale)
+        default_halo = max(float(params.cylinder_radius), float(params.projection_scale), normal_r)
         used_halo = float(default_halo if halo is None else max(halo, default_halo))
         # Practical extent info for engineers (core points extent)
         dx = float(gb.max_x - gb.min_x)

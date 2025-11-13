@@ -56,9 +56,13 @@ detection:
     min_neighbors: 6
   m3c2:
     enabled: true
+    # Use automatic parameter tuning (true) or fixed parameters below (false)
+    use_autotune: true
     # Number of core points at which to compute M3C2 distances
     core_points: 10000
     autotune:
+      # Source for density estimate: header | sample
+      source: header
       # Target neighbor count for choosing scales
       target_neighbors: 16
       # Half-depth along normal as a fraction of cylinder radius
@@ -66,6 +70,11 @@ detection:
       # Min/max search radii (m) for scale selection
       min_radius: 1.0
       max_radius: 20.0
+    # Fixed parameters (used only when use_autotune: false). Leave as null to accept defaults.
+    fixed:
+      radius: null          # If set, projection_scale=cylinder_radius=radius
+      normal_scale: null    # Defaults to radius when null
+      depth_factor: null    # If null, falls back to autotune.max_depth_factor
     ep:
       # Number of worker processes/threads; null = OS default
       workers: null

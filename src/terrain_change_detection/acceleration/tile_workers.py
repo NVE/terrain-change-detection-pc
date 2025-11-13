@@ -56,6 +56,8 @@ def process_dod_tile(
     chunk_points: int,
     classification_filter: Optional[List[int]] = None,
     transform_matrix: Optional[np.ndarray] = None,
+    *,
+    ground_only: bool = True,
 ) -> Tuple[Tile, np.ndarray, np.ndarray]:
     """
     Process single DoD tile in worker process.
@@ -82,7 +84,7 @@ def process_dod_tile(
     # Stream and accumulate epoch 1 points (using outer bounds for complete coverage)
     reader1 = LaspyStreamReader(
         files_t1,
-        ground_only=False,
+        ground_only=ground_only,
         classification_filter=classification_filter,
         chunk_points=chunk_points
     )
@@ -96,7 +98,7 @@ def process_dod_tile(
     # Stream and accumulate epoch 2 points (with optional transformation)
     reader2 = LaspyStreamReader(
         files_t2,
-        ground_only=False,
+        ground_only=ground_only,
         classification_filter=classification_filter,
         chunk_points=chunk_points
     )
@@ -134,6 +136,8 @@ def process_c2c_tile(
     classification_filter: Optional[List[int]] = None,
     transform_matrix: Optional[np.ndarray] = None,
     k_neighbors: int = 1,
+    *,
+    ground_only: bool = True,
 ) -> Tuple[Tile, np.ndarray]:
     """
     Process single C2C tile in worker process.
@@ -160,7 +164,7 @@ def process_c2c_tile(
     source_points = []
     reader_src = LaspyStreamReader(
         files_source,
-        ground_only=False,
+        ground_only=ground_only,
         classification_filter=classification_filter,
         chunk_points=chunk_points
     )
@@ -175,7 +179,7 @@ def process_c2c_tile(
     target_points = []
     reader_tgt = LaspyStreamReader(
         files_target,
-        ground_only=False,
+        ground_only=ground_only,
         classification_filter=classification_filter,
         chunk_points=chunk_points
     )
