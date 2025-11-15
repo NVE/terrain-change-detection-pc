@@ -96,7 +96,7 @@ performance:
 
 outofcore:
   # Master switch for streaming/tiling out-of-core workflows
-  enabled: true
+  enabled: false
   # Inner tile size in meters (processing region per tile)
   tile_size_m: 500.0
   # Halo width in meters (buffer around each tile to avoid edge effects)

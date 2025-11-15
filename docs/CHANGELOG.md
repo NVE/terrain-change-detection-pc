@@ -270,12 +270,12 @@ Completed CPU parallelization of all three change detection methods (DoD, C2C, M
 - Corrected streaming API calls with proper `bbox` parameter usage
 
 **Configuration Files**:
-- Created benchmark configs: `bench_{dod,c2c,m3c2}_{seq,par}.yaml`
+- Created benchmark configs under `experiments/configs`: `bench_{dod,c2c,m3c2}_{seq,par}.yaml`
 - Updated `large_scale.yaml` with parallel settings
 
 **Benchmarking**:
-- Created `scripts/run_benchmark.ps1`: PowerShell script for performance testing
-- Created `BENCHMARK_RESULTS.md`: Comprehensive performance analysis
+- Created `experiments/scripts/run_benchmark.ps1`: PowerShell script for performance testing
+- Created `experiments/benchmarks/reports/BENCHMARK_RESULTS.md`: Comprehensive performance analysis
 - Tested all 6 scenarios (3 methods Ã— 2 modes)
 
 ### Performance Results

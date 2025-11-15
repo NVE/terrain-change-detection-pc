@@ -11,7 +11,10 @@ Standard configuration with out-of-core processing **disabled**. Use for dataset
 outofcore:
   enabled: false
   streaming_mode: true  # Ready when you enable it
-  save_transformed_files: true
+  tile_size_m: 500.0
+  halo_m: 20.0
+  chunk_points: 1000000
+  save_transformed_files: false  # Opt-in to writing transformed files
 ```
 
 ### 2. **Synthetic Profile** (`config/profiles/synthetic.yaml`)
@@ -30,12 +33,12 @@ outofcore:
 ```yaml
 outofcore:
   enabled: true  # Enables streaming throughout workflow
-  tile_size_m: 1000.0  # 1km tiles for large areas
-  halo_m: 50.0  # Larger buffer for edge effects
+  tile_size_m: 500.0  # Tile size in meters for large areas
+  halo_m: 30.0  # Buffer for edge effects
   chunk_points: 2000000  # 2M points per chunk
   streaming_mode: true  # Use streaming preprocessing
-  save_transformed_files: true  # Save transformed LAZ files
-  output_dir: data/processed  # Where to save outputs
+  save_transformed_files: false  # Enable explicitly when you want files
+  output_dir: null  # Auto-generate when saving transformed files
 ```
 
 ## Configuration Parameters
@@ -46,7 +49,7 @@ outofcore:
 |-----------|------|---------|-------------|
 | `enabled` | bool | false | Master switch for out-of-core processing |
 | `streaming_mode` | bool | true | Use streaming in preprocessing (when enabled) |
-| `save_transformed_files` | bool | true | Save transformed LAZ files during alignment |
+| `save_transformed_files` | bool | false | Save transformed LAZ files during alignment |
 | `tile_size_m` | float | 500.0 | Tile size in meters for tiled processing |
 | `halo_m` | float | 20.0 | Buffer width around tiles in meters |
 | `chunk_points` | int | 1000000 | Points per chunk for streaming reads |
