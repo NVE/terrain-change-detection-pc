@@ -119,4 +119,17 @@ parallel:
   n_workers: null
   # Soft memory limit (GB) to guide worker count; null = no limit
   memory_limit_gb: null
-  
+
+gpu:
+  # Master switch for GPU acceleration (graceful CPU fallback if unavailable)
+  enabled: true
+  # Max GPU memory to use in GB; null = auto-detect (80% of available)
+  gpu_memory_limit_gb: null
+  # Automatically fall back to CPU if GPU initialization fails
+  fallback_to_cpu: true
+  # Use GPU for C2C nearest neighbor searches (10-50x speedup potential)
+  use_for_c2c: true
+  # Use GPU for data preprocessing (transformations, filtering)
+  use_for_preprocessing: true
+  # GPU batch size for operations; null = auto-calculate based on memory
+  batch_size: null

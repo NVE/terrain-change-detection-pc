@@ -138,6 +138,14 @@ class AppConfig(BaseModel):
         memory_limit_gb: Optional[float] = Field(default=None, description="Soft memory limit in GB to guide concurrency")
         threads_per_worker: Optional[int] = Field(default=1, description="BLAS/NumPy threads per worker process (mitigate oversubscription)")
 
+    class GPUConfig(BaseModel):
+        enabled: bool = Field(default=True, description="Enable GPU acceleration if available (graceful CPU fallback)")
+        gpu_memory_limit_gb: Optional[float] = Field(default=None, description="Max GPU memory to use in GB (None = auto-detect 80% of available)")
+        fallback_to_cpu: bool = Field(default=True, description="Automatically fall back to CPU if GPU fails or unavailable")
+        use_for_c2c: bool = Field(default=True, description="Use GPU for C2C nearest neighbor searches")
+        use_for_preprocessing: bool = Field(default=True, description="Use GPU for data preprocessing (transformations, filtering)")
+        batch_size: Optional[int] = Field(default=None, description="GPU batch size for operations (None = auto-calculate based on memory)")
+
     paths: PathsConfig = Field(default_factory=PathsConfig)
     preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
@@ -148,6 +156,7 @@ class AppConfig(BaseModel):
     performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
     outofcore: OutOfCoreConfig = Field(default_factory=OutOfCoreConfig)
     parallel: ParallelConfig = Field(default_factory=ParallelConfig)
+    gpu: GPUConfig = Field(default_factory=GPUConfig)
 
 
 # -----------------------
