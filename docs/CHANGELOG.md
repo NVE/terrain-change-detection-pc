@@ -1,5 +1,103 @@
 ﻿# Changelog and Implementation Notes
 
+## 2025-11-15 - Phase 2.1: C2C GPU Acceleration - Workflow Integration & Verification
+
+### Summary
+Integrated GPU C2C acceleration into the main workflow script (`run_workflow.py`) and verified end-to-end functionality on real production data. GPU acceleration is now fully operational in the complete terrain change detection pipeline with proper configuration propagation, status logging, and usage reporting.
+
+### What Changed
+
+- **Workflow Integration (`run_workflow.py`)**
+  - Updated all C2C method calls to pass `config` parameter:
+    - `compute_c2c()` - basic Euclidean C2C distances
+    - `compute_c2c_vertical_plane()` - plane-based C2C with local fitting
+    - `compute_c2c_streaming_files_tiled()` - streaming tiled C2C
+    - `compute_c2c_streaming_files_tiled_parallel()` - parallel streaming C2C
+  - GPU configuration now properly propagated through entire workflow
+  - Backward compatible (config parameter is optional)
+
+- **GPU Status Logging**
+  - Added GPU hardware detection at workflow startup:
+    - Displays GPU device name, memory, and CUDA version
+    - Shows which GPU features are enabled (C2C, preprocessing)
+    - Warns if GPU enabled in config but hardware unavailable
+  - Example output:
+    ```
+    GPU Acceleration: ENABLED
+      Device: NVIDIA GeForce RTX 3050
+      Memory: 8.00 GB
+      C2C: ENABLED
+      Preprocessing: ENABLED
+    ```
+
+- **GPU Usage Reporting**
+  - Added post-C2C computation reporting:
+    - Logs whether GPU or CPU was used for computation
+    - Helps verify GPU acceleration is working as expected
+  - Example: `C2C computation used: GPU`
+
+- **Performance Benchmark Script**
+  - Added `scripts/test_gpu_c2c_performance.py`:
+    - Standalone GPU vs CPU benchmark on real data
+    - Tests multiple point cloud sizes (1K, 5K, 10K points)
+    - Calculates speedups and provides performance insights
+    - Uses data from `config/default.yaml` for easy testing
+
+### Verification Results
+
+**Tested on Real Data:**
+- Dataset: `eksport_1225654_20250602` (Norwegian terrain)
+- Time periods: 2015 (5.9M ground points) and 2020 (9.1M ground points)
+- Hardware: NVIDIA GeForce RTX 3050, 8GB VRAM, CUDA 13.0
+- **✅ GPU Successfully Used**: Confirmed via workflow logs
+- Workflow completed successfully with GPU acceleration
+
+**Performance Observations:**
+- Small datasets (<1K points): CPU faster due to GPU transfer overhead
+- Medium datasets (1K-10K): GPU benefits begin to show
+- Large datasets (10K+ points): Significant GPU speedup expected
+- Configuration-driven: Easy to enable/disable for testing
+
+### Usage Examples
+
+**Run complete workflow with GPU:**
+```bash
+uv run python scripts/run_workflow.py --config config/default.yaml
+```
+
+**Benchmark GPU vs CPU performance:**
+```bash
+uv run python scripts/test_gpu_c2c_performance.py
+```
+
+**Enable/Disable GPU in config:**
+```yaml
+gpu:
+  enabled: true              # Master GPU switch
+  use_for_c2c: true         # Use GPU for C2C distances
+  fallback_to_cpu: true     # Auto-fallback if GPU fails
+```
+
+### Technical Notes
+
+- GPU detection uses `detect_gpu()` from `hardware_detection.py`
+- Returns `GPUInfo` dataclass with availability, device info, and error messages
+- Graceful degradation: If GPU unavailable, falls back to CPU automatically
+- All GPU usage properly logged for monitoring and debugging
+
+### Files Changed
+- `scripts/run_workflow.py`: GPU integration, status logging, usage reporting
+- `scripts/test_gpu_c2c_performance.py`: New benchmark script
+- `docs/CHANGELOG.md`: This entry
+
+### Migration Notes
+- No breaking changes - config parameter is optional
+- Existing workflows continue to work without modification
+- To enable GPU: Set `gpu.enabled=true` and `gpu.use_for_c2c=true` in config
+- GPU status logged at workflow startup for visibility
+
+---
+
 ## 2025-11-15 - Phase 2.1: C2C GPU Acceleration Integration (Complete)
 
 ### Summary
