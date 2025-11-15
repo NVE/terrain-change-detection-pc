@@ -19,6 +19,8 @@ from ..acceleration.tiling import (
     LaspyStreamReader,
     Tile,
 )
+from ..acceleration.gpu_neighbors import create_gpu_neighbors
+from ..acceleration.gpu_array_ops import ensure_cpu_array
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +140,7 @@ def process_c2c_tile(
     k_neighbors: int = 1,
     *,
     ground_only: bool = True,
+    use_gpu: bool = False,
 ) -> Tuple[Tile, np.ndarray]:
     """
     Process single C2C tile in worker process.
@@ -154,12 +157,12 @@ def process_c2c_tile(
         classification_filter: Optional list of classification codes
         transform_matrix: Optional 4x4 transformation for source points
         k_neighbors: Number of nearest neighbors (typically 1)
+        ground_only: Whether to filter ground points only
+        use_gpu: Whether to use GPU acceleration for nearest neighbors
     
     Returns:
         Tuple of (tile, distances) where distances is 1D array
     """
-    from sklearn.neighbors import KDTree
-    
     # Load source points (inner tile only - these are the query points)
     source_points = []
     reader_src = LaspyStreamReader(
@@ -198,24 +201,42 @@ def process_c2c_tile(
         # Return inf distances for all source points
         return (tile, np.full(len(source), np.inf, dtype=float))
     
-    # Build KD-tree and query
+    # Build nearest neighbors structure and query
     try:
-        tree = KDTree(target)
-        distances, indices = tree.query(source, k=k_neighbors)
-        distances = distances.flatten()
+        # Try GPU first if requested
+        if use_gpu:
+            try:
+                nbrs = create_gpu_neighbors(n_neighbors=k_neighbors, use_gpu=True)
+                nbrs.fit(target)
+                distances, indices = nbrs.kneighbors(source)
+                # Ensure results are on CPU for downstream processing
+                distances = ensure_cpu_array(distances).flatten()
+                gpu_used = True
+            except Exception as e:
+                logger.debug(f"GPU nearest neighbors failed, falling back to CPU: {e}")
+                use_gpu = False
+        
+        # CPU fallback
+        if not use_gpu:
+            from sklearn.neighbors import KDTree
+            tree = KDTree(target)
+            distances, indices = tree.query(source, k=k_neighbors)
+            distances = distances.flatten()
+            gpu_used = False
         
         # Apply radius cutoff
         distances = np.where(distances <= max_distance, distances, np.inf)
         
         logger.debug(
-            f"Tile C2C complete: {len(source):,} source, {len(target):,} target, "
+            f"Tile C2C complete ({'GPU' if gpu_used else 'CPU'}): "
+            f"{len(source):,} source, {len(target):,} target, "
             f"{np.isfinite(distances).sum():,} valid distances (max={max_distance:.2f})"
         )
         
         return (tile, distances)
         
     except Exception as e:
-        logger.error(f"KDTree query failed for tile: {e}")
+        logger.error(f"Nearest neighbors query failed for tile: {e}")
         raise
 
 

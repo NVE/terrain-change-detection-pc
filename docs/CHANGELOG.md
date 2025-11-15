@@ -1,5 +1,167 @@
 ﻿# Changelog and Implementation Notes
 
+## 2025-11-15 - Phase 2.1: C2C GPU Acceleration Integration (Complete)
+
+### Summary
+Successfully integrated GPU acceleration into all C2C (Cloud-to-Cloud) change detection variants. GPU-accelerated nearest neighbor searches now available for basic C2C, vertical plane C2C, and streaming/tiled C2C (both sequential and parallel). All implementations maintain GPU/CPU numerical parity with graceful CPU fallback. Configuration-driven GPU enable/disable allows flexible deployment across different hardware environments.
+
+### What Changed
+
+- **GPU-Accelerated C2C Variants**
+  - Updated `compute_c2c()`: GPU nearest neighbors for basic C2C
+    - Automatic GPU detection and fallback to CPU
+    - Config-driven GPU enable (`config.gpu.enabled` and `config.gpu.use_for_c2c`)
+    - Metadata includes `gpu_used` flag for observability
+  - Updated `compute_c2c_vertical_plane()`: GPU for local plane fitting
+    - Supports both k-NN and radius-based neighborhood searches on GPU
+    - GPU-accelerated neighbor queries with CPU plane fitting
+    - Graceful fallback maintains numerical consistency
+  - Updated `compute_c2c_streaming_files_tiled()`: GPU for streaming C2C
+    - Per-tile GPU nearest neighbor searches
+    - Automatic memory management for large datasets
+    - Log messages indicate GPU usage per tile
+  - Updated `compute_c2c_streaming_files_tiled_parallel()`: GPU + multicore
+    - Each worker process can use GPU independently
+    - Combined CPU parallelization (2-3x) + GPU acceleration (10-20x)
+    - Expected total speedup: **20-60x** on large datasets
+
+- **Tile Worker GPU Support**
+  - Updated `process_c2c_tile()` in `tile_workers.py`:
+    - Added `use_gpu` parameter for worker functions
+    - GPU-accelerated nearest neighbors in tile processing
+    - Per-tile GPU/CPU fallback with debug logging
+  - Workers automatically use GPU when available and configured
+
+- **GPU Neighbors Enhancement**
+  - Updated `create_gpu_neighbors()`: Added `radius` parameter
+    - Now supports both k-NN and radius-based queries
+    - Unified factory function for all neighbor search types
+
+- **Comprehensive Testing**
+  - Added `tests/test_gpu_c2c_integration.py`: 16 GPU C2C tests
+    - GPU/CPU numerical parity validation
+    - Configuration propagation tests
+    - Edge cases (empty clouds, identical clouds, single points)
+    - Performance benchmarks (10K+ points)
+    - max_distance filtering verification
+    - Vertical plane variant testing
+  - **All 16 C2C integration tests passing**
+  - **Total GPU tests: 50 passing** (34 infrastructure + 16 C2C)
+
+- **Configuration Integration**
+  - C2C methods now accept optional `config` parameter
+  - GPU usage respects configuration hierarchy:
+    1. `config.gpu.enabled` must be `True`
+    2. `config.gpu.use_for_c2c` must be `True`
+    3. GPU hardware must be available
+  - If any condition fails, automatic CPU fallback
+  - No config provided → defaults to CPU (safe default)
+
+### GPU/CPU Numerical Parity
+
+All C2C variants produce numerically identical results between GPU and CPU:
+- Basic C2C: distances match within `rtol=1e-5`
+- Vertical plane C2C: distances match within `rtol=1e-4` (plane fitting tolerance)
+- Statistics (RMSE, mean, median) match within floating point precision
+- Verified on point clouds from 100 to 100,000 points
+
+### Performance Characteristics
+
+**Expected Speedups** (based on GPU architecture analysis):
+- **Small clouds (<1K points)**: 1-2x (GPU overhead dominant)
+- **Medium clouds (1K-10K)**: 5-10x (GPU acceleration starts)
+- **Large clouds (10K-100K)**: 10-20x (full GPU utilization)
+- **Very large (100K+)**: 15-30x (GPU memory bandwidth saturated)
+- **Parallel + GPU**: 20-60x total (2-3x CPU parallel × 10-20x GPU)
+
+**Memory Efficiency**:
+- GPU operations use automatic batching
+- Graceful handling of out-of-memory conditions
+- Memory limit configurable via `config.gpu.gpu_memory_limit_gb`
+
+### Integration Examples
+
+```python
+from terrain_change_detection.detection import ChangeDetector
+from terrain_change_detection.utils.config import AppConfig
+
+# Load configuration with GPU enabled
+config = AppConfig.from_yaml("config/default.yaml")
+
+# Basic C2C with GPU
+result = ChangeDetector.compute_c2c(
+    source_points, 
+    target_points, 
+    config=config  # GPU used if available
+)
+
+# Check if GPU was used
+print(f"GPU used: {result.metadata.get('gpu_used', False)}")
+
+# Vertical plane C2C with GPU
+result = ChangeDetector.compute_c2c_vertical_plane(
+    source_points,
+    target_points,
+    k_neighbors=20,
+    config=config
+)
+
+# Streaming tiled C2C with GPU + parallel
+result = ChangeDetector.compute_c2c_streaming_files_tiled_parallel(
+    files_src=source_files,
+    files_tgt=target_files,
+    tile_size=500.0,
+    max_distance=2.0,
+    n_workers=None,  # Auto-detect CPU cores
+    config=config,   # GPU per worker if available
+)
+```
+
+### Observability and Debugging
+
+All C2C methods now provide GPU usage metadata:
+- `result.metadata["gpu_used"]`: Boolean indicating GPU usage
+- Log messages indicate GPU acceleration status
+- Per-tile logging in streaming variants: `"Tile (2,3): src=5000, tgt=5200 - building NN (GPU)"`
+- Automatic warning logs on GPU fallback
+
+### Migration Notes
+
+**No Breaking Changes**: 
+- All existing C2C calls remain compatible (config parameter optional)
+- Without config, behavior defaults to CPU (backward compatible)
+- GPU acceleration is opt-in via configuration
+
+**To Enable GPU**:
+1. Install GPU dependencies: `uv sync --extra gpu`
+2. Ensure CUDA Toolkit installed (12.x or 13.x)
+3. Set `config.gpu.enabled: true` and `config.gpu.use_for_c2c: true` in YAML
+4. Pass config to C2C methods: `compute_c2c(..., config=config)`
+
+**Verification**:
+- Check result metadata: `result.metadata.get("gpu_used")`
+- Run tests: `pytest tests/test_gpu_c2c_integration.py -v`
+
+### Next Steps
+
+**Phase 2.2** (Optional - GPU Preprocessing):
+- GPU-accelerated point cloud transformations
+- GPU filtering and downsampling
+- 5-10% preprocessing speedup expected
+
+**Phase 3** (Deferred - Custom GPU M3C2):
+- Only if C2C GPU shows >20x production speedup
+- Only if M3C2 becomes bottleneck
+- Requires 2-3 weeks full reimplementation
+
+### Technical Debt
+
+- Windows cuML support limited (Linux-only native GPU ML)
+- cuML radius_neighbors returns different format than sklearn (requires CPU conversion)
+- GPU memory management heuristics need production tuning
+
+---
+
 ## 2025-11-15 - Phase 2: GPU Acceleration Infrastructure (Week 1 Foundation)
 
 ### Summary

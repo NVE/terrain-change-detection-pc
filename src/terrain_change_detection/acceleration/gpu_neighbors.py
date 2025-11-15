@@ -298,6 +298,7 @@ class GPUNearestNeighbors:
 
 def create_gpu_neighbors(
     n_neighbors: int = 5,
+    radius: Optional[float] = None,
     algorithm: str = 'auto',
     metric: str = 'euclidean',
     use_gpu: bool = True,
@@ -309,6 +310,8 @@ def create_gpu_neighbors(
     ----------
     n_neighbors : int, default=5
         Number of neighbors to use
+    radius : float, optional
+        Radius for radius_neighbors queries
     algorithm : str, default='auto'
         Algorithm to use: 'auto', 'ball_tree', 'kd_tree', 'brute'
     metric : str, default='euclidean'
@@ -329,6 +332,7 @@ def create_gpu_neighbors(
     """
     return GPUNearestNeighbors(
         n_neighbors=n_neighbors,
+        radius=radius,
         algorithm=algorithm,
         metric=metric,
         use_gpu=use_gpu,

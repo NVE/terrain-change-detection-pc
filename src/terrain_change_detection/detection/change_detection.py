@@ -40,7 +40,11 @@ from ..acceleration import (
     MosaicAccumulator,
     Tile,
     Tiler,
+    create_gpu_neighbors,
+    get_array_backend,
+    ensure_cpu_array,
 )
+from ..utils.config import AppConfig
 
 logger = setup_logger(__name__)
 
@@ -262,6 +266,7 @@ class ChangeDetector:
         source: np.ndarray,
         target: np.ndarray,
         max_distance: Optional[float] = None,
+        config: Optional[AppConfig] = None,
     ) -> C2CResult:
         """
         Compute nearest-neighbor distances from source cloud to target cloud.
@@ -270,6 +275,7 @@ class ChangeDetector:
             source: Source point cloud (N x 3)
             target: Target point cloud (M x 3)
             max_distance: Optional distance threshold to filter correspondences
+            config: Optional configuration (for GPU settings)
 
         Returns:
             C2CResult with per-point distances and summary stats.
@@ -277,38 +283,60 @@ class ChangeDetector:
         if source.size == 0 or target.size == 0:
             raise ValueError("Input point arrays must be non-empty.")
 
+        # Determine if we should use GPU
+        use_gpu = False
+        if config is not None and hasattr(config, 'gpu'):
+            use_gpu = config.gpu.enabled and config.gpu.use_for_c2c
+
         dists: np.ndarray
         indices: np.ndarray
-        try:
-            from sklearn.neighbors import NearestNeighbors  # type: ignore
-            nbrs = NearestNeighbors(n_neighbors=1, algorithm="kd_tree")
-            nbrs.fit(target)
-            d, i = nbrs.kneighbors(source)
-            dists = d.flatten()
-            indices = i.flatten()
-        except Exception:
-            # Fallback: pure NumPy brute-force for small arrays
-            n, m = len(source), len(target)
-            # Heuristic cap to avoid excessive memory/time
-            if n * m > 2_000_000:
-                raise ImportError(
-                    "C2C requires scikit-learn for large inputs. Please add 'scikit-learn' to dependencies."
-                )
-            # Compute squared distances in chunks to limit memory
-            dmin = np.empty(n, dtype=float)
-            imin = np.empty(n, dtype=int)
-            chunk = max(1, 2000)
-            for start in range(0, n, chunk):
-                stop = min(n, start + chunk)
-                a = source[start:stop]
-                # (stop-start, m, 3)
-                diff = a[:, None, :] - target[None, :, :]
-                dsq = np.einsum("ijk,ijk->ij", diff, diff)
-                local_min = np.argmin(dsq, axis=1)
-                dmin[start:stop] = np.sqrt(dsq[np.arange(stop - start), local_min])
-                imin[start:stop] = local_min
-            dists = dmin
-            indices = imin
+        
+        # Try GPU-accelerated nearest neighbors first
+        if use_gpu:
+            try:
+                nbrs = create_gpu_neighbors(n_neighbors=1, use_gpu=True)
+                nbrs.fit(target)
+                d, i = nbrs.kneighbors(source)
+                # Ensure results are on CPU for downstream processing
+                dists = ensure_cpu_array(d).flatten()
+                indices = ensure_cpu_array(i).flatten()
+            except Exception as e:
+                # Fallback to CPU if GPU fails
+                logger.warning(f"GPU C2C failed, falling back to CPU: {e}")
+                use_gpu = False
+        
+        # CPU path (original sklearn or numpy fallback)
+        if not use_gpu:
+            try:
+                from sklearn.neighbors import NearestNeighbors  # type: ignore
+                nbrs = NearestNeighbors(n_neighbors=1, algorithm="kd_tree")
+                nbrs.fit(target)
+                d, i = nbrs.kneighbors(source)
+                dists = d.flatten()
+                indices = i.flatten()
+            except Exception:
+                # Fallback: pure NumPy brute-force for small arrays
+                n, m = len(source), len(target)
+                # Heuristic cap to avoid excessive memory/time
+                if n * m > 2_000_000:
+                    raise ImportError(
+                        "C2C requires scikit-learn for large inputs. Please add 'scikit-learn' to dependencies."
+                    )
+                # Compute squared distances in chunks to limit memory
+                dmin = np.empty(n, dtype=float)
+                imin = np.empty(n, dtype=int)
+                chunk = max(1, 2000)
+                for start in range(0, n, chunk):
+                    stop = min(n, start + chunk)
+                    a = source[start:stop]
+                    # (stop-start, m, 3)
+                    diff = a[:, None, :] - target[None, :, :]
+                    dsq = np.einsum("ijk,ijk->ij", diff, diff)
+                    local_min = np.argmin(dsq, axis=1)
+                    dmin[start:stop] = np.sqrt(dsq[np.arange(stop - start), local_min])
+                    imin[start:stop] = local_min
+                dists = dmin
+                indices = imin
 
         if max_distance is not None:
             mask = dists <= max_distance
@@ -336,7 +364,7 @@ class ChangeDetector:
             mean=mean,
             median=median,
             n=n,
-            metadata={"max_distance": max_distance},
+            metadata={"max_distance": max_distance, "gpu_used": use_gpu},
         )
 
     @staticmethod
@@ -347,6 +375,7 @@ class ChangeDetector:
         radius: Optional[float] = None,
         k_neighbors: int = 20,
         min_neighbors: int = 6,
+        config: Optional[AppConfig] = None,
     ) -> C2CResult:
         """
         Compute per-point signed vertical distances from the source cloud to a local plane
@@ -362,6 +391,7 @@ class ChangeDetector:
             radius: If provided, use radius-neighborhoods; otherwise use k-NN
             k_neighbors: Number of neighbors when radius is None
             min_neighbors: Minimum neighbors required to fit a plane; otherwise fallback
+            config: Optional configuration (for GPU settings)
 
         Returns:
             C2CResult with signed distances (positive up), indices of nearest NN for bookkeeping,
@@ -370,27 +400,56 @@ class ChangeDetector:
         if source.size == 0 or target.size == 0:
             raise ValueError("Input point arrays must be non-empty.")
 
-        try:
-            from sklearn.neighbors import NearestNeighbors  # type: ignore
-        except Exception as e:  # pragma: no cover - dependency optional
-            raise ImportError(
-                "compute_c2c_vertical_plane requires scikit-learn. Add 'scikit-learn' to dependencies."
-            ) from e
+        # Determine if we should use GPU
+        use_gpu = False
+        if config is not None and hasattr(config, 'gpu'):
+            use_gpu = config.gpu.enabled and config.gpu.use_for_c2c
 
-        # Build neighbor structure on target
-        if radius is not None and radius > 0:
-            nbrs = NearestNeighbors(radius=radius, algorithm="kd_tree")
-            nbrs.fit(target)
-            # Precompute nearest neighbor as fallback/index provider
-            nn1 = NearestNeighbors(n_neighbors=1, algorithm="kd_tree")
-            nn1.fit(target)
-            nn_dist, nn_idx = nn1.kneighbors(source)
-            nearest_idx = nn_idx.flatten()
-        else:
-            nbrs = NearestNeighbors(n_neighbors=max(1, int(k_neighbors)), algorithm="kd_tree")
-            nbrs.fit(target)
-            idx_matrix = nbrs.kneighbors(source, return_distance=False)
-            nearest_idx = idx_matrix[:, 0].astype(int)
+        # Try GPU-accelerated approach first
+        if use_gpu:
+            try:
+                # Build GPU neighbor structure on target
+                if radius is not None and radius > 0:
+                    nbrs = create_gpu_neighbors(radius=radius, use_gpu=True)
+                    nbrs.fit(target)
+                    # Precompute nearest neighbor as fallback/index provider
+                    nn1 = create_gpu_neighbors(n_neighbors=1, use_gpu=True)
+                    nn1.fit(target)
+                    nn_dist, nn_idx = nn1.kneighbors(source)
+                    nearest_idx = ensure_cpu_array(nn_idx).flatten()
+                else:
+                    nbrs = create_gpu_neighbors(n_neighbors=max(1, int(k_neighbors)), use_gpu=True)
+                    nbrs.fit(target)
+                    idx_matrix = nbrs.kneighbors(source, return_distance=False)
+                    idx_matrix = ensure_cpu_array(idx_matrix)
+                    nearest_idx = idx_matrix[:, 0].astype(int)
+            except Exception as e:
+                logger.warning(f"GPU vertical plane C2C failed, falling back to CPU: {e}")
+                use_gpu = False
+
+        # CPU fallback path
+        if not use_gpu:
+            try:
+                from sklearn.neighbors import NearestNeighbors  # type: ignore
+            except Exception as e:  # pragma: no cover - dependency optional
+                raise ImportError(
+                    "compute_c2c_vertical_plane requires scikit-learn. Add 'scikit-learn' to dependencies."
+                ) from e
+
+            # Build neighbor structure on target
+            if radius is not None and radius > 0:
+                nbrs = NearestNeighbors(radius=radius, algorithm="kd_tree")
+                nbrs.fit(target)
+                # Precompute nearest neighbor as fallback/index provider
+                nn1 = NearestNeighbors(n_neighbors=1, algorithm="kd_tree")
+                nn1.fit(target)
+                nn_dist, nn_idx = nn1.kneighbors(source)
+                nearest_idx = nn_idx.flatten()
+            else:
+                nbrs = NearestNeighbors(n_neighbors=max(1, int(k_neighbors)), algorithm="kd_tree")
+                nbrs.fit(target)
+                idx_matrix = nbrs.kneighbors(source, return_distance=False)
+                nearest_idx = idx_matrix[:, 0].astype(int)
 
         N = len(source)
         out = np.full(N, np.nan, dtype=float)
@@ -398,6 +457,9 @@ class ChangeDetector:
 
         if radius is not None and radius > 0:
             ind_lists = nbrs.radius_neighbors(source, radius=radius, return_distance=False)
+            # Ensure ind_lists is on CPU for iteration
+            if use_gpu:
+                ind_lists = [ensure_cpu_array(idx_list) for idx_list in ind_lists]
             # Use precomputed nearest NN for indices
             for i in range(N):
                 idxs = ind_lists[i]
@@ -435,6 +497,8 @@ class ChangeDetector:
         else:
             # k-NN neighborhoods for all points
             idx_matrix = nbrs.kneighbors(source, return_distance=False)
+            if use_gpu:
+                idx_matrix = ensure_cpu_array(idx_matrix)
             for i in range(N):
                 idxs = idx_matrix[i]
                 if idxs is None or len(idxs) < max(3, min_neighbors):
@@ -483,7 +547,13 @@ class ChangeDetector:
             mean=mean,
             median=median,
             n=n,
-            metadata={"mode": "vertical_plane", "radius": radius, "k_neighbors": k_neighbors, "min_neighbors": min_neighbors},
+            metadata={
+                "mode": "vertical_plane",
+                "radius": radius,
+                "k_neighbors": k_neighbors,
+                "min_neighbors": min_neighbors,
+                "gpu_used": use_gpu,
+            },
         )
 
     # --- Streaming C2C from files (tiled) ---
@@ -498,6 +568,7 @@ class ChangeDetector:
         classification_filter: Optional[list[int]] = None,
         chunk_points: int = 1_000_000,
         transform_src: Optional[np.ndarray] = None,
+        config: Optional[AppConfig] = None,
     ) -> C2CResult:
         """
         Out-of-core tiled Cloud-to-Cloud distances (nearest neighbor) between two epochs.
@@ -517,11 +588,18 @@ class ChangeDetector:
             ground_only: Apply ground/classification filter during streaming
             classification_filter: Optional classification filter list
             chunk_points: Points per streaming chunk
+            transform_src: Optional transformation matrix for source points
+            config: Optional configuration (for GPU settings)
         """
         if not files_src or not files_tgt:
             raise ValueError("compute_c2c_streaming_files_tiled requires non-empty file lists")
         if not (isinstance(max_distance, (int, float)) and max_distance > 0):
             raise ValueError("max_distance must be provided and > 0 for streaming tiled C2C")
+
+        # Determine if we should use GPU
+        use_gpu = False
+        if config is not None and hasattr(config, 'gpu'):
+            use_gpu = config.gpu.enabled and config.gpu.use_for_c2c
 
         gb = union_bounds(files_src, files_tgt)
 
@@ -619,37 +697,50 @@ class ChangeDetector:
                     )
 
                 logger.info(
-                    "Tile (%d,%d): src=%d, tgt=%d - building NN",
+                    "Tile (%d,%d): src=%d, tgt=%d - building NN%s",
                     i, j, src_tile.shape[0], tgt_tile.shape[0],
+                    " (GPU)" if use_gpu else "",
                 )
 
                 # Compute nearest neighbors within the tile
-                try:
-                    from sklearn.neighbors import NearestNeighbors  # type: ignore
-                    nn = NearestNeighbors(n_neighbors=1, algorithm="kd_tree")
-                    nn.fit(tgt_tile)
-                    d, _ = nn.kneighbors(src_tile)
-                    d = d.reshape(-1)
-                except Exception:
-                    # Fallback: chunked brute-force if small enough
-                    n, m = src_tile.shape[0], tgt_tile.shape[0]
-                    if n * m > 5_000_000:
-                        # Too large for brute-force fallback
-                        logger.warning(
-                            "Tile (%d,%d): src*m too large for brute-force fallback (n=%d, m=%d)",
-                            i, j, n, m,
-                        )
-                        d = np.full(n, np.inf, dtype=float)
-                    else:
-                        # Compute in chunks
-                        dmin = np.full(n, np.inf, dtype=float)
-                        step = max(1, 5000)
-                        for s in range(0, n, step):
-                            e = min(n, s + step)
-                            a = src_tile[s:e]
-                            diff = a[:, None, :] - tgt_tile[None, :, :]
-                            dsq = np.einsum("ijk,ijk->ij", diff, diff)
-                            dmin[s:e] = np.sqrt(np.min(dsq, axis=1))
+                gpu_success = False
+                if use_gpu:
+                    try:
+                        nn = create_gpu_neighbors(n_neighbors=1, use_gpu=True)
+                        nn.fit(tgt_tile)
+                        d, _ = nn.kneighbors(src_tile)
+                        d = ensure_cpu_array(d).reshape(-1)
+                        gpu_success = True
+                    except Exception as e:
+                        logger.debug(f"GPU NN failed for tile ({i},{j}), falling back to CPU: {e}")
+                
+                if not gpu_success:
+                    try:
+                        from sklearn.neighbors import NearestNeighbors  # type: ignore
+                        nn = NearestNeighbors(n_neighbors=1, algorithm="kd_tree")
+                        nn.fit(tgt_tile)
+                        d, _ = nn.kneighbors(src_tile)
+                        d = d.reshape(-1)
+                    except Exception:
+                        # Fallback: chunked brute-force if small enough
+                        n, m = src_tile.shape[0], tgt_tile.shape[0]
+                        if n * m > 5_000_000:
+                            # Too large for brute-force fallback
+                            logger.warning(
+                                "Tile (%d,%d): src*m too large for brute-force fallback (n=%d, m=%d)",
+                                i, j, n, m,
+                            )
+                            d = np.full(n, np.inf, dtype=float)
+                        else:
+                            # Compute in chunks
+                            dmin = np.full(n, np.inf, dtype=float)
+                            step = max(1, 5000)
+                            for s in range(0, n, step):
+                                e = min(n, s + step)
+                                a = src_tile[s:e]
+                                diff = a[:, None, :] - tgt_tile[None, :, :]
+                                dsq = np.einsum("ijk,ijk->ij", diff, diff)
+                                dmin[s:e] = np.sqrt(np.min(dsq, axis=1))
                         d = dmin
 
                 # Apply radius cutoff
@@ -671,7 +762,8 @@ class ChangeDetector:
         # Indices not tracked in streaming path
         idx = -np.ones_like(dists_concat, dtype=int)
         logger.info(
-            "C2C streaming tiled finished: src_total=%d, valid=%d (<= %.2fm)", total_src, n, max_distance
+            "C2C streaming tiled finished: src_total=%d, valid=%d (<= %.2fm)%s",
+            total_src, n, max_distance, " (GPU)" if use_gpu else "",
         )
         return C2CResult(
             distances=dists_concat,
@@ -686,6 +778,7 @@ class ChangeDetector:
                 "tile_size": float(tile_size),
                 "halo": float(halo),
                 "max_distance": float(max_distance),
+                "gpu_used": use_gpu,
             },
         )
 
@@ -1127,6 +1220,7 @@ class ChangeDetector:
         transform_src: Optional[np.ndarray] = None,
         n_workers: Optional[int] = None,
         threads_per_worker: Optional[int] = 1,
+        config: Optional[AppConfig] = None,
     ) -> C2CResult:
         """
         Parallel version of out-of-core tiled C2C.
@@ -1144,6 +1238,8 @@ class ChangeDetector:
             chunk_points: Points per streaming chunk
             transform_src: Optional transformation matrix for source
             n_workers: Number of parallel workers (None = auto-detect)
+            threads_per_worker: Number of threads per worker
+            config: Optional configuration (for GPU settings)
         
         Returns:
             C2CResult with concatenated distances and statistics
@@ -1156,6 +1252,11 @@ class ChangeDetector:
             raise ValueError("compute_c2c_streaming_files_tiled_parallel requires file lists")
         if not (isinstance(max_distance, (int, float)) and max_distance > 0):
             raise ValueError("max_distance must be > 0 for C2C")
+        
+        # Determine if we should use GPU
+        use_gpu = False
+        if config is not None and hasattr(config, 'gpu'):
+            use_gpu = config.gpu.enabled and config.gpu.use_for_c2c
         
         # Note: File header bounds are scanned below and filtered per tile.
         # Paths are passed per-tile to workers to avoid redundant I/O.
@@ -1216,7 +1317,11 @@ class ChangeDetector:
             'classification_filter': classification_filter,
             'transform_matrix': transform_src,
             'ground_only': ground_only,
+            'use_gpu': use_gpu,
         }
+        
+        if use_gpu:
+            logger.info("GPU acceleration enabled for C2C tile processing")
 
         t0 = time.time()
         results = executor.map_tiles(
@@ -1260,8 +1365,8 @@ class ChangeDetector:
         idx = -np.ones_like(dists_concat, dtype=int)
         
         logger.info(
-            "Parallel C2C complete: src_total=%d, valid=%d (<= %.2fm), RMSE=%.4fm",
-            total_src, n, max_distance, rmse
+            "Parallel C2C complete: src_total=%d, valid=%d (<= %.2fm), RMSE=%.4fm%s",
+            total_src, n, max_distance, rmse, " (GPU)" if use_gpu else "",
         )
         
         return C2CResult(
@@ -1271,7 +1376,13 @@ class ChangeDetector:
             mean=mean,
             median=median,
             n=n,
-            metadata={"streaming": True, "tiled": True, "parallel": True, "max_distance": max_distance},
+            metadata={
+                "streaming": True,
+                "tiled": True,
+                "parallel": True,
+                "max_distance": max_distance,
+                "gpu_used": use_gpu,
+            },
         )
 
     @staticmethod
