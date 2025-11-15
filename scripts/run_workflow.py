@@ -126,6 +126,24 @@ def main():
 
     logger.info("Terrain Change Detection Workflow")
     logger.info("=================================")
+    
+    # Log GPU configuration status
+    try:
+        from terrain_change_detection.acceleration.hardware_detection import detect_gpu
+        if getattr(cfg.gpu, 'enabled', False):
+            gpu_info = detect_gpu()
+            if gpu_info.available:
+                logger.info(f"GPU Acceleration: ENABLED")
+                logger.info(f"  Device: {gpu_info.device_name}")
+                logger.info(f"  Memory: {gpu_info.memory_gb:.2f} GB")
+                logger.info(f"  C2C: {'ENABLED' if getattr(cfg.gpu, 'use_for_c2c', False) else 'DISABLED'}")
+                logger.info(f"  Preprocessing: {'ENABLED' if getattr(cfg.gpu, 'use_for_preprocessing', False) else 'DISABLED'}")
+            else:
+                logger.warning(f"GPU Acceleration: ENABLED in config but GPU not available ({gpu_info.error_message}), will use CPU fallback")
+        else:
+            logger.info("GPU Acceleration: DISABLED (CPU only)")
+    except Exception as e:
+        logger.debug(f"Could not check GPU status: {e}")
 
     base_dir = Path(cfg.paths.base_dir)
     # base_dir = Path(__file__).parent.parent / "tests" / "test_preprocessing" / "sample_data" / "raw"
@@ -548,6 +566,7 @@ def main():
                             transform_src=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
                             n_workers=None,  # auto-detect
                             threads_per_worker=getattr(cfg.parallel, 'threads_per_worker', 1),
+                            config=cfg,  # Pass config for GPU acceleration
                         )
                     else:
                         logger.info("Using streaming tiled C2C...")
@@ -562,6 +581,7 @@ def main():
                             classification_filter=cfg.preprocessing.classification_filter,
                             chunk_points=cfg.outofcore.chunk_points,
                             transform_src=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
+                            config=cfg,  # Pass config for GPU acceleration
                         )
                     # 3D scatter not supported in streaming; fallback to histogram if plotly
                     try:
@@ -591,9 +611,10 @@ def main():
                             radius=cfg.detection.c2c.radius,
                             k_neighbors=cfg.detection.c2c.k_neighbors,
                             min_neighbors=cfg.detection.c2c.min_neighbors,
+                            config=cfg,  # Pass config for GPU acceleration
                         )
                     else:
-                        c2c_res = ChangeDetector.compute_c2c(src, tgt, max_distance=cfg.detection.c2c.max_distance)
+                        c2c_res = ChangeDetector.compute_c2c(src, tgt, max_distance=cfg.detection.c2c.max_distance, config=cfg)  # Pass config for GPU acceleration
                     # Visualize 3D per-point distances on the source cloud (like M3C2)
                     try:
                         visualizer.visualize_c2c_points(
@@ -611,6 +632,10 @@ def main():
                     c2c_res.median,
                     c2c_res.rmse,
                 )
+                # Report GPU usage if available in metadata
+                if hasattr(c2c_res, 'metadata') and 'gpu_used' in c2c_res.metadata:
+                    gpu_status = "GPU" if c2c_res.metadata['gpu_used'] else "CPU"
+                    logger.info(f"C2C computation used: {gpu_status}")
             except Exception as e:
                 logger.error(f"C2C computation failed: {e}")
         else:
