@@ -1,5 +1,39 @@
 ﻿# Changelog and Implementation Notes
 
+## 2025-11-16 - ICP Alignment Instrumentation & Benchmarking
+
+### Summary
+Improved observability and robustness of ICP-based spatial alignment, added optional
+GPU-backed nearest-neighbor search with safe CPU fallback, and introduced a small
+real-data benchmark script for ICP alignment.
+
+### Key Changes
+
+- `ICPRegistration` (fine registration)
+  - Added detailed timing logs (KD-tree/NN build, per-iteration MSE and motion, total ICP time).
+  - Fixed KD-tree reuse and simplified transform application (`points @ R.T + t`).
+  - Added motion-based convergence criteria (translation and rotation thresholds) on top of MSE tolerance.
+  - Improved handling of empty inputs and error computation edge cases.
+  - Integrated optional GPU-accelerated neighbors via `GPUNearestNeighbors` with distance sanity checks and automatic CPU restart on corrupted GPU distances.
+
+- Workflow integration (`scripts/run_workflow.py`)
+  - Uses the updated ICP with convergence thresholds and improved logging.
+  - In streaming mode, alignment now operates on reservoir-sampled subsets, while the final RMSE check uses a capped random subset to avoid multi-million-point KD-tree builds.
+  - Multi-scale ICP refinement support added in code but disabled by default; the YAML profiles remain minimal and only expose core alignment knobs.
+
+- Configuration (`config/default.yaml`, `AppConfig.GPUConfig`)
+  - Added `gpu.use_for_alignment` (default `false`) to control GPU usage for ICP separately from C2C and preprocessing.
+  - Kept additional ICP tuning options (convergence thresholds, multiscale) as internal defaults to avoid YAML bloat; only essential alignment fields are surfaced in profiles.
+
+- Tooling and tests
+  - Added `scripts/test_icp_alignment_performance.py`: benchmarks ICP alignment on the Norwegian dataset with GPU enabled vs disabled, reports timings, RMSE, and the neighbor backend actually used.
+  - Introduced `tests/test_icp_registration.py` to validate that ICP meaningfully reduces NN RMSE on synthetic data and behaves sensibly with empty point sets.
+
+### Testing
+
+- `uv run pytest -q tests/test_icp_registration.py -q` to validate ICP behavior.
+- `uv run scripts/test_icp_alignment_performance.py` on the Norwegian dataset to compare CPU vs (attempted) GPU ICP; current runs show safe CPU fallback when cuML produces invalid distances.
+
 ## 2025-11-16 - GPU C2C Robustness & cuML Large-Scale Debugging
 
 ### Summary

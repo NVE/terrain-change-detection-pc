@@ -292,6 +292,7 @@ class CoarseRegistration:
     def apply_transformation(points: np.ndarray, transform: np.ndarray) -> np.ndarray:
         if points.size == 0:
             return points
-        homog = np.column_stack([points, np.ones(len(points))])
-        out = (transform @ homog.T).T
-        return out[:, :3]
+        # Fast affine 3D transform without homogeneous coordinates
+        R = transform[:3, :3]
+        t = transform[:3, 3]
+        return points @ R.T + t

@@ -39,12 +39,40 @@ class CoarseRegistrationConfig(BaseModel):
     phase_grid_cell: float = Field(default=2.0, description="Grid cell size for phase correlation (meters)")
 
 
+class AlignmentMultiscaleConfig(BaseModel):
+    enabled: bool = Field(
+        default=False,
+        description="Enable multi-scale ICP refinement (coarse + fine passes)",
+    )
+    coarse_subsample_size: int = Field(
+        default=20000,
+        description="Number of points per cloud for coarse ICP pass",
+    )
+    coarse_max_iterations: int = Field(
+        default=30,
+        description="Maximum ICP iterations for coarse pass",
+    )
+    coarse_max_correspondence_distance: Optional[float] = Field(
+        default=None,
+        description="Max correspondence distance for coarse pass (None = use alignment.max_correspondence_distance)",
+    )
+
+
 class AlignmentICPConfig(BaseModel):
     max_iterations: int = Field(default=100)
     tolerance: float = Field(default=1e-6)
     max_correspondence_distance: float = Field(default=1.0)
     subsample_size: int = Field(default=50000)
+    convergence_translation_epsilon: float = Field(
+        default=1e-4,
+        description="Minimum translation step (meters) to continue ICP iterations",
+    )
+    convergence_rotation_epsilon_deg: float = Field(
+        default=0.1,
+        description="Minimum rotation step (degrees) to continue ICP iterations",
+    )
     coarse: CoarseRegistrationConfig = Field(default_factory=CoarseRegistrationConfig)
+    multiscale: AlignmentMultiscaleConfig = Field(default_factory=AlignmentMultiscaleConfig)
 
 
 class DetectionDoDConfig(BaseModel):
@@ -144,6 +172,7 @@ class AppConfig(BaseModel):
         fallback_to_cpu: bool = Field(default=True, description="Automatically fall back to CPU if GPU fails or unavailable")
         use_for_c2c: bool = Field(default=True, description="Use GPU for C2C nearest neighbor searches")
         use_for_preprocessing: bool = Field(default=True, description="Use GPU for data preprocessing (transformations, filtering)")
+        use_for_alignment: bool = Field(default=False, description="Use GPU for ICP alignment when available")
         batch_size: Optional[int] = Field(default=None, description="GPU batch size for operations (None = auto-calculate based on memory)")
 
     paths: PathsConfig = Field(default_factory=PathsConfig)

@@ -43,7 +43,7 @@ detection:
     # Aggregation for per-cell elevation: mean | median | p95 | p5
     aggregator: mean
   c2c:
-    enabled: true
+    enabled: false
     # Algorithm: euclidean | vertical_plane
     mode: euclidean
     # Upper bound used by some example flows for sampling/limits
@@ -131,5 +131,7 @@ gpu:
   use_for_c2c: true
   # Use GPU for data preprocessing (transformations, filtering)
   use_for_preprocessing: true
+  # Use GPU for ICP spatial alignment (experimental; disabled by default)
+  use_for_alignment: true
   # GPU batch size for operations; null = auto-calculate based on memory
   batch_size: null
