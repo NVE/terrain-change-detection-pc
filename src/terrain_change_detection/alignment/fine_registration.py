@@ -278,10 +278,12 @@ class ICPRegistration:
         total_time = icp_end - icp_start
         mean_iter_time = (sum(iter_durations) / len(iter_durations)) if iter_durations else 0.0
         logger.info(
-            "ICP finished in %.4f s (%d iterations, mean iter %.4f s). Final RMSE: %.6f",
+            "ICP finished in %.4f s (%d iterations, mean iter %.4f s). "
+            "Final RMSE on %d alignment points: %.6f",
             total_time,
             n_iterations,
             mean_iter_time,
+            len(current_source),
             final_error,
         )
 

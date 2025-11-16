@@ -470,7 +470,8 @@ def main():
         else:
             points2_full_aligned = points2_subsampled_aligned
 
-        # Compute the registration error (RMSE) on a potentially downsampled subset
+        # Compute the registration error (RMSE) on a potentially downsampled subset of full data
+        # This validates how well the alignment generalizes beyond the subsampled points used for ICP
         src_err = points2_full_aligned
         tgt_err = points1
         max_err_points = 200_000
@@ -486,7 +487,23 @@ def main():
             target=tgt_err,
         )
 
-        logger.info("ICP Alignment completed with final error: %.6f", alignment_error)
+        # Clarify whether we're using full data or a validation subset
+        if len(src_err) < len(points2_full_aligned) or len(tgt_err) < len(points1):
+            logger.info(
+                "Alignment validation: RMSE on %d source / %d target validation points (sampled from %d / %d): %.6f",
+                len(src_err),
+                len(tgt_err),
+                len(points2_full_aligned),
+                len(points1),
+                alignment_error,
+            )
+        else:
+            logger.info(
+                "Alignment validation: RMSE on full dataset (%d source / %d target points): %.6f",
+                len(src_err),
+                len(tgt_err),
+                alignment_error,
+            )
 
         # If streaming mode, optionally apply transform to original files
         if use_streaming and cfg.outofcore.save_transformed_files:

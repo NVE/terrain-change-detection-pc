@@ -26,6 +26,9 @@ alignment:
   max_correspondence_distance: 1.0
   # Number of points sampled per epoch for alignment (approx.)
   subsample_size: 50000
+  # Convergence criteria for motion-based stopping
+  convergence_translation_epsilon: 1.0e-4
+  convergence_rotation_epsilon_deg: 0.1
   coarse:
     enabled: true
     # Coarse alignment method: centroid | pca | phase | open3d_fpfh | none
