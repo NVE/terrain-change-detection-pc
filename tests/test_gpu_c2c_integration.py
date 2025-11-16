@@ -230,8 +230,8 @@ class TestPerformance:
         gpu_result = ChangeDetector.compute_c2c(source, target, config=gpu_config)
         gpu_time = time.time() - t0
         
-        # Just verify results match
-        np.testing.assert_allclose(gpu_result.distances, cpu_result.distances, rtol=1e-5)
+        # Just verify results match within reasonable floating-point tolerance
+        np.testing.assert_allclose(gpu_result.distances, cpu_result.distances, rtol=1e-4)
         
         # Log performance info (not a strict assertion, just informational)
         speedup = cpu_time / gpu_time if gpu_time > 0 else 0

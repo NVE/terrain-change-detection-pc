@@ -228,6 +228,35 @@ Optional (recommended for non-blocking PyVista):
 
 `uv` installs the core packages automatically when running scripts. Use `uv add` for optional extras (see above).
 
+## GPU Acceleration
+
+The C2C pipeline can leverage GPU acceleration for nearest-neighbor searches.
+
+- Backend selection is automatic:
+  - Linux/WSL2 with cuML available: native GPU backend (preferred).
+  - Otherwise, CPU fallback is used transparently (results are the same; speedups are Linux/WSL2-only).
+- Numerical stability: coordinates are centered and cast to float32 before GPU queries to avoid overflow on large UTM scales.
+
+Metadata on C2C results:
+- `metadata["gpu_used"]`: Whether the GPU-accelerated neighbor wrapper was used successfully.
+- `metadata["gpu_backend"]`: Which backend was selected (`"cuml"`, `"sklearn-gpu"`, or `"none"`).
+  - `"cuml"` corresponds to true GPU compute (Linux/WSL2 with RAPIDS/cuML).
+  - `"sklearn-gpu"` currently runs the search on CPU via sklearn but through the GPU-aware wrapper.
+
+Environment variables to tune behavior:
+
+- TCD_MIN_POINTS_FOR_GPU: If set to a positive integer, the GPU path is disabled when either source or target has fewer points than this threshold (helps avoid GPU overhead on tiny inputs). Default: 0 (disabled).
+- TCD_STORE_CPU_COPY_MAX_SAMPLES: When using cuML and performing radius-based neighborhoods, a small CPU copy of the training set can be kept to serve radius queries via a CPU fallback. Default: 300000. Set to 0 to disable.
+
+Example (bash):
+
+  export TCD_MIN_POINTS_FOR_GPU=200000
+  export TCD_STORE_CPU_COPY_MAX_SAMPLES=500000
+
+Notes:
+- Radius neighborhoods on cuML fall back to a CPU KDTree automatically when a CPU training copy is available.
+- For very small datasets, GPU can be slower due to launch/transfer overhead; use the threshold above to favor CPU.
+
 ## CLI Options
 
 - `--config <path>`: Path to YAML configuration (defaults to `config/default.yaml`).

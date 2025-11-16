@@ -211,6 +211,10 @@ def process_c2c_tile(
                 distances, indices = nbrs.kneighbors(source)
                 # Ensure results are on CPU for downstream processing
                 distances = ensure_cpu_array(distances).flatten()
+                try:
+                    backend = getattr(nbrs, "backend_", "unknown")
+                except Exception:
+                    backend = "unknown"
                 gpu_used = True
             except Exception as e:
                 logger.debug(f"GPU nearest neighbors failed, falling back to CPU: {e}")
@@ -223,12 +227,18 @@ def process_c2c_tile(
             distances, indices = tree.query(source, k=k_neighbors)
             distances = distances.flatten()
             gpu_used = False
+            backend = "cpu"
         
         # Apply radius cutoff
         distances = np.where(distances <= max_distance, distances, np.inf)
         
+        if gpu_used:
+            backend_str = f"GPU[{backend}]"
+        else:
+            backend_str = "CPU"
+
         logger.debug(
-            f"Tile C2C complete ({'GPU' if gpu_used else 'CPU'}): "
+            f"Tile C2C complete ({backend_str}): "
             f"{len(source):,} source, {len(target):,} target, "
             f"{np.isfinite(distances).sum():,} valid distances (max={max_distance:.2f})"
         )

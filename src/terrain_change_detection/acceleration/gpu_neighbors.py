@@ -80,6 +80,8 @@ class GPUNearestNeighbors:
         self.gpu_available_ = False
         self.backend_ = 'sklearn-cpu'
         self._is_fitted = False
+        # Optional CPU copy of training data for radius_neighbors fallback when using cuML
+        self._train_X_cpu = None
         
     def _initialize_backend(self) -> None:
         """Initialize GPU backend and determine which implementation to use."""
@@ -161,6 +163,22 @@ class GPUNearestNeighbors:
             import cupy as cp
             X_gpu = cp.asarray(X)
             self._model.fit(X_gpu)
+            # Optionally keep a CPU copy to support radius_neighbors fallback
+            # Controlled by env var TCD_STORE_CPU_COPY_MAX_SAMPLES (default 300k)
+            try:
+                import os as _os
+                _max_samples = int(_os.environ.get("TCD_STORE_CPU_COPY_MAX_SAMPLES", "300000"))
+            except Exception:
+                _max_samples = 300000
+            try:
+                n_samples = int(X.shape[0])
+            except Exception:
+                n_samples = 0
+            if _max_samples > 0 and n_samples <= _max_samples:
+                # Store a contiguous float32 CPU copy (small memory overhead for small datasets)
+                self._train_X_cpu = np.ascontiguousarray(np.asarray(X, dtype=np.float32))
+            else:
+                self._train_X_cpu = None
             
         elif self.backend_ == 'sklearn-gpu':
             # sklearn + CuPy path: fit on CPU (sklearn doesn't accept CuPy directly)
@@ -270,20 +288,26 @@ class GPUNearestNeighbors:
             
         elif self.backend_ == 'cuml':
             # cuML may not support radius_neighbors - fall back to CPU
-            logger.warning("radius_neighbors not optimized for cuML, using CPU")
-            # Create temporary CPU model
+            if self._train_X_cpu is None:
+                logger.warning(
+                    "radius_neighbors with cuML requires CPU fallback but no CPU copy "
+                    "of training data is available (likely too large). Set TCD_STORE_CPU_COPY_MAX_SAMPLES "
+                    
+                    "to a higher value or use sklearn backend for large radius queries."
+                )
+                raise NotImplementedError(
+                    "radius_neighbors with cuML unavailable without CPU training copy"
+                )
+            logger.info("radius_neighbors using CPU fallback with sklearn on stored training copy")
             cpu_model = SklearnNN(
                 n_neighbors=self.n_neighbors,
-                radius=self.radius,
+                radius=radius if radius is not None else self.radius,
                 algorithm=self.algorithm,
                 leaf_size=self.leaf_size,
                 metric=self.metric,
             )
-            # Get training data from cuML model (if possible) or require refit
-            raise NotImplementedError(
-                "radius_neighbors with cuML requires CPU fallback - "
-                "please use sklearn-gpu backend for radius queries"
-            )
+            cpu_model.fit(self._train_X_cpu)
+            return cpu_model.radius_neighbors(X, radius, return_distance, sort_results)
             
         elif self.backend_ == 'sklearn-gpu':
             return self._model.radius_neighbors(X, radius, return_distance, sort_results)

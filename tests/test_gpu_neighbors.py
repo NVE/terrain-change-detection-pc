@@ -48,10 +48,15 @@ def test_gpu_backend_initialization(sample_data):
     
     gpu_info = get_gpu_info()
     if gpu_info.available:
-        # Should use sklearn-gpu on Windows (cuML not available)
-        assert nn.gpu_available_ and nn.backend_ == 'sklearn-gpu'
+        # If cuML is available (Linux/WSL), backend should be 'cuml'
+        try:
+            import cuml  # noqa: F401
+            assert nn.gpu_available_ and nn.backend_ == 'cuml'
+        except Exception:
+            # Otherwise we fall back to sklearn with GPU arrays
+            assert nn.gpu_available_ and nn.backend_ == 'sklearn-gpu'
     else:
-        # Should fall back to CPU
+        # Should fall back to CPU when no GPU detected
         assert nn.backend_ == 'sklearn-cpu'
         assert not nn.gpu_available_
 

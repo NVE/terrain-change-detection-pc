@@ -1,5 +1,70 @@
 ﻿# Changelog and Implementation Notes
 
+## 2025-11-16 - GPU C2C Robustness & cuML Large-Scale Debugging
+
+### Summary
+Improved robustness, observability, and tooling around GPU-accelerated C2C, and added
+targeted scripts/docs for WSL2 + cuML debugging at large scales. The C2C pipeline now
+guards against corrupted GPU distances by design and surfaces which GPU backend was
+actually used in results and logs.
+
+### Key Changes
+
+- `ChangeDetector.compute_c2c()`
+  - Added `gpu_backend` field in `metadata` to distinguish between cuML (`"cuml"`),
+    sklearn-with-GPU-wrapper (`"sklearn-gpu"`), and CPU (`"none"`).
+  - After GPU k-NN, added sanity checks on the distance array (finite-only and
+    `max(distance) <= 1e5` m). If checks fail, the code logs a warning and
+    transparently recomputes the C2C on CPU to guarantee sane statistics.
+
+- `ChangeDetector.compute_c2c_vertical_plane()`
+  - Mirrors the basic C2C metadata enhancement by including `gpu_backend` alongside
+    `gpu_used`, so vertical-plane C2C callers can see which backend was used.
+
+- Streaming and parallel C2C
+  - `compute_c2c_streaming_files_tiled()` now tracks how many tiles actually used
+    the GPU (`gpu_tiles`) vs how many contained source points (`tiles_with_src`),
+    and reports `gpu_used` based on whether any tile successfully used GPU.
+  - Logging and metadata have been updated to make it clear when GPU acceleration
+    was merely *requested* vs actually used per tile.
+  - `compute_c2c_streaming_files_tiled_parallel()` logs GPU use as "requested"
+    to reflect that tiles may still fall back to CPU.
+
+- GPU neighbor wrapper and tile workers
+  - `GPUNearestNeighbors` (cuML backend) now optionally keeps a small CPU copy of
+    the training data (size controlled via `TCD_STORE_CPU_COPY_MAX_SAMPLES`) so
+    radius-based queries can fall back to a CPU KDTree when cuML lacks native
+    support.
+  - `radius_neighbors()` on the cuML backend now uses this stored CPU copy
+    when available, raising a clear `NotImplementedError` when not.
+  - `process_c2c_tile()` logs the effective backend per tile (e.g. `GPU[cuml]`,
+    `GPU[sklearn-gpu]`, or `CPU`) to make mixed CPU/GPU runs easier to debug.
+
+- Tooling and documentation
+  - Added `scripts/debug_cuml_large_c2c_issue.py`: a focused script that runs
+    cuML `NearestNeighbors` directly on real 2015/2020 LAZ data at increasing
+    sizes (100K → 2M points) and compares GPU distances against a CPU sklearn
+    baseline. This isolates cuML behavior from the rest of the pipeline and
+    helps identify large-scale numerical issues.
+  - Added `docs/WSL2_GPU_SETUP_SUMMARY.md` and `activate_gpu.sh` to document
+    and automate WSL2 GPU environment setup (including CUDA library paths).
+  - Updated `README.md` GPU section to clarify platform-specific expectations
+    (Linux/WSL2 with cuML vs CPU fallback) and to describe the new `gpu_backend`
+    metadata field.
+  - Updated `docs/GPU_PERFORMANCE_ANALYSIS.md` to note that C2C results now
+    expose both `gpu_used` and `gpu_backend`, improving post-hoc analysis of
+    GPU vs CPU paths.
+
+### Testing
+
+- `scripts/test_gpu_c2c_performance.py` rerun on the Norwegian terrain dataset
+  (5.9M vs 9.0M points) to confirm:
+  - GPU and CPU distances match for small–medium sizes up to ~1M points.
+  - At very large sizes where cuML returns corrupted distances, the new
+    sanity checks detect the issue and automatically fall back to CPU, so
+    C2C statistics remain sane and match the CPU baseline.
+
+
 ## 2025-11-15 - Phase 2.1: Comprehensive GPU Performance Testing & Analysis
 
 ### Summary

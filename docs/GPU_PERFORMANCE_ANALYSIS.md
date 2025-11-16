@@ -182,6 +182,7 @@ The **comprehensive performance test successfully revealed** that:
 2. ✅ Configuration and fallback mechanisms function properly
 3. ❌ **Windows does not achieve GPU compute acceleration** (as designed)
 4. ⚠️ Current implementation is **Linux-only for GPU performance**
+5. ✅ C2C results now expose `metadata["gpu_backend"]` alongside `metadata["gpu_used"]` so you can see whether cuML (`"cuml"`) or a CPU fallback backend (`"sklearn-gpu"`/`"none"`) was actually used.
 
 The test was valuable - it confirmed our infrastructure is solid but identified the platform limitation that needs documentation.
 

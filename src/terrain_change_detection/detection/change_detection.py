@@ -283,23 +283,102 @@ class ChangeDetector:
         if source.size == 0 or target.size == 0:
             raise ValueError("Input point arrays must be non-empty.")
 
-        # Determine if we should use GPU
+        # Determine if we should use GPU (config-driven; may still fall back)
         use_gpu = False
-        if config is not None and hasattr(config, 'gpu'):
+        gpu_backend: str = "none"
+        if config is not None and hasattr(config, "gpu"):
             use_gpu = config.gpu.enabled and config.gpu.use_for_c2c
 
         dists: np.ndarray
         indices: np.ndarray
         
-        # Try GPU-accelerated nearest neighbors first
+        # Optional heuristic: avoid GPU for very small problems (GPU overhead dominates)
+        # Controlled via env var TCD_MIN_POINTS_FOR_GPU; default 0 (disabled) to honor tests/config
         if use_gpu:
             try:
-                nbrs = create_gpu_neighbors(n_neighbors=1, use_gpu=True)
-                nbrs.fit(target)
-                d, i = nbrs.kneighbors(source)
-                # Ensure results are on CPU for downstream processing
-                dists = ensure_cpu_array(d).flatten()
-                indices = ensure_cpu_array(i).flatten()
+                import os as _os
+                _min_pts_env = int(_os.environ.get("TCD_MIN_POINTS_FOR_GPU", "0"))
+            except Exception:
+                _min_pts_env = 0
+            if _min_pts_env > 0 and (len(source) < _min_pts_env or len(target) < _min_pts_env):
+                logger.info(
+                    "GPU disabled for C2C due to small problem size: source=%d, target=%d (< %d)",
+                    len(source), len(target), _min_pts_env,
+                )
+                use_gpu = False
+
+        # Try GPU-accelerated nearest neighbors first (if enabled by config and size)
+        if use_gpu:
+            try:
+                # Center point clouds on CPU to avoid float32 precision issues with large coordinates
+                target_f32 = np.asarray(target, dtype=np.float32)
+                source_f32 = np.asarray(source, dtype=np.float32)
+                center = np.mean(target_f32, axis=0)
+                target_centered = target_f32 - center
+                source_centered = source_f32 - center
+
+                # Use cuML's auto algorithm selection for best performance (when available)
+                nbrs = create_gpu_neighbors(
+                    n_neighbors=1,
+                    algorithm="auto",
+                    metric="euclidean",
+                    use_gpu=True,
+                )
+                import time as _t
+                t0 = _t.time()
+                nbrs.fit(target_centered)
+                t1 = _t.time()
+
+                # Record which backend the GPUNearestNeighbors wrapper selected
+                try:
+                    gpu_backend = getattr(nbrs, "backend_", "unknown")
+                except Exception:
+                    gpu_backend = "unknown"
+
+                # Batched queries to reduce peak memory and improve stability
+                from terrain_change_detection.acceleration.hardware_detection import get_optimal_batch_size as _get_bs
+                n_src = len(source_centered)
+                batch = _get_bs(n_src, bytes_per_point=16)  # 3 coords + some overhead
+                if batch <= 0:
+                    batch = n_src
+
+                dists = np.empty(n_src, dtype=np.float32)
+                indices = np.empty(n_src, dtype=np.int64)
+
+                t2 = _t.time()
+                for start in range(0, n_src, batch):
+                    end = min(n_src, start + batch)
+                    d_gpu, i_gpu = nbrs.kneighbors(source_centered[start:end])
+                    dists[start:end] = ensure_cpu_array(d_gpu).ravel()
+                    indices[start:end] = ensure_cpu_array(i_gpu).ravel()
+                t3 = _t.time()
+
+                logger.info(
+                    "C2C GPU timings: fit=%.3fs, query(batched)=%.3fs, batch=%d, src=%d, tgt=%d",
+                    t1 - t0, t3 - t2, batch, n_src, len(target_centered)
+                )
+
+                # Sanity check GPU distances; fall back to CPU on obvious corruption
+                if not np.all(np.isfinite(dists)):
+                    logger.warning(
+                        "C2C GPU produced non-finite distances (NaN/inf); falling back to CPU"
+                    )
+                    use_gpu = False
+                    gpu_backend = "none"
+                else:
+                    try:
+                        _max_gpu_dist = float(np.max(dists))
+                    except Exception:
+                        _max_gpu_dist = float("inf")
+                    # Distances much larger than typical terrain scales indicate numerical issues
+                    if _max_gpu_dist > 1e5:
+                        logger.warning(
+                            "C2C GPU produced implausibly large distances (max=%.3e m); "
+                            "falling back to CPU",
+                            _max_gpu_dist,
+                        )
+                        use_gpu = False
+                        gpu_backend = "none"
             except Exception as e:
                 # Fallback to CPU if GPU fails
                 logger.warning(f"GPU C2C failed, falling back to CPU: {e}")
@@ -352,9 +431,11 @@ class ChangeDetector:
             median = float("nan")
             n = 0
         else:
-            rmse = float(np.sqrt(np.mean(np.square(valid_dists))))
-            mean = float(np.mean(valid_dists))
-            median = float(np.median(valid_dists))
+            # Convert to float64 for statistics to avoid overflow
+            valid_dists_f64 = valid_dists.astype(np.float64) if valid_dists.dtype != np.float64 else valid_dists
+            rmse = float(np.sqrt(np.mean(np.square(valid_dists_f64))))
+            mean = float(np.mean(valid_dists_f64))
+            median = float(np.median(valid_dists_f64))
             n = int(valid_dists.size)
 
         return C2CResult(
@@ -364,7 +445,11 @@ class ChangeDetector:
             mean=mean,
             median=median,
             n=n,
-            metadata={"max_distance": max_distance, "gpu_used": use_gpu},
+            metadata={
+                "max_distance": max_distance,
+                "gpu_used": use_gpu,
+                "gpu_backend": gpu_backend,
+            },
         )
 
     @staticmethod
@@ -402,7 +487,8 @@ class ChangeDetector:
 
         # Determine if we should use GPU
         use_gpu = False
-        if config is not None and hasattr(config, 'gpu'):
+        gpu_backend: str = "none"
+        if config is not None and hasattr(config, "gpu"):
             use_gpu = config.gpu.enabled and config.gpu.use_for_c2c
 
         # Try GPU-accelerated approach first
@@ -423,6 +509,12 @@ class ChangeDetector:
                     idx_matrix = nbrs.kneighbors(source, return_distance=False)
                     idx_matrix = ensure_cpu_array(idx_matrix)
                     nearest_idx = idx_matrix[:, 0].astype(int)
+
+                # Record which backend the GPUNearestNeighbors wrapper selected
+                try:
+                    gpu_backend = getattr(nbrs, "backend_", "unknown")
+                except Exception:
+                    gpu_backend = "unknown"
             except Exception as e:
                 logger.warning(f"GPU vertical plane C2C failed, falling back to CPU: {e}")
                 use_gpu = False
@@ -553,6 +645,7 @@ class ChangeDetector:
                 "k_neighbors": k_neighbors,
                 "min_neighbors": min_neighbors,
                 "gpu_used": use_gpu,
+                "gpu_backend": gpu_backend,
             },
         )
 
@@ -651,6 +744,8 @@ class ChangeDetector:
 
         all_dists: list[np.ndarray] = []
         total_src = 0
+        gpu_tiles = 0
+        processed_tiles = 0
         t0 = __import__('time').time()
         for j in range(ty):
             for i in range(tx):
@@ -668,6 +763,7 @@ class ChangeDetector:
                 if not src_chunks:
                     continue
                 src_tile = np.vstack(src_chunks)
+                processed_tiles += 1
                 # Transparency: if tile required multiple chunks, log it
                 if len(src_chunks) > 1:
                     logger.info(
@@ -699,7 +795,7 @@ class ChangeDetector:
                 logger.info(
                     "Tile (%d,%d): src=%d, tgt=%d - building NN%s",
                     i, j, src_tile.shape[0], tgt_tile.shape[0],
-                    " (GPU)" if use_gpu else "",
+                    " (GPU requested)" if use_gpu else "",
                 )
 
                 # Compute nearest neighbors within the tile
@@ -711,9 +807,10 @@ class ChangeDetector:
                         d, _ = nn.kneighbors(src_tile)
                         d = ensure_cpu_array(d).reshape(-1)
                         gpu_success = True
+                        gpu_tiles += 1
                     except Exception as e:
                         logger.debug(f"GPU NN failed for tile ({i},{j}), falling back to CPU: {e}")
-                
+
                 if not gpu_success:
                     try:
                         from sklearn.neighbors import NearestNeighbors  # type: ignore
@@ -761,9 +858,15 @@ class ChangeDetector:
 
         # Indices not tracked in streaming path
         idx = -np.ones_like(dists_concat, dtype=int)
+        gpu_used_any = use_gpu and gpu_tiles > 0
         logger.info(
-            "C2C streaming tiled finished: src_total=%d, valid=%d (<= %.2fm)%s",
-            total_src, n, max_distance, " (GPU)" if use_gpu else "",
+            "C2C streaming tiled finished: src_total=%d, valid=%d (<= %.2fm)%s (gpu_tiles=%d/%d)",
+            total_src,
+            n,
+            max_distance,
+            " (GPU used)" if gpu_used_any else "",
+            gpu_tiles,
+            processed_tiles,
         )
         return C2CResult(
             distances=dists_concat,
@@ -778,7 +881,9 @@ class ChangeDetector:
                 "tile_size": float(tile_size),
                 "halo": float(halo),
                 "max_distance": float(max_distance),
-                "gpu_used": use_gpu,
+                "gpu_used": gpu_used_any,
+                "gpu_tiles": gpu_tiles,
+                "tiles_with_src": processed_tiles,
             },
         )
 
@@ -1366,7 +1471,11 @@ class ChangeDetector:
         
         logger.info(
             "Parallel C2C complete: src_total=%d, valid=%d (<= %.2fm), RMSE=%.4fm%s",
-            total_src, n, max_distance, rmse, " (GPU)" if use_gpu else "",
+            total_src,
+            n,
+            max_distance,
+            rmse,
+            " (GPU requested)" if use_gpu else "",
         )
         
         return C2CResult(

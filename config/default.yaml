@@ -37,7 +37,7 @@ alignment:
 
 detection:
   dod:
-    enabled: true
+    enabled: false
     # DEM grid resolution in meters
     cell_size: 1.0
     # Aggregation for per-cell elevation: mean | median | p95 | p5
@@ -47,7 +47,7 @@ detection:
     # Algorithm: euclidean | vertical_plane
     mode: euclidean
     # Upper bound used by some example flows for sampling/limits
-    max_points: 10000
+    max_points: 9000000
     # Search radius (m). Required for streaming C2C; null may imply in-memory.
     max_distance: null
     # Local modeling parameters (for mode=vertical_plane)
@@ -55,7 +55,7 @@ detection:
     k_neighbors: 20
     min_neighbors: 6
   m3c2:
-    enabled: true
+    enabled: false
     # Use automatic parameter tuning (true) or fixed parameters below (false)
     use_autotune: true
     # Number of core points at which to compute M3C2 distances
@@ -114,7 +114,7 @@ outofcore:
 
 parallel:
   # Master switch for CPU parallelization
-  enabled: true
+  enabled: false
   # Number of worker processes; null = auto-detect (cpu_count - 1)
   n_workers: null
   # Soft memory limit (GB) to guide worker count; null = no limit
