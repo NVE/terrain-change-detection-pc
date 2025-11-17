@@ -40,7 +40,7 @@ alignment:
 
 detection:
   dod:
-    enabled: false
+    enabled: true
     # DEM grid resolution in meters
     cell_size: 1.0
     # Aggregation for per-cell elevation: mean | median | p95 | p5
@@ -84,7 +84,7 @@ detection:
 
 visualization:
   # plotly | pyvista | pyvistaqt
-  backend: plotly
+  backend: pyvista
   # Max points to draw for interactive views
   sample_size: 50000
 

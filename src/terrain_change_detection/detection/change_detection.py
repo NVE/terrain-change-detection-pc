@@ -168,6 +168,7 @@ class ChangeDetector:
         cell_size: float = 1.0,
         bounds: Optional[Tuple[float, float, float, float]] = None,
         aggregator: Literal["mean", "median", "p95", "p5"] = "mean",
+        config: Optional[AppConfig] = None,
     ) -> DoDResult:
         """
         Compute DEM of Difference (DoD) by gridding the point clouds and differencing.
@@ -178,12 +179,17 @@ class ChangeDetector:
             cell_size: Grid cell size in same units as coordinates (meters)
             bounds: Optional (min_x, min_y, max_x, max_y). If None, use union bounds.
             aggregator: Aggregation method for DEM: mean, median, p95, p5
+            config: Optional configuration (for GPU settings)
 
         Returns:
             DoDResult with DEMs and difference grid.
         """
         if points_t1.size == 0 or points_t2.size == 0:
             raise ValueError("Input point arrays must be non-empty.")
+        
+        # Note: In-memory DoD uses bucket-based aggregation which only supports CPU
+        # For GPU-accelerated DoD, use streaming methods (compute_dod_streaming_files*)
+        logger.info(f"DoD (in-memory) using CPU-only backend (aggregator: {aggregator}, GPU not supported for in-memory DoD)")
 
         if bounds is None:
             min_x = float(min(points_t1[:, 0].min(), points_t2[:, 0].min()))
@@ -898,14 +904,42 @@ class ChangeDetector:
         ground_only: bool = True,
         classification_filter: Optional[list[int]] = None,
         chunk_points: int = 1_000_000,
+        config: Optional[AppConfig] = None,
     ) -> DoDResult:
         """
-        Streaming DoD that reads LAS/LAZ files in chunks and computes mean-based DEMs.        Notes:
+        Streaming DoD that reads LAS/LAZ files in chunks and computes mean-based DEMs.
+
+        Args:
+            files_t1: LAZ/LAS files for epoch 1
+            files_t2: LAZ/LAS files for epoch 2
+            cell_size: Grid cell size in data units
+            bounds: Optional (min_x, min_y, max_x, max_y). If None, use union bounds.
+            ground_only: Apply ground/classification filter
+            classification_filter: Optional classification codes
+            chunk_points: Points per streaming chunk
+            config: Optional configuration (for GPU settings)
+
+        Returns:
+            DoDResult with DEMs and difference grid
+
+        Notes:
         - Aggregator is mean-only in this prototype (streaming-friendly).
         - bounds defaults to the union of LAS headers.
         """
         if not files_t1 or not files_t2:
             raise ValueError("compute_dod_streaming_files requires non-empty file lists for T1 and T2")
+
+        # Determine if we should use GPU (config-driven)
+        use_gpu = False
+        if config is not None and hasattr(config, "gpu"):
+            use_gpu = config.gpu.enabled and config.gpu.use_for_preprocessing
+        
+        # Log which backend is being used with clear explanation
+        if use_gpu:
+            logger.info("DoD (streaming) using GPU backend for grid accumulation (GridAccumulator with CuPy)")
+        else:
+            reason = "config not provided" if config is None else "gpu.use_for_preprocessing=False" if hasattr(config, "gpu") and config.gpu.enabled else "GPU disabled in config"
+            logger.info(f"DoD (streaming) using CPU backend for grid accumulation ({reason})")
 
         if bounds is None:
             b = union_bounds(files_t1, files_t2)
@@ -915,8 +949,8 @@ class ChangeDetector:
             bounds2d = Bounds2D(min_x=bounds[0], min_y=bounds[1], max_x=bounds[2], max_y=bounds[3])
             bounds_tuple = bounds
 
-        acc1 = GridAccumulator(bounds2d, cell_size)
-        acc2 = GridAccumulator(bounds2d, cell_size)
+        acc1 = GridAccumulator(bounds2d, cell_size, use_gpu=use_gpu)
+        acc2 = GridAccumulator(bounds2d, cell_size, use_gpu=use_gpu)
 
         reader1 = LaspyStreamReader(files_t1, ground_only=ground_only, classification_filter=classification_filter, chunk_points=chunk_points)
         reader2 = LaspyStreamReader(files_t2, ground_only=ground_only, classification_filter=classification_filter, chunk_points=chunk_points)
@@ -963,14 +997,29 @@ class ChangeDetector:
         chunk_points: int = 1_000_000,
         memmap_dir: Optional[str] = None,
         transform_t2: Optional[np.ndarray] = None,
+        config: Optional[AppConfig] = None,
     ) -> DoDResult:
         """
+        Out-of-core tiled DoD by streaming LAS/LAZ files in spatial tiles.
         Out-of-core tiled DoD (mean). Tiles are grid-aligned; overlapping contributions are averaged.
         """
         import time
 
         if not files_t1 or not files_t2:
             raise ValueError("compute_dod_streaming_files_tiled requires file lists for T1/T2")
+        
+        # Determine if we should use GPU (config-driven)
+        use_gpu = False
+        if config is not None and hasattr(config, "gpu"):
+            use_gpu = config.gpu.enabled and config.gpu.use_for_preprocessing
+        
+        # Log which backend is being used with clear explanation
+        if use_gpu:
+            logger.info("DoD (streaming tiled) using GPU backend for grid accumulation (GridAccumulator with CuPy)")
+        else:
+            reason = "config not provided" if config is None else "gpu.use_for_preprocessing=False" if hasattr(config, "gpu") and config.gpu.enabled else "GPU disabled in config"
+            logger.info(f"DoD (streaming tiled) using CPU backend for grid accumulation ({reason})")
+        
         gb = union_bounds(files_t1, files_t2)
 
         # Prepare global tiling parameters (grid-aligned with inner tiles)
@@ -1060,7 +1109,7 @@ class ChangeDetector:
                     else:
                         t = tiles[k]
                     if k not in accs:
-                        accs[k] = GridAccumulator(t.inner, cell_size)
+                        accs[k] = GridAccumulator(t.inner, cell_size, use_gpu=use_gpu)
                     # Safety crop to inner bounds (right-open)
                     m_inner = (
                         (pts_ij[:, 0] >= t.inner.min_x)
@@ -1160,6 +1209,7 @@ class ChangeDetector:
         transform_t2: Optional[np.ndarray] = None,
         n_workers: Optional[int] = None,
         threads_per_worker: Optional[int] = 1,
+        config: Optional[AppConfig] = None,
     ) -> DoDResult:
         """
         Parallel version of out-of-core tiled DoD.
@@ -1218,6 +1268,18 @@ class ChangeDetector:
             tx, ty, n_tiles, tile_size, halo, chunk_points,
         )
         
+        # Determine whether to use GPU for grid accumulation (configuration-driven)
+        use_gpu = False
+        if config is not None and hasattr(config, "gpu"):
+            use_gpu = config.gpu.enabled and config.gpu.use_for_preprocessing
+
+        # Log which backend is being used with clear explanation
+        if use_gpu:
+            logger.info("DoD (parallel tiled) using GPU backend for grid accumulation (GridAccumulator with CuPy)")
+        else:
+            reason = "config not provided" if config is None else "gpu.use_for_preprocessing=False" if hasattr(config, "gpu") and config.gpu.enabled else "GPU disabled in config"
+            logger.info(f"DoD (parallel tiled) using CPU backend for grid accumulation ({reason})")
+
         # Create parallel executor
         executor = TileParallelExecutor(n_workers=n_workers, threads_per_worker=threads_per_worker)
         
@@ -1252,6 +1314,7 @@ class ChangeDetector:
             'classification_filter': classification_filter,
             'transform_matrix': transform_t2,
             'ground_only': ground_only,
+            'use_gpu': use_gpu,
         }
 
         t0 = time.time()

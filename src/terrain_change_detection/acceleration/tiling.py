@@ -24,6 +24,7 @@ from typing import Iterable, Iterator, List, Optional, Tuple, Dict
 import numpy as np
 
 from ..utils.point_cloud_filters import create_classification_mask
+from .gpu_array_ops import ArrayBackend, get_array_backend, ensure_cpu_array, is_gpu_array
 
 # Simple in-process cache for LAS/LAZ header bounds to avoid rescanning
 _BOUNDS_CACHE: Dict[str, Bounds2D] = {}
@@ -51,10 +52,10 @@ class GridAccumulator:
     Keeps running sums and counts per cell for later mean computation.
     This enables memory-efficient processing of large point clouds by
     accumulating statistics incrementally without loading all data at once.
-    
+
     The grid is aligned to the provided bounds with cells of a fixed size.
     Grid cells are indexed by (row, col) in the internal arrays.
-    
+
     Attributes:
         bounds: 2D bounding box defining the grid extent
         cell: Cell size (spacing) in data units
@@ -64,25 +65,45 @@ class GridAccumulator:
         cnt: Count of points per cell (ny x nx)
         grid_x: X coordinates of cell centers (ny x nx)
         grid_y: Y coordinates of cell centers (ny x nx)
+        use_gpu: Whether this accumulator attempts to use GPU-backed arrays
     """
 
-    def __init__(self, bounds: Bounds2D, cell_size: float):
+    def __init__(self, bounds: Bounds2D, cell_size: float, use_gpu: bool = False):
         """Initialize the grid accumulator.
-        
+
         Args:
             bounds: 2D bounding box for the grid
             cell_size: Size of each grid cell in data units
+            use_gpu: If True, use GPU-backed arrays when available
         """
         self.bounds = bounds
         self.cell = float(cell_size)
+        self.use_gpu = use_gpu
+
         # Grid sizes
         self.nx = int(np.ceil((bounds.max_x - bounds.min_x) / self.cell)) + 1
         self.ny = int(np.ceil((bounds.max_y - bounds.min_y) / self.cell)) + 1
-        # Accumulators
-        self.sum = np.zeros((self.ny, self.nx), dtype=np.float64)
-        self.cnt = np.zeros((self.ny, self.nx), dtype=np.int64)
 
-        # Precompute grid centers
+        # Backend for accumulators
+        if use_gpu:
+            try:
+                backend = get_array_backend(use_gpu=True)
+                xp = backend.xp
+                self._backend: ArrayBackend | None = backend
+            except Exception:
+                # GPU initialization failed, fall back to CPU
+                xp = np
+                self._backend = None
+                self.use_gpu = False
+        else:
+            xp = np
+            self._backend = None
+
+        # Accumulators (GPU or CPU arrays)
+        self.sum = xp.zeros((self.ny, self.nx), dtype=xp.float64)
+        self.cnt = xp.zeros((self.ny, self.nx), dtype=xp.int64)
+
+        # Precompute grid centers (always on CPU, small arrays)
         x_edges = np.linspace(bounds.min_x, bounds.min_x + self.nx * self.cell, self.nx + 1)
         y_edges = np.linspace(bounds.min_y, bounds.min_y + self.ny * self.cell, self.ny + 1)
         self.grid_x, self.grid_y = np.meshgrid(
@@ -90,53 +111,99 @@ class GridAccumulator:
             (y_edges[:-1] + y_edges[1:]) / 2.0,
         )
 
-    def accumulate(self, points: np.ndarray) -> None:
-        """Accumulate a chunk of points into the grid.
-        
-        Points are assigned to grid cells based on their XY coordinates.
-        The Z values are summed per cell for later averaging. Points
-        outside the grid bounds are automatically filtered out.
-        
-        Args:
-            points: Nx3 array of point coordinates [X, Y, Z]
-        """
-        if points.size == 0:
+    def _accumulate_cpu(self, row: np.ndarray, col: np.ndarray, z: np.ndarray) -> None:
+        """CPU accumulation using bincount on linearized indices."""
+        if row.size == 0:
             return
-        # Compute fractional indices to filter strictly to tile bounds
-        fx = (points[:, 0] - self.bounds.min_x) / self.cell
-        fy = (points[:, 1] - self.bounds.min_y) / self.cell
-        mask = (fx >= 0.0) & (fy >= 0.0) & (fx < self.nx) & (fy < self.ny)
-        if not np.any(mask):
-            return
-        xi = fx[mask].astype(int)
-        yi = fy[mask].astype(int)
 
-        # Aggregate sums and counts per unique cell (vectorized)
-        lin = yi.astype(np.int64) * np.int64(self.nx) + xi.astype(np.int64)
-        # unique linear indices
-        uniq, idx, inv, counts = np.unique(lin, return_index=True, return_inverse=True, return_counts=True)
-        # sum z per unique
-        z = points[mask, 2]
+        lin = row.astype(np.int64) * np.int64(self.nx) + col.astype(np.int64)
+        uniq, inv, counts = np.unique(lin, return_inverse=True, return_counts=True)
         sums = np.zeros_like(uniq, dtype=np.float64)
-        np.add.at(sums, inv, z)
-        # Scatter to grid arrays
+        np.add.at(sums, inv, ensure_cpu_array(z).astype(np.float64))
         ux = uniq % self.nx
         uy = uniq // self.nx
         self.sum[uy, ux] += sums
         self.cnt[uy, ux] += counts
 
+    def _accumulate_gpu(self, row, col, z) -> None:
+        """GPU accumulation using CuPy; falls back to CPU if GPU arrays unavailable."""
+        # This method assumes self.sum/self.cnt live on the same backend (NumPy or CuPy).
+        if not self.use_gpu or self._backend is None or not self._backend.is_gpu:
+            # Treat as CPU arrays
+            self._accumulate_cpu(ensure_cpu_array(row), ensure_cpu_array(col), ensure_cpu_array(z))
+            return
+
+        try:
+            xp = self._backend.xp
+            row = xp.asarray(row, dtype=xp.int64)
+            col = xp.asarray(col, dtype=xp.int64)
+            z = xp.asarray(z, dtype=xp.float64)
+
+            lin = row * xp.int64(self.nx) + col
+            uniq, inv, counts = xp.unique(lin, return_inverse=True, return_counts=True)
+            sums = xp.zeros_like(uniq, dtype=xp.float64)
+            xp.add.at(sums, inv, z)
+            ux = uniq % self.nx
+            uy = uniq // self.nx
+            self.sum[uy, ux] += sums
+            self.cnt[uy, ux] += counts
+        except Exception:
+            # GPU operation failed, fall back to CPU
+            self._accumulate_cpu(ensure_cpu_array(row), ensure_cpu_array(col), ensure_cpu_array(z))
+
+    def accumulate(self, points: np.ndarray) -> None:
+        """Accumulate a chunk of points into the grid.
+
+        Points are assigned to grid cells based on their XY coordinates.
+        The Z values are summed per cell for later averaging. Points
+        outside the grid bounds are automatically filtered out.
+
+        Args:
+            points: Nx3 array of point coordinates [X, Y, Z]
+        """
+        if points.size == 0:
+            return
+
+        # Compute fractional indices to filter strictly to tile bounds
+        xs = points[:, 0]
+        ys = points[:, 1]
+        zs = points[:, 2]
+
+        fx = (xs - self.bounds.min_x) / self.cell
+        fy = (ys - self.bounds.min_y) / self.cell
+
+        mask = (fx >= 0.0) & (fy >= 0.0) & (fx < self.nx) & (fy < self.ny)
+        if not np.any(mask):
+            return
+
+        col = fx[mask].astype(np.int64)
+        row = fy[mask].astype(np.int64)
+        z = zs[mask]
+
+        if self.use_gpu and self._backend is not None and self._backend.is_gpu:
+            self._accumulate_gpu(row, col, z)
+        else:
+            self._accumulate_cpu(row, col, z)
+
     def finalize(self) -> np.ndarray:
         """Compute the final mean grid from accumulated statistics.
-        
+
         Cells with no points are assigned NaN values.
-        
+
         Returns:
             2D array (ny x nx) containing mean Z values per cell.
             Empty cells contain np.nan.
         """
-        dem = np.full_like(self.sum, np.nan, dtype=np.float64)
-        mask = self.cnt > 0
-        dem[mask] = self.sum[mask] / self.cnt[mask]
+        if self.use_gpu and self._backend is not None and self._backend.is_gpu and is_gpu_array(self.sum):
+            xp = self._backend.xp
+            dem = xp.where(self.cnt > 0, self.sum / self.cnt, xp.nan)
+            dem_cpu = ensure_cpu_array(dem).astype(np.float64)
+            return dem_cpu
+
+        dem = np.full_like(ensure_cpu_array(self.sum), np.nan, dtype=np.float64)
+        cnt_cpu = ensure_cpu_array(self.cnt)
+        mask = cnt_cpu > 0
+        dem[mask] = ensure_cpu_array(self.sum)[mask] / cnt_cpu[mask]
         return dem
 
 

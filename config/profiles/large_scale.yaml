@@ -42,7 +42,7 @@ alignment:
 
 detection:
   dod:
-    enabled: false
+    enabled: true
     # DEM grid resolution in meters
     cell_size: 2.0
     # Aggregation for per-cell elevation: mean | median | p95 | p5
@@ -82,7 +82,7 @@ detection:
 
 visualization:
   # plotly | pyvista | pyvistaqt
-  backend: plotly
+  backend: pyvista
   # Max points to draw for interactive views
   sample_size: 100000
 
@@ -120,4 +120,19 @@ parallel:
   n_workers: null
   # Soft memory limit (GB) to guide worker count; null = no limit
   memory_limit_gb: null
-  
+
+gpu:
+  # Master switch for GPU acceleration (graceful CPU fallback if unavailable)
+  enabled: true
+  # Max GPU memory to use in GB; null = auto-detect (80% of available)
+  gpu_memory_limit_gb: null
+  # Automatically fall back to CPU if GPU initialization fails
+  fallback_to_cpu: true
+  # Use GPU for C2C nearest neighbor searches (10-50x speedup potential)
+  use_for_c2c: true
+  # Use GPU for data preprocessing (transformations, filtering)
+  use_for_preprocessing: true
+  # Use GPU for ICP spatial alignment (experimental; disabled by default)
+  use_for_alignment: true
+  # GPU batch size for operations; null = auto-calculate based on memory
+  batch_size: null

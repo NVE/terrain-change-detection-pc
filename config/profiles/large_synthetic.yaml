@@ -50,7 +50,7 @@ detection:
     # Aggregation for per-cell elevation
     aggregator: mean
   c2c:
-    enabled: true
+    enabled: false
     # Algorithm: euclidean | vertical_plane
     mode: euclidean
     # Upper bound for sampling/limits
@@ -62,7 +62,7 @@ detection:
     k_neighbors: 20
     min_neighbors: 6
   m3c2:
-    enabled: true
+    enabled: false
     # Use automatic parameter tuning (true) or fixed parameters below (false)
     use_autotune: true
     # Number of core points at which to compute M3C2 distances
@@ -84,7 +84,7 @@ detection:
 
 visualization:
   # plotly | pyvista | pyvistaqt
-  backend: plotly
+  backend: pyvista
   # Max points to draw for interactive views
   sample_size: 100000
 
@@ -100,7 +100,7 @@ performance:
 outofcore:
   # Master switch for streaming/tiling out-of-core workflows
   # ENABLED for large dataset processing
-  enabled: true
+  enabled: false
   # Inner tile size in meters (processing region per tile)
   tile_size_m: 500.0
   # Halo width in meters (buffer around each tile to avoid edge effects)
@@ -119,8 +119,24 @@ outofcore:
 parallel:
   # Master switch for CPU parallelization
   # ENABLED to test parallel performance with large dataset
-  enabled: true
+  enabled: false
   # Number of worker processes; null = auto-detect (cpu_count - 1)
   n_workers: null
   # Soft memory limit (GB) to guide worker count; null = no limit
   memory_limit_gb: null
+
+gpu:
+  # Master switch for GPU acceleration (graceful CPU fallback if unavailable)
+  enabled: true
+  # Max GPU memory to use in GB; null = auto-detect (80% of available)
+  gpu_memory_limit_gb: null
+  # Automatically fall back to CPU if GPU initialization fails
+  fallback_to_cpu: true
+  # Use GPU for C2C nearest neighbor searches (10-50x speedup potential)
+  use_for_c2c: true
+  # Use GPU for data preprocessing (transformations, filtering)
+  use_for_preprocessing: true
+  # Use GPU for ICP spatial alignment (experimental; disabled by default)
+  use_for_alignment: true
+  # GPU batch size for operations; null = auto-calculate based on memory
+  batch_size: null

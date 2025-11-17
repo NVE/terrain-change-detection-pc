@@ -36,10 +36,8 @@ from .gpu_array_ops import (
     ensure_gpu_array,
     is_gpu_array,
 )
-from .gpu_neighbors import (
-    GPUNearestNeighbors,
-    create_gpu_neighbors,
-)
+from .gpu_neighbors import GPUNearestNeighbors, create_gpu_neighbors
+from .jit_kernels import apply_transform_jit, compute_distances_jit
 
 __all__ = [
     # Tiling primitives
@@ -64,4 +62,7 @@ __all__ = [
     "get_gpu_info",
     "check_gpu_memory",
     "get_optimal_batch_size",
+    # JIT kernels
+    "apply_transform_jit",
+    "compute_distances_jit",
 ]

@@ -128,10 +128,41 @@ def main():
     logger.info("Terrain Change Detection Workflow")
     logger.info("=================================")
     
-    # Log GPU configuration status
+    # Log GPU configuration status and check for GPU libraries
     try:
         from terrain_change_detection.acceleration.hardware_detection import detect_gpu
         if getattr(cfg.gpu, 'enabled', False):
+            # Check if GPU libraries are available
+            try:
+                import cupy as cp
+                import cuml
+                gpu_libraries_available = True
+            except ImportError as import_err:
+                gpu_libraries_available = False
+                missing_libs = []
+                try:
+                    import cupy
+                except ImportError:
+                    missing_libs.append("cupy")
+                try:
+                    import cuml
+                except ImportError:
+                    missing_libs.append("cuml")
+                
+                logger.error("=" * 80)
+                logger.error("ERROR: GPU is enabled in config but required libraries are not available!")
+                logger.error(f"Missing libraries: {', '.join(missing_libs)}")
+                logger.error("")
+                logger.error("To use GPU acceleration, you must activate the GPU environment:")
+                logger.error("  source activate_gpu.sh")
+                logger.error("")
+                logger.error("Or disable GPU in your config file:")
+                logger.error("  gpu:")
+                logger.error("    enabled: false")
+                logger.error("=" * 80)
+                logger.error("Exiting workflow. Please fix the configuration and try again.")
+                return
+            
             gpu_info = detect_gpu()
             if gpu_info.available:
                 logger.info(f"GPU Acceleration: ENABLED")
@@ -139,6 +170,17 @@ def main():
                 logger.info(f"  Memory: {gpu_info.memory_gb:.2f} GB")
                 logger.info(f"  C2C: {'ENABLED' if getattr(cfg.gpu, 'use_for_c2c', False) else 'DISABLED'}")
                 logger.info(f"  Preprocessing: {'ENABLED' if getattr(cfg.gpu, 'use_for_preprocessing', False) else 'DISABLED'}")
+                
+                # Check for GPU + parallel processing incompatibility
+                if getattr(cfg.parallel, 'enabled', False):
+                    logger.warning("=" * 80)
+                    logger.warning("WARNING: GPU and parallel processing are both enabled!")
+                    logger.warning("CUDA contexts cannot survive process forking (multiprocessing limitation).")
+                    logger.warning("This may cause 'CUDARuntimeError: cudaErrorInitializationError' in workers.")
+                    logger.warning("Recommendation: Disable either GPU or parallel processing.")
+                    logger.warning("  - To disable GPU: set gpu.enabled=false in config")
+                    logger.warning("  - To disable parallel: set parallel.enabled=false in config")
+                    logger.warning("=" * 80)
             else:
                 logger.warning(f"GPU Acceleration: ENABLED in config but GPU not available ({gpu_info.error_message}), will use CPU fallback")
         else:
@@ -611,6 +653,7 @@ def main():
                                 transform_t2=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
                                 n_workers=cfg.parallel.n_workers,
                                 threads_per_worker=getattr(cfg.parallel, 'threads_per_worker', 1),
+                                config=cfg,
                             )
                         else:
                             logger.info("Using SEQUENTIAL tile processing")
@@ -624,6 +667,7 @@ def main():
                                 classification_filter=cfg.preprocessing.classification_filter,
                                 chunk_points=cfg.outofcore.chunk_points,
                                 transform_t2=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
+                                config=cfg,
                             )
                     except Exception as stream_error:
                         logger.error(f"Streaming DoD failed: {stream_error}")
@@ -634,6 +678,7 @@ def main():
                             points_t2=points2_full_aligned,
                             cell_size=cfg.detection.dod.cell_size,
                             aggregator=cfg.detection.dod.aggregator,
+                            config=cfg,
                         )
                 else:
                     # In-memory DoD computation
@@ -643,6 +688,7 @@ def main():
                         points_t2=points2_full_aligned,
                         cell_size=cfg.detection.dod.cell_size,
                         aggregator=cfg.detection.dod.aggregator,
+                        config=cfg,
                     )
                 logger.info(
                     "DoD stats: n_cells=%d, mean=%.4f m, median=%.4f m, rmse=%.4f m, min=%.4f m, max=%.4f m",

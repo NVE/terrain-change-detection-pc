@@ -38,16 +38,16 @@ def apply_transform(points: np.ndarray, matrix: np.ndarray) -> np.ndarray:
     """
     if points.size == 0:
         return points
-    
-    # Convert to homogeneous coordinates
-    ones = np.ones((points.shape[0], 1), dtype=points.dtype)
-    points_h = np.hstack([points, ones])
-    
-    # Apply transformation
-    transformed_h = points_h @ matrix.T
-    
-    # Convert back to 3D
-    return transformed_h[:, :3]
+
+    try:
+        from ..acceleration import apply_transform_jit
+
+        return apply_transform_jit(points, matrix)
+    except Exception:
+        # Fallback: vectorized NumPy when numba is unavailable or fails
+        R = matrix[:3, :3]
+        t = matrix[:3, 3]
+        return points @ R.T + t
 
 
 def process_dod_tile(
@@ -60,6 +60,7 @@ def process_dod_tile(
     transform_matrix: Optional[np.ndarray] = None,
     *,
     ground_only: bool = True,
+    use_gpu: bool = False,
 ) -> Tuple[Tile, np.ndarray, np.ndarray]:
     """
     Process single DoD tile in worker process.
@@ -80,8 +81,8 @@ def process_dod_tile(
         Tuple of (tile, dem1, dem2) where DEMs are 2D arrays with shape (ny, nx)
     """
     # Create accumulators for this tile's inner bounds
-    acc1 = GridAccumulator(tile.inner, cell_size)
-    acc2 = GridAccumulator(tile.inner, cell_size)
+    acc1 = GridAccumulator(tile.inner, cell_size, use_gpu=use_gpu)
+    acc2 = GridAccumulator(tile.inner, cell_size, use_gpu=use_gpu)
     
     # Stream and accumulate epoch 1 points (using outer bounds for complete coverage)
     reader1 = LaspyStreamReader(
