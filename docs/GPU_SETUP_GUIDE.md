@@ -113,12 +113,33 @@ GPU acceleration is controlled via YAML configuration:
 
 ```yaml
 # config/default.yaml
-acceleration:
-  use_gpu: true              # Enable GPU acceleration
-  gpu_memory_limit_gb: 8.0   # Max GPU memory to use
-  gpu_batch_size: null       # Auto-calculate if null
-  fallback_to_cpu: true      # Fallback to CPU if GPU fails
+gpu:
+  enabled: true                      # Enable GPU acceleration
+  gpu_memory_limit_gb: 8.0           # Max GPU memory to use
+  gpu_batch_size: null               # Auto-calculate if null
+  fallback_to_cpu: true              # Fallback to CPU if GPU fails
+  use_for_c2c: true                  # Use GPU for C2C distance calculations
+  use_for_preprocessing: true        # Use GPU for data preprocessing
+  use_for_alignment: false           # Use GPU for ICP alignment (experimental)
+
+parallel:
+  enabled: false                     # Enable CPU parallelization
+  n_workers: null                    # Auto-detect if null
 ```
+
+### Important Configuration Notes
+
+**⚠️ GPU + Parallel Processing Incompatibility**
+
+Due to CUDA runtime limitations with Python's multiprocessing (forked processes), you **cannot enable both GPU and parallel processing simultaneously**. The system will automatically fall back to CPU when both are enabled, but it's recommended to choose one:
+
+- **For medium datasets (10-50M points)**: Enable `parallel.enabled: true`, disable GPU
+- **For large datasets (50M+ points)**: Enable `gpu.enabled: true`, disable parallel processing
+- **Never enable both simultaneously** as this causes CUDA initialization errors
+
+**GPU for Alignment (Experimental)**
+
+The `gpu.use_for_alignment: false` default is recommended because cuML's NearestNeighbors has shown instability with ICP alignment, producing implausibly large distances. The system automatically falls back to CPU KD-Tree when GPU alignment fails.
 
 ## Usage
 

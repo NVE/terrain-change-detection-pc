@@ -127,6 +127,7 @@ parallel:
 
 gpu:
   # Master switch for GPU acceleration (graceful CPU fallback if unavailable)
+  # WARNING: Cannot be used simultaneously with parallel.enabled due to CUDA fork limitations
   enabled: true
   # Max GPU memory to use in GB; null = auto-detect (80% of available)
   gpu_memory_limit_gb: null
@@ -136,7 +137,7 @@ gpu:
   use_for_c2c: true
   # Use GPU for data preprocessing (transformations, filtering)
   use_for_preprocessing: true
-  # Use GPU for ICP spatial alignment (experimental; disabled by default)
-  use_for_alignment: true
+  # Use GPU for ICP spatial alignment (experimental; not recommended - see GPU_SETUP_GUIDE.md)
+  use_for_alignment: false
   # GPU batch size for operations; null = auto-calculate based on memory
   batch_size: null
