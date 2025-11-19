@@ -441,21 +441,23 @@ Comprehensive documentation available in `docs/`:
 
 ## Testing
 
-Run the comprehensive test suite (144 tests):
+Run the comprehensive test suite (145 tests):
 
 ```bash
-# All tests (CPU only, GPU tests will be skipped)
+# All tests (132 pass, 13 skipped integration tests)
 uv run pytest
 
 # With GPU libraries activated
 source activate_gpu.sh
-uv run pytest  # All 144 tests should pass
+uv run pytest  # All tests pass
 
 # Specific test categories
 uv run pytest tests/test_gpu_*.py -v          # GPU tests
 uv run pytest tests/test_parallel_*.py -v     # Parallelization tests
 uv run pytest tests/test_*_integration.py -v  # Integration tests
 ```
+
+**Note**: 13 integration tests are skipped when test data is not available. These tests validate workflows with real LAZ files and can be run when sample data is present in `tests/sample_data/`.
 
 ## Contributing
 

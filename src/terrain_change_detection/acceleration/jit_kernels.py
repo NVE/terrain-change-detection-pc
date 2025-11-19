@@ -17,7 +17,7 @@ except Exception:  # pragma: no cover - numba is optional
     numba = None  # type: ignore
 
 
-def _jit(nopython: bool = True, parallel: bool = True):
+def _jit(nopython: bool = True, parallel: bool = False):
     """Small helper to guard numba usage when not installed."""
     if numba is None:
         # Identity decorator when numba is unavailable
@@ -28,7 +28,7 @@ def _jit(nopython: bool = True, parallel: bool = True):
     return numba.jit(nopython=nopython, parallel=parallel)
 
 
-@_jit(nopython=True, parallel=True)
+@_jit(nopython=True, parallel=False)
 def apply_transform_jit(points: np.ndarray, matrix: np.ndarray) -> np.ndarray:
     """Apply 4x4 transformation matrix to points (JIT-compiled).
 
@@ -53,7 +53,7 @@ def apply_transform_jit(points: np.ndarray, matrix: np.ndarray) -> np.ndarray:
     return result
 
 
-@_jit(nopython=True, parallel=True)
+@_jit(nopython=True, parallel=False)
 def compute_distances_jit(points1: np.ndarray, points2: np.ndarray) -> np.ndarray:
     """Compute Euclidean distances between corresponding points (JIT-compiled).
 
