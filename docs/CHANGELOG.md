@@ -1,5 +1,106 @@
 ﻿# Changelog and Implementation Notes
 
+## 2025-11-19 - Drone Scanning Data Support
+
+### Summary
+Added comprehensive support for drone scanning point cloud data as an alternative to the hierarchical hoydedata.no structure. The simplified implementation extends the existing DataDiscovery class with a `source_type` parameter to handle both data structures, maintaining full backward compatibility while enabling flexible data source configuration.
+
+### Key Changes
+
+- **Simplified Data Discovery** (`data_discovery.py`)
+  - Added `source_type` parameter to `DataDiscovery.__init__()`: 'hoydedata' or 'drone'
+  - Hoydedata structure: `area/time_period/data/*.laz` (requires 'data' subdirectory)
+  - Drone structure: `area/time_period/*.laz` (no 'data' subdirectory)
+  - Added configuration warning when base_dir appears to point to an area folder instead of parent
+  - Time period detection validates directory structure based on source_type
+
+- **Configuration System** (`config.py`, `default.yaml`, `drone.yaml`)
+  - Added `source_type` field to `DiscoveryConfig` schema (default: 'hoydedata')
+  - Updated `config/default.yaml` with clear documentation of both structures
+  - Created `config/profiles/drone.yaml` profile optimized for drone data:
+    - Fine-tuned detection parameters (cell_size: 0.5m for higher resolution)
+    - Adjusted alignment parameters (voxel_size: 1.0m for smaller areas)
+    - Disabled out-of-core processing (drone data typically smaller)
+  - Clear comments explaining base_dir expectations
+
+- **Improved Error Messages** (`run_workflow.py`)
+  - Source-type aware error messages for missing area directories
+  - Helpful suggestions: "If your data doesn't have a 'data' subdirectory, set source_type: drone"
+  - Detailed reporting when areas found but lack sufficient time periods
+  - Lists discovered areas with their time period counts
+
+- **Comprehensive Testing** (`test_drone_data_support.py`)
+  - 6 test cases covering drone and hoydedata discovery
+  - Tests verify structure handling, dataset loading, and streaming mode
+  - Backward compatibility tests ensure default behavior unchanged
+  - All tests passing on real drone scanning data
+
+- **Documentation** (`DRONE_DATA_SUPPORT.md`, `README.md`)
+  - Complete guide for drone data usage including:
+    - Directory structure requirements and examples
+    - Configuration options for both data sources
+    - Python API usage with code examples
+    - Comparison table: drone vs hoydedata characteristics
+    - Troubleshooting guide for common issues
+  - Updated main README with drone support information
+
+### Data Structure Comparison
+
+| Feature | Hoydedata.no | Drone Scanning |
+|---------|-------------|----------------|
+| **Structure** | area/time_period/data/*.laz | area/time_period/*.laz |
+| **Config** | source_type: hoydedata | source_type: drone |
+| **Subdirectory** | Requires 'data/' folder | Direct in time_period |
+| **Use Case** | Large regional datasets | Targeted area surveys |
+| **File Size** | Very large (GB) | Moderate (MB-GB) |
+
+### Migration Notes
+
+**No Breaking Changes:**
+- Default `source_type: hoydedata` maintains existing behavior
+- All existing workflows continue working unchanged
+- Configuration backward compatible
+
+**To Use Drone Data:**
+1. Organize data: `data/drone_scanning_data/area/time_period/*.las`
+2. Set `source_type: drone` in config or use `config/profiles/drone.yaml`
+3. Ensure base_dir points to parent of area folders
+4. Each area needs ≥2 time periods for change detection
+
+**Configuration Validation:**
+- Warning issued if base_dir appears to point to area folder
+- Clear error messages explain expected structure by source_type
+- Helper text suggests switching source_type if structure mismatch detected
+
+### Files Changed
+- `src/terrain_change_detection/preprocessing/data_discovery.py`: Added source_type support
+- `src/terrain_change_detection/utils/config.py`: Added source_type to schema
+- `config/default.yaml`: Added source_type config and documentation
+- `config/profiles/drone.yaml` (NEW): Drone-specific configuration profile
+- `scripts/run_workflow.py`: Improved error messages with source_type awareness
+- `docs/DRONE_DATA_SUPPORT.md` (NEW): Comprehensive drone data guide
+- `tests/test_drone_data_support.py` (NEW): Complete test coverage
+- `README.md`: Added drone support section
+
+### Impact
+
+- **Flexibility**: Supports diverse data sources with single codebase
+- **Simplicity**: No complex factory pattern; single class with parameter
+- **Clarity**: Clear error messages guide users to correct configuration
+- **Validation**: Proactive warnings prevent common misconfiguration
+- **Testing**: 6 new tests ensure reliability across both data sources
+- **Documentation**: Complete guide enables self-service adoption
+
+### Next Steps
+
+Drone data support is complete and production-ready. To use:
+1. Review `docs/DRONE_DATA_SUPPORT.md` for setup guide
+2. Use `config/profiles/drone.yaml` as starting point
+3. Organize data following `area/time_period/*.las` structure
+4. Run workflow normally; detection automatic based on source_type
+
+---
+
 ## 2025-11-17 - DoD GPU Acceleration Completion & Production Validation
 
 ### Summary

@@ -72,22 +72,36 @@ class DataDiscovery:
     │       └── metadata/
     """
 
-    def __init__(self, base_dir: str, *, data_dir_name: str = 'data', metadata_dir_name: str = 'metadata', loader: Optional[PointCloudLoader] = None):
+    def __init__(self, base_dir: str, *, data_dir_name: str = 'data', metadata_dir_name: str = 'metadata', 
+                 source_type: str = 'hoydedata', loader: Optional[PointCloudLoader] = None):
         """
         Initialize data discovery.
 
         Args:
             base_dir: Base directory containing area subdirectories.
+            data_dir_name: Name of data subdirectory (ignored if source_type='drone')
+            metadata_dir_name: Name of metadata subdirectory (ignored if source_type='drone')
+            source_type: Data source type - 'hoydedata' or 'drone'
+                        - 'hoydedata': area/time_period/data/*.laz structure
+                        - 'drone': area/time_period/*.laz structure (no data/ subdir)
+            loader: Optional PointCloudLoader instance
         """
         self.base_dir = Path(base_dir)
-        self.data_dir_name = data_dir_name
-        self.metadata_dir_name = metadata_dir_name
+        self.data_dir_name = data_dir_name if source_type == 'hoydedata' else None
+        self.metadata_dir_name = metadata_dir_name if source_type == 'hoydedata' else None
+        self.source_type = source_type
         self.loader = loader if loader is not None else PointCloudLoader()
 
 
     def scan_areas(self) -> Dict[str, AreaInfo]:
         """
         Scan the base directory for area subdirectories and their datasets.
+        
+        Expected structure:
+        - base_dir/area/time_period/data/*.laz (hoydedata)
+        - base_dir/area/time_period/*.laz (drone)
+        
+        Note: base_dir should point to the parent of area folders, not an area folder itself.
 
         Returns:
             Dictionary mapping area names to AreaInfo objects.
@@ -98,17 +112,35 @@ class DataDiscovery:
             logger.warning(f"Base directory {self.base_dir} does not exist.")
             return areas
 
-        # FInd area directories
-        for area_path in self.base_dir.iterdir():
-            if area_path.is_dir() and not area_path.name.startswith('.'):
-                area_name = area_path.name
-                logger.info(f"Found area directory: {area_name}")
-                logger.info(f"Scanning area: {area_name}")
+        # Find area directories
+        subdirs = [d for d in self.base_dir.iterdir() if d.is_dir() and not d.name.startswith('.')]
+        
+        # Check if user might have pointed to an area folder instead of parent
+        if len(subdirs) > 0:
+            # Check if subdirs look like time periods (e.g., "2024", "2024-12-03", etc.)
+            time_period_like = sum(1 for d in subdirs if d.name.replace('-', '').isdigit())
+            if time_period_like == len(subdirs) and len(subdirs) > 0:
+                logger.warning("=" * 80)
+                logger.warning("CONFIGURATION WARNING:")
+                logger.warning(f"All subdirectories in {self.base_dir} look like time periods.")
+                logger.warning(f"Found: {[d.name for d in subdirs]}")
+                logger.warning("")
+                logger.warning("It appears you may have set base_dir to an area folder instead of its parent.")
+                logger.warning(f"Expected structure: base_dir/area/time_period/{'data/' if self.source_type == 'hoydedata' else ''}*.laz")
+                logger.warning(f"Current structure appears to be: base_dir/time_period/{'data/' if self.source_type == 'hoydedata' else ''}*.laz")
+                logger.warning("")
+                logger.warning("If this is intentional, the subdirectories will be treated as 'area' names.")
+                logger.warning("=" * 80)
+        
+        for area_path in subdirs:
+            area_name = area_path.name
+            logger.info(f"Found area directory: {area_name}")
+            logger.info(f"Scanning area: {area_name}")
 
-                datasets = self._scan_area_datasets(area_path)
-                if datasets:
-                    areas[area_name] = AreaInfo(area_name=area_name, datasets=datasets)
-                    logger.info(f"Found {len(datasets)} time periods for area: {area_name}: {list(datasets.keys())}")
+            datasets = self._scan_area_datasets(area_path)
+            if datasets:
+                areas[area_name] = AreaInfo(area_name=area_name, datasets=datasets)
+                logger.info(f"Found {len(datasets)} time periods for area: {area_name}: {list(datasets.keys())}")
 
         return areas
 
@@ -129,18 +161,26 @@ class DataDiscovery:
                 time_period = time_path.name
                 logger.info(f"Found time period directory: {time_period}")
 
-                data_dir = time_path / self.data_dir_name
-                if not data_dir.is_dir():
-                    continue
+                # For drone data, look directly in time_path
+                # For hoydedata, look in time_path/data_dir_name
+                if self.data_dir_name:
+                    data_dir = time_path / self.data_dir_name
+                    if not data_dir.is_dir():
+                        continue
+                else:
+                    # Drone source: files directly in time period directory
+                    data_dir = time_path
 
                 # Find LAZ files in this time period's data directory
                 laz_files = list(data_dir.glob('*.laz')) + list(data_dir.glob('*.las'))
 
                 if laz_files:
-                    # Check for metadata directory
-                    metadata_dir = time_path / self.metadata_dir_name
-                    if not metadata_dir.exists():
-                        metadata_dir = None
+                    # Check for metadata directory (only for hoydedata)
+                    metadata_dir = None
+                    if self.metadata_dir_name:
+                        metadata_dir_path = time_path / self.metadata_dir_name
+                        if metadata_dir_path.exists():
+                            metadata_dir = metadata_dir_path
 
                     # Create DatasetInfo object
                     dataset_info = DatasetInfo(

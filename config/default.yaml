@@ -5,7 +5,9 @@
 # enable the outofcore section here.
 
 paths:
-  # Root folder containing your datasets
+  # Root folder containing area subdirectories
+  # Expected structure: base_dir/area/time_period/[data/]*.laz
+  # NOTE: base_dir should point to the parent of area folders, NOT to an area folder itself
   base_dir: data/raw
 
 preprocessing:
@@ -15,7 +17,11 @@ preprocessing:
   classification_filter: [2]
 
 discovery:
-  # Subdirectory names used when discovering datasets under base_dir
+  # Data source type: hoydedata | drone
+  # - hoydedata: area/time_period/data/*.laz structure (hoydedata.no format)
+  # - drone: area/time_period/*.laz structure (no 'data' subdirectory)
+  source_type: hoydedata
+  # Subdirectory names (used only when source_type: hoydedata)
   data_dir_name: data
   metadata_dir_name: metadata
 

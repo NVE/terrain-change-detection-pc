@@ -73,10 +73,23 @@ The pipeline supports three processing modes:
 2. **Out-of-Core Tiled**: Constant memory usage for datasets of any size
 3. **Parallel**: Multi-core processing for medium-large datasets
 
+### Data Sources
+
+The pipeline supports multiple point cloud data sources:
+
+1. **Hoydedata.no**: `area/time_period/data/*.laz` structure
+2. **Drone Scanning**: `area/time_period/*.laz` structure (no `data/` subdirectory)
+
+Set `source_type: hoydedata` or `source_type: drone` in your configuration. See [Drone Data Support](docs/DRONE_DATA_SUPPORT.md) for details.
+2. **Drone Scanning**: Flat directory with date-location filenames (YYYY-MM-DD Location_ground.las)
+
+See [DRONE_DATA_SUPPORT.md](docs/DRONE_DATA_SUPPORT.md) for details on drone data integration.
+
 ### Pipeline Steps
 
 1. **Data Discovery and Preprocessing**
-   - Optimized for LiDAR from hoydedata.no
+   - Support for hoydedata.no and drone scanning data sources
+   - Automatic data source detection
    - Streaming data loading with spatial filtering
    - Ground point classification filtering
 
