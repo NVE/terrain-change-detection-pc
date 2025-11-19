@@ -29,7 +29,7 @@ class TestPointCloudLoader(unittest.TestCase):
 
     def test_load_valid_file(self):
         """Test loading a valid LAZ file."""
-        print(f"\n=== Testing load_valid_file ===")
+        print("\n=== Testing load_valid_file ===")
         print(f"Loading file: {self.test_laz_file}")
         
         result = self.loader.load(str(self.test_laz_file))
@@ -67,7 +67,7 @@ class TestPointCloudLoader(unittest.TestCase):
 
     def test_validate_file(self):
         """Test file validation."""
-        print(f"\n=== Testing validate_file ===")
+        print("\n=== Testing validate_file ===")
         
         # Valid file
         print(f"Validating valid file: {self.test_laz_file.name}")
@@ -76,14 +76,14 @@ class TestPointCloudLoader(unittest.TestCase):
         self.assertTrue(result_valid)
         
         # Non-existent file
-        print(f"Validating non-existent file: non_existent_file.laz")
+        print("Validating non-existent file: non_existent_file.laz")
         result_invalid = self.loader.validate_file("non_existent_file.laz")
         print(f"Validation result: {result_invalid}")
         self.assertFalse(result_invalid)
 
     def test_get_metadata(self):
         """Test metadata extraction."""
-        print(f"\n=== Testing get_metadata ===")
+        print("\n=== Testing get_metadata ===")
         metadata = self.loader.get_metadata(str(self.test_laz_file))
         
         # Print key metadata information
@@ -95,14 +95,14 @@ class TestPointCloudLoader(unittest.TestCase):
         
         # Print bounds
         bounds = metadata['bounds']
-        print(f"Bounds:")
+        print("Bounds:")
         print(f"  X: {bounds['min_x']:.2f} to {bounds['max_x']:.2f}")
         print(f"  Y: {bounds['min_y']:.2f} to {bounds['max_y']:.2f}")
         print(f"  Z: {bounds['min_z']:.2f} to {bounds['max_z']:.2f}")
         
         # Print classification stats
         classification_stats = metadata['classification_stats']
-        print(f"Classification statistics:")
+        print("Classification statistics:")
         print(f"  Unique classes: {classification_stats['unique_classes']}")
         print(f"  Class counts: {classification_stats['class_counts']}")
         print(f"  Ground points: {classification_stats['ground_points']}")

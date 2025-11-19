@@ -16,9 +16,26 @@ dependencies = [
     "pydantic>=2.7.0",
     "PyYAML>=6.0.1",
     "pytest>=7.4",
+    "rich>=13.7.0",
 ]
 
 [project.optional-dependencies]
 # Optional accelerators/backends
 # Note: Open3D does not provide cp313 wheels yet; restrict to <3.13
 open3d = ["open3d>=0.18.0; python_version < '3.13'"]
+
+# GPU acceleration (Phase 2)
+# Requires NVIDIA GPU with CUDA support (compute capability 6.0+)
+# NOTE: cuML is Linux-only. On Windows, we use CuPy + sklearn (CPU NN with GPU arrays)
+# Install with: uv sync --extra gpu
+# Using cupy-cuda13x to match installed CUDA Toolkit 13.0
+gpu = [
+    "cupy-cuda13x>=13.0.0", # NumPy-compatible GPU arrays (CUDA 13.x)
+    "numba>=0.59.0", # JIT compilation with CUDA support
+    "cuml-cu12>=24.0.0; sys_platform == 'linux'", # GPU ML (Linux only)
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.3",
+]

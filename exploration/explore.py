@@ -8,7 +8,7 @@ import sys
 start_time = time.time()
 
 # Load the LAZ file
-print(f"Loading file...")
+print("Loading file...")
 file_path = Path("33-1-466-136-13.laz")
 
 # Check file exists first
@@ -18,7 +18,7 @@ if not file_path.exists():
 
 # Use memory-mapped loading for better performance with large files
 las_file = laspy.read(file_path)
-print(f"File loaded successfully!")
+print("File loaded successfully!")
 print(f"Point format: {las_file.header.point_format}")
 print(f"Number of points: {len(las_file.points):,}")
 
@@ -51,7 +51,7 @@ if hasattr(las_file, 'classification'):
     # Use numpy's efficient unique function with return_counts for better performance
     unique_classes, counts = np.unique(classifications, return_counts=True)
 
-    print(f"Classification field found!")
+    print("Classification field found!")
     print(f"Unique classification codes: {unique_classes}")
     print(f"Total unique classes: {len(unique_classes)}")
 

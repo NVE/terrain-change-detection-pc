@@ -1,37 +1,131 @@
+# Configuration profile for small synthetic datasets (in-memory)
+#
+# Use this for local development, demos, and tests. Out-of-core is disabled,
+# and sampling sizes are smaller for faster iteration.
+
 paths:
+  # Root folder containing your datasets
   base_dir: data/synthetic
 
+preprocessing:
+  # If true, keep only LAS class 2 (ground) unless classification_filter is set
+  ground_only: true
+  # Optional list of LAS classification codes to include; overrides ground_only
+  classification_filter: [2]
+
+discovery:
+  # Subdirectory names used when discovering datasets under base_dir
+  data_dir_name: data
+  metadata_dir_name: metadata
+
 visualization:
+  # plotly | pyvista | pyvistaqt
   backend: plotly
+  # Max points to draw for interactive views
   sample_size: 20000
 
 alignment:
+  # ICP/registration parameters
   max_iterations: 80
   tolerance: 1.0e-6
   max_correspondence_distance: 1.0
+  # Number of points sampled per epoch for alignment (approx.)
   subsample_size: 30000
   coarse:
     enabled: true
-    method: pca
+    # Coarse alignment method: centroid | pca | phase | open3d_fpfh | none
+    method: phase
+    # Voxel size (m) for coarse features/downsampling
     voxel_size: 2.0
+    # Cell size (m) for phase correlation grid
     phase_grid_cell: 2.0
 
 detection:
   dod:
+    enabled: false
+    # DEM grid resolution in meters
     cell_size: 1.0
+    # Aggregation for per-cell elevation: mean | median | p95 | p5
     aggregator: mean
   c2c:
+    enabled: true
+    # Algorithm: euclidean | vertical_plane
+    mode: vertical_plane
+    # Lower point budget for quick C2C tests
     max_points: 8000
+    # Search radius (m). Required for streaming C2C; null may imply in-memory.
+    max_distance: null
+    # Local modeling parameters (for mode=vertical_plane)
+    radius: 2.0
+    k_neighbors: 20
+    min_neighbors: 6
   m3c2:
+    enabled: true
+    # Use automatic parameter tuning (true) or fixed parameters below (false)
+    use_autotune: true
+    # Fewer core points for fast runs
     core_points: 8000
     autotune:
+      source: header
       target_neighbors: 16
       max_depth_factor: 0.6
       min_radius: 1.0
       max_radius: 20.0
+    # Fixed parameters (used only when use_autotune: false). Leave as null to accept defaults.
+    fixed:
+      radius: null          # If set, projection_scale=cylinder_radius=radius
+      normal_scale: null    # Defaults to radius when null
+      depth_factor: null    # If null, falls back to autotune.max_depth_factor
     ep:
+      # Number of worker processes/threads; null = OS default
       workers: null
 
 logging:
   level: INFO
+  # Path to log file; null = stdout only
+  file: null
 
+outofcore:
+  # Master switch for streaming/tiling out-of-core workflows
+  enabled: false
+  # Inner tile size in meters (processing region per tile)
+  tile_size_m: 300.0
+  # Halo width in meters (buffer around each tile to avoid edge effects)
+  halo_m: 20.0
+  # Max points per streaming chunk (memory/performance trade-off)
+  chunk_points: 20000
+  # Use streaming mode in preprocessing when out-of-core is enabled
+  streaming_mode: true
+  # Save transformed LAZ files during alignment to disk
+  save_transformed_files: false
+  # Output directory for transformed files; null = auto-generate
+  output_dir: null
+  # Directory for memory-mapped arrays in mosaicking; null = in-memory
+  memmap_dir: null
+
+parallel:
+  # Master switch for CPU parallelization
+  # Disabled by default for small synthetic datasets (overhead not worth it)
+  enabled: true
+  # Number of worker processes; null = auto-detect (cpu_count - 1)
+  n_workers: null
+  # Soft memory limit (GB) to guide worker count; null = no limit
+  memory_limit_gb: null
+  
+
+gpu:
+  # Master switch for GPU acceleration (graceful CPU fallback if unavailable)
+  # WARNING: Cannot be used simultaneously with parallel.enabled due to CUDA fork limitations
+  enabled: false
+  # Max GPU memory to use in GB; null = auto-detect (80% of available)
+  gpu_memory_limit_gb: null
+  # Automatically fall back to CPU if GPU initialization fails
+  fallback_to_cpu: true
+  # Use GPU for C2C nearest neighbor searches (10-50x speedup potential)
+  use_for_c2c: true
+  # Use GPU for data preprocessing (transformations, filtering)
+  use_for_preprocessing: true
+  # Use GPU for ICP spatial alignment (experimental; not recommended - see GPU_SETUP_GUIDE.md)
+  use_for_alignment: false
+  # GPU batch size for operations; null = auto-calculate based on memory
+  batch_size: null

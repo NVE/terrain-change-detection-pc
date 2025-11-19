@@ -1,50 +1,141 @@
+# Default configuration (in-memory by default)
+#
+# Use this as a starting point. For large datasets that do not fit in memory,
+# switch to an out-of-core profile (e.g., config/profiles/large_scale.yaml) or
+# enable the outofcore section here.
+
 paths:
+  # Root folder containing your datasets
   base_dir: data/raw
 
 preprocessing:
+  # If true, keep only LAS class 2 (ground) unless classification_filter is set
   ground_only: true
+  # Optional list of LAS classification codes to include; overrides ground_only
   classification_filter: [2]
 
 discovery:
+  # Subdirectory names used when discovering datasets under base_dir
   data_dir_name: data
   metadata_dir_name: metadata
 
 alignment:
+  # ICP/registration parameters
   max_iterations: 100
   tolerance: 1.0e-6
   max_correspondence_distance: 1.0
+  # Number of points sampled per epoch for alignment (approx.)
   subsample_size: 50000
+  # Convergence criteria for motion-based stopping
+  convergence_translation_epsilon: 1.0e-4
+  convergence_rotation_epsilon_deg: 0.1
   coarse:
     enabled: true
-    method: phase   # centroid | pca | phase | open3d_fpfh | none
+    # Coarse alignment method: centroid | pca | phase | open3d_fpfh | none
+    method: phase
+    # Voxel size (m) for coarse features/downsampling
     voxel_size: 2.0
+    # Cell size (m) for phase correlation grid
     phase_grid_cell: 2.0
 
 detection:
   dod:
+    enabled: true
+    # DEM grid resolution in meters
     cell_size: 1.0
+    # Aggregation for per-cell elevation: mean | median | p95 | p5
     aggregator: mean
   c2c:
-    max_points: 10000
+    enabled: false
+    # Algorithm: euclidean | vertical_plane
+    mode: euclidean
+    # Upper bound used by some example flows for sampling/limits
+    max_points: 9000000
+    # Search radius (m). Required for streaming C2C; null may imply in-memory.
     max_distance: null
+    # Local modeling parameters (for mode=vertical_plane)
+    radius: null
+    k_neighbors: 20
+    min_neighbors: 6
   m3c2:
+    enabled: false
+    # Use automatic parameter tuning (true) or fixed parameters below (false)
+    use_autotune: true
+    # Number of core points at which to compute M3C2 distances
     core_points: 10000
     autotune:
+      # Source for density estimate: header | sample
+      source: header
+      # Target neighbor count for choosing scales
       target_neighbors: 16
+      # Half-depth along normal as a fraction of cylinder radius
       max_depth_factor: 0.6
+      # Min/max search radii (m) for scale selection
       min_radius: 1.0
       max_radius: 20.0
+    # Fixed parameters (used only when use_autotune: false). Leave as null to accept defaults.
+    fixed:
+      radius: null          # If set, projection_scale=cylinder_radius=radius
+      normal_scale: null    # Defaults to radius when null
+      depth_factor: null    # If null, falls back to autotune.max_depth_factor
     ep:
-      workers: null  # use OS-specific default if null
+      # Number of worker processes/threads; null = OS default
+      workers: null
 
 visualization:
-  backend: plotly  # plotly | pyvista | pyvistaqt
+  # plotly | pyvista | pyvistaqt
+  backend: pyvista
+  # Max points to draw for interactive views
   sample_size: 50000
 
 logging:
   level: INFO
+  # Path to log file; null = stdout only
   file: null
 
 performance:
+  # Set to an integer to pin NumPy threads; 'auto' lets NumPy decide
   numpy_threads: auto
 
+outofcore:
+  # Master switch for streaming/tiling out-of-core workflows
+  enabled: false
+  # Inner tile size in meters (processing region per tile)
+  tile_size_m: 500.0
+  # Halo width in meters (buffer around each tile to avoid edge effects)
+  halo_m: 20.0
+  # Max points per streaming chunk (memory/performance trade-off)
+  chunk_points: 1000000
+  # Use streaming mode in preprocessing when out-of-core is enabled
+  streaming_mode: true
+  # Save transformed LAZ files during alignment to disk
+  save_transformed_files: false
+  # Output directory for transformed files; null = auto-generate
+  output_dir: null
+  # Directory for memory-mapped arrays in mosaicking; null = in-memory
+  memmap_dir: null
+
+parallel:
+  # Master switch for CPU parallelization
+  enabled: false
+  # Number of worker processes; null = auto-detect (cpu_count - 1)
+  n_workers: null
+  # Soft memory limit (GB) to guide worker count; null = no limit
+  memory_limit_gb: null
+
+gpu:
+  # Master switch for GPU acceleration (graceful CPU fallback if unavailable)
+  # WARNING: Cannot be used simultaneously with parallel.enabled due to CUDA fork limitations
+  enabled: false
+  # Max GPU memory to use in GB; null = auto-detect (80% of available)
+  gpu_memory_limit_gb: null
+  # Automatically fall back to CPU if GPU initialization fails
+  fallback_to_cpu: true
+  # Use GPU for C2C nearest neighbor searches (10-50x speedup potential)
+  use_for_c2c: true
+  # Use GPU for data preprocessing (transformations, filtering)
+  use_for_preprocessing: true
+  # Use GPU for ICP spatial alignment (experimental; not recommended - see GPU_SETUP_GUIDE.md)
+  use_for_alignment: false
+  # GPU batch size for operations; null = auto-calculate based on memory
+  batch_size: null
