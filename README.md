@@ -1,79 +1,147 @@
 # Terrain Change Detection Based on Multi-temporal Point Clouds
 
-A Python project for detecting terrain changes using multi-temporal point cloud data. The workflow includes data discovery and preprocessing, spatial alignment using ICP (Iterative Closest Point), change detection (with a primary focus on M3C2), and interactive visualizations (Plotly default; PyVista supported). DoD and C2C are implemented for comparison/baseline purposes. PyVista can run non-blocking with the optional `pyvistaqt` dependency.
+A high-performance Python project for detecting terrain changes using multi-temporal point cloud data. The workflow includes data discovery and preprocessing, spatial alignment using ICP (Iterative Closest Point), change detection (with a primary focus on M3C2), and interactive visualizations (Plotly default; PyVista supported). DoD and C2C are implemented for comparison/baseline purposes.
+
+## Key Features
+
+- ✅ **Out-of-Core Processing**: Handle datasets of any size with streaming and spatial tiling
+- ✅ **GPU Acceleration**: Optional CUDA-powered nearest neighbor searches for C2C operations
+- ✅ **CPU Parallelization**: Multi-core processing for all change detection methods
+- ✅ **Flexible Configuration**: Multiple processing modes for different dataset sizes
+
+See [ROADMAP.md](docs/ROADMAP.md) and [PROJECT_STATUS.md](PROJECT_STATUS.md) for complete details.
 
 ## Project Structure
 
 ```
 terrain-change-detection-pc/
-├── config/                        # YAML configuration files
-│   ├── default.yaml               # Default configuration loaded if not overridden
+├── config/                          # YAML configuration files
+│   ├── default.yaml                 # Default in-memory configuration
 │   └── profiles/
-│       └── synthetic.yaml         # Example profile for synthetic data
-├── main.py                          # Main entry point
-├── pyproject.toml                   # UV project configuration and dependencies
-├── exploration/                     # Exploration scripts and sample data
-│   ├── explore.py                   # Data exploration script
-│   ├── fast_explore.py              # Quick exploration script
-│   └── 33-1-466-136-13.laz          # Sample LAZ point cloud file
+│       ├── synthetic.yaml           # Small synthetic datasets
+│       ├── large_scale.yaml         # Large-scale out-of-core processing
+│       └── large_synthetic.yaml     # Performance testing datasets
+├── docs/                            # Comprehensive documentation
+│   ├── ROADMAP.md                   # Development roadmap and achievements
+│   ├── PROJECT_STATUS.md            # Current status and merge details
+│   ├── CONFIGURATION_GUIDE.md       # Complete configuration reference
+│   ├── GPU_SETUP_GUIDE.md           # GPU acceleration setup
+│   ├── PARALLELIZATION_PLAN.md      # CPU parallelization details
+│   └── ...                          # Additional technical documentation
 ├── scripts/                         # Workflow execution scripts
+│   ├── run_workflow.py              # Main change detection workflow
 │   ├── explore_data.py              # Data exploration workflow
-│   └── run_workflow.py              # Main change detection workflow
+│   ├── generate_synthetic_laz.py    # Generate test datasets
+│   └── test_*.py                    # Performance benchmarking scripts
 ├── src/terrain_change_detection/    # Core library modules
-│   ├── preprocessing/               # Data loading and preprocessing
-│   │   ├── data_discovery.py        # Data discovery utilities
-│   │   └── loader.py                # Point cloud data loaders
+│   ├── acceleration/                # GPU and parallel processing
+│   │   ├── gpu_array_ops.py         # CuPy GPU operations
+│   │   ├── gpu_neighbors.py         # GPU nearest neighbor searches
+│   │   ├── parallel_executor.py     # CPU parallelization framework
+│   │   ├── tiling.py                # Spatial tiling for out-of-core
+│   │   └── ...
 │   ├── alignment/                   # Spatial alignment algorithms
-│   │   └── fine_registration.py     # ICP and fine registration
+│   │   ├── coarse_registration.py   # Coarse alignment methods
+│   │   ├── fine_registration.py     # ICP registration
+│   │   └── streaming_alignment.py   # Out-of-core alignment
 │   ├── detection/                   # Change detection algorithms
-│   │   └── change_detection.py      # Main change detection logic
+│   │   └── change_detection.py      # DoD, C2C, M3C2 implementations
+│   ├── preprocessing/               # Data loading and filtering
+│   │   ├── data_discovery.py        # Dataset discovery utilities
+│   │   └── loader.py                # Point cloud loaders
 │   ├── visualization/               # Visualization tools
 │   │   └── point_cloud.py           # Point cloud visualization
-│   └── utils/                       # Utility modules
+│   └── utils/                       # Configuration, logging, I/O
 │       ├── config.py                # Configuration management
 │       ├── io.py                    # Input/output utilities
-│       └── logging.py               # Logging setup
-└── tests/                           # Test suite
-    ├── test_data_discovery.py       # Tests for data discovery script
-    ├── test_loader.py               # Tests for point cloud data loader
-    └── sample_data/                 # Test data
+│       ├── logging.py               # Logging setup
+│       └── point_cloud_filters.py   # Point cloud filtering utilities
+└── tests/                           # Comprehensive test suite (144 tests)
+    ├── test_gpu_*.py                # GPU acceleration tests
+    ├── test_parallel_executor.py    # Parallelization tests
+    ├── test_*_integration.py        # Integration tests
+    └── ...
 ```
 
-## Features and workflow overview
+## Features and Workflow Overview
 
-The pipeline performs:
+### Processing Modes
 
-1. Data discovery and preprocessing (optimized for LiDAR from hoydedata.no).
-2. Spatial alignment via optional Coarse Registration followed by ICP. Coarse methods include centroid, PCA, 2D phase correlation, and optional Open3D FPFH/RANSAC when available.
-3. Change detection methods (M3C2 is the main algorithm):
-    - M3C2 (Original) via py4dgeo.
-    - M3C2-EP (Error Propagation) via py4dgeo with Level of Detection (LoD) significance flags.
-    - For comparison purposes, DoD (DEM of Difference) with multiple aggregators and C2C (Cloud-to-Cloud) nearest-neighbor distances are implemented.
-4. Visualizations shown immediately after each computation:
-    - DoD heatmap.
-    - Distance histograms (C2C and M3C2/M3C2-EP).
-    - 3D core-points colored by M3C2 distances.
+The pipeline supports three processing modes:
 
-Notes:
-- M3C2 parameters (projection scale, cylinder radius, max depth) may need tuning per dataset.
-- M3C2-EP uses default scan-position noise parameters if not provided; supplying real scanner metadata improves uncertainty estimates.
-- Coarse registration can speed up and stabilize ICP on misaligned pairs. Configure under `alignment.coarse` in YAML.
+1. **In-Memory** (default): Fast processing for small-medium datasets (< 10M points)
+2. **Out-of-Core Tiled**: Constant memory usage for datasets of any size
+3. **Parallel**: Multi-core processing for medium-large datasets
+
+### Pipeline Steps
+
+1. **Data Discovery and Preprocessing**
+   - Optimized for LiDAR from hoydedata.no
+   - Streaming data loading with spatial filtering
+   - Ground point classification filtering
+
+2. **Spatial Alignment**
+   - Optional Coarse Registration: centroid, PCA, 2D phase correlation, FPFH/RANSAC
+   - ICP fine registration with multiple convergence criteria
+   - Streaming alignment for large datasets
+
+3. **Change Detection Methods**
+   - **M3C2** (primary): Multi-scale Model-to-Model Cloud Comparison via py4dgeo
+   - **M3C2-EP**: Error Propagation variant with Level of Detection (LoD)
+   - **DoD**: DEM of Difference with multiple aggregators (mean, median, p95, p5)
+   - **C2C**: Cloud-to-Cloud nearest neighbor distances (euclidean, vertical plane)
+
+4. **Visualizations**
+   - DoD heatmaps
+   - Distance histograms (C2C and M3C2/M3C2-EP)
+   - 3D point clouds colored by change magnitude
+
+### Performance Features
+
+- **GPU Acceleration**: Optional CUDA-powered C2C nearest neighbor searches
+- **CPU Parallelization**: Multi-core processing for M3C2 and DoD (medium-large datasets)
+- **Out-of-Core Processing**: Handle large datasets with constant memory usage
+- **Spatial Tiling**: Configurable tile size with halo for edge handling
+
+**Notes**:
+- M3C2 parameters can be auto-tuned from point cloud density or manually configured
+- GPU and parallel processing cannot run simultaneously (CUDA fork limitation)
+- See [CONFIGURATION_GUIDE.md](docs/CONFIGURATION_GUIDE.md) for detailed settings
 
 ## Getting Started
 
 This project requires `uv` to be installed on your system for dependency management and script execution.
 
 ### Prerequisites
+
+**Required**:
 - Python 3.13+
-- `uv` package manager
+- `uv` package manager (https://docs.astral.sh/uv/)
+
+**Optional (for GPU acceleration)**:
+- NVIDIA GPU with CUDA support (Compute Capability 6.0+)
+- CUDA Toolkit 12.x
+- 4+ GB GPU memory (8+ GB recommended)
 
 ### Installation
 
-Clone the repository:
+1. Clone the repository:
 ```bash
 git clone https://github.com/yaredwb/terrain-change-detection-pc.git
 cd terrain-change-detection-pc
 ```
+
+2. Install core dependencies (automatic on first `uv run`):
+```bash
+uv sync
+```
+
+3. **Optional**: Install GPU dependencies for acceleration:
+```bash
+uv sync --extra gpu
+```
+
+See [GPU_SETUP_GUIDE.md](docs/GPU_SETUP_GUIDE.md) for detailed GPU setup instructions.
 
 ## Running scripts
 
@@ -111,78 +179,89 @@ uv run main.py
 
 ### Configuration
 
-The project reads a YAML configuration (typed via pydantic) with sensible defaults.
+The project uses YAML configuration files with sensible defaults and multiple profiles:
 
-- Default location: `config/default.yaml`
-- Example profile: `config/profiles/synthetic.yaml`
+**Configuration Files**:
+- `config/default.yaml` - In-memory processing (default)
+- `config/profiles/synthetic.yaml` - Small synthetic datasets
+- `config/profiles/large_scale.yaml` - Large-scale out-of-core processing with GPU
+- `config/profiles/large_synthetic.yaml` - Performance testing
 
-Key sections and keys:
-- `paths.base_dir`: dataset root folder (default: `data/raw`).
-- `preprocessing.ground_only`: filter to ground classes (default true).
-- `preprocessing.classification_filter`: list of LAS class codes to keep (default `[2]`).
-- `discovery.data_dir_name` / `discovery.metadata_dir_name`: subfolder names under each time period (defaults `data`/`metadata`).
-- `alignment.{max_iterations,tolerance,max_correspondence_distance,subsample_size}`: ICP + sampling.
-- `detection.dod.{cell_size,aggregator}`: DoD grid settings.
-- `detection.c2c.{max_points,max_distance}`: C2C sampling and optional distance cap.
-- `detection.m3c2.core_points`: core points count; `detection.m3c2.autotune.*`: autotune knobs; `detection.m3c2.ep.workers`: worker processes (null uses OS default: 1 on Windows, 4 elsewhere).
-- `visualization.{backend,sample_size}`: plotting backend and downsampling.
-- `logging.{level,file}`: logging level and optional file output.
-- `performance.numpy_threads`: integer thread count or `auto`.
+**Key Configuration Sections**:
 
-Example run using the synthetic profile:
+- **Paths & Preprocessing**: Dataset location, ground filtering, classification codes
+- **Alignment**: ICP parameters, coarse registration method, convergence criteria
+- **Detection**: Enable/configure DoD, C2C, and M3C2 methods
+- **Out-of-Core**: Tile size, halo width, streaming mode (for large datasets)
+- **Parallel**: CPU parallelization, worker count, memory limits
+- **GPU**: GPU acceleration, memory limits, which operations to accelerate
+- **Visualization**: Backend (plotly/pyvista), sample size for display
+- **Logging**: Level, file output
 
-```powershell
+**Important**: GPU and parallel processing cannot run simultaneously due to CUDA fork limitations. See configuration warnings in the files.
+
+For complete configuration reference, see [CONFIGURATION_GUIDE.md](docs/CONFIGURATION_GUIDE.md).
+
+**Example Configurations**:
+
+```bash
+# Small datasets - in-memory processing
 uv run scripts/run_workflow.py --config config/profiles/synthetic.yaml
+
+# Large datasets - out-of-core with GPU acceleration
+uv run scripts/run_workflow.py --config config/profiles/large_scale.yaml
+
+# Medium datasets - CPU parallelization
+uv run scripts/run_workflow.py --config config/default.yaml  # with parallel.enabled: true
 ```
 
-CLI overrides take precedence for values they set (e.g., `--base-dir`).
-
-Example custom YAML snippet:
+**Quick Configuration Example**:
 
 ```yaml
-paths:
-  base_dir: data/raw
-preprocessing:
-  ground_only: true
-  classification_filter: [2]
-discovery:
-  data_dir_name: data
-  metadata_dir_name: metadata
-alignment:
-  max_iterations: 120
-  tolerance: 1.0e-6
-  max_correspondence_distance: 0.8
-  subsample_size: 40000
-detection:
-  dod: { cell_size: 1.0, aggregator: median }
-  c2c: { max_points: 15000, max_distance: null }
-  m3c2:
-    core_points: 12000
-    autotune: { target_neighbors: 16, max_depth_factor: 0.6, min_radius: 1.0, max_radius: 20.0 }
-    ep: { workers: null }
-visualization:
-  backend: plotly
-  sample_size: 50000
-logging:
-  level: INFO
-  file: null
-performance:
-  numpy_threads: auto
+# For medium datasets (10-50M points) with CPU parallelization
+outofcore:
+  enabled: true
+  tile_size_m: 500.0
+  
+parallel:
+  enabled: true
+  n_workers: null  # auto-detect
+
+gpu:
+  enabled: false  # Cannot use with parallel
+
+# For large datasets (50M+ points) with GPU
+outofcore:
+  enabled: true
+  
+parallel:
+  enabled: false  # Cannot use with GPU
+  
+gpu:
+  enabled: true
+  use_for_c2c: true
 ```
 
-### Synthetic datasets
+### Synthetic Datasets
 
-You can generate a small, controlled synthetic dataset to validate alignment and change detection. It creates two LAZ files with known deposition/erosion and intentional misalignment.
+Generate synthetic datasets for testing and validation:
 
-Output location:
-- `data/synthetic/synthetic_area/2015/data/synthetic_tile_01.laz`
-- `data/synthetic/synthetic_area/2020/data/synthetic_tile_01.laz`
-
-Generate them:
-
-```powershell
+**Small Synthetic Dataset** (~100K points):
+```bash
 uv run scripts/generate_synthetic_laz.py
 ```
+Output: `data/synthetic/synthetic_area/{2015,2020}/data/synthetic_tile_01.laz`
+
+**Large Synthetic Dataset** (configurable size for performance testing):
+```bash
+uv run scripts/generate_large_synthetic_laz.py
+```
+Output: `data/large_synthetic/large_area/` with multiple time periods
+
+These datasets include:
+- Known deformation patterns (deposition/erosion)
+- Intentional misalignment for testing coarse registration
+- Ground truth for validation
 
 ### Running the workflow on specific datasets
 
@@ -212,56 +291,182 @@ Windows note (M3C2-EP):
 
 ## Dependencies
 
-Core libraries (managed via `uv` in `pyproject.toml`):
-- `laspy` — LAZ/LAS I/O
+### Core Dependencies (Automatic)
+
+Installed automatically via `uv sync`:
+- `laspy` ~= 2.5.4 — LAZ/LAS I/O
+- `lazrs` — Fast LAZ compression
 - `py4dgeo` — M3C2 algorithms
-- `plotly` — interactive plotting (default backend)
-- `pyvista` — optional 3D plotting backend
-- `scikit-learn` — KD-tree for C2C and utilities
+- `plotly` — Interactive plotting (default backend)
+- `pyvista` — Optional 3D plotting backend
+- `scikit-learn` — KD-tree and ML utilities
+- `numpy`, `scipy`, `matplotlib` — Scientific computing
+- `pydantic`, `PyYAML` — Configuration management
 
-Configuration:
-- `pydantic` — typed validation of YAML config
-- `PyYAML` — YAML parsing
+### Optional: GPU Acceleration
 
-Optional (recommended for non-blocking PyVista):
-- `pyvistaqt` and `PySide6` — enables PyVista BackgroundPlotter (non-blocking windows)
+Install with `uv sync --extra gpu`:
+- `cupy-cuda12x` >= 13.0.0 — GPU arrays (CUDA 12.x)
+- `numba` >= 0.59.0 — JIT compilation with CUDA support
+- `cuml` >= 24.0.0 — GPU ML algorithms (Linux/WSL2 only)
 
-`uv` installs the core packages automatically when running scripts. Use `uv add` for optional extras (see above).
+**Note**: GPU dependencies require NVIDIA GPU with CUDA 12.x toolkit. See [GPU_SETUP_GUIDE.md](docs/GPU_SETUP_GUIDE.md).
 
-## GPU Acceleration
+### Optional: Enhanced Visualization
 
-The C2C pipeline can leverage GPU acceleration for nearest-neighbor searches.
+For non-blocking PyVista windows:
+```bash
+uv add pyvistaqt PySide6
+```
 
-- Backend selection is automatic:
-  - Linux/WSL2 with cuML available: native GPU backend (preferred).
-  - Otherwise, CPU fallback is used transparently (results are the same; speedups are Linux/WSL2-only).
-- Numerical stability: coordinates are centered and cast to float32 before GPU queries to avoid overflow on large UTM scales.
+## GPU Acceleration (Optional)
 
-Metadata on C2C results:
-- `metadata["gpu_used"]`: Whether the GPU-accelerated neighbor wrapper was used successfully.
-- `metadata["gpu_backend"]`: Which backend was selected (`"cuml"`, `"sklearn-gpu"`, or `"none"`).
-  - `"cuml"` corresponds to true GPU compute (Linux/WSL2 with RAPIDS/cuML).
-  - `"sklearn-gpu"` currently runs the search on CPU via sklearn but through the GPU-aware wrapper.
+### Overview
 
-Environment variables to tune behavior:
+GPU acceleration is available for certain compute-intensive operations:
 
-- TCD_MIN_POINTS_FOR_GPU: If set to a positive integer, the GPU path is disabled when either source or target has fewer points than this threshold (helps avoid GPU overhead on tiny inputs). Default: 0 (disabled).
-- TCD_STORE_CPU_COPY_MAX_SAMPLES: When using cuML and performing radius-based neighborhoods, a small CPU copy of the training set can be kept to serve radius queries via a CPU fallback. Default: 300000. Set to 0 to disable.
+| Operation | GPU Support | Notes |
+|-----------|-------------|-------|
+| C2C Nearest Neighbors | ✅ Supported | Recommended for large point clouds (1M+ points) |
+| DoD Grid Accumulation | ⚠️ Limited benefit | Memory-bound operation |
+| ICP Alignment | ❌ Not recommended | Stability issues with cuML |
 
-Example (bash):
+### Setup
 
-  export TCD_MIN_POINTS_FOR_GPU=200000
-  export TCD_STORE_CPU_COPY_MAX_SAMPLES=500000
+1. **Requirements**:
+   - NVIDIA GPU (Compute Capability 6.0+, Pascal or newer)
+   - CUDA Toolkit 12.x
+   - 4+ GB GPU memory (8+ GB recommended)
 
-Notes:
-- Radius neighborhoods on cuML fall back to a CPU KDTree automatically when a CPU training copy is available.
-- For very small datasets, GPU can be slower due to launch/transfer overhead; use the threshold above to favor CPU.
+2. **Install GPU dependencies**:
+   ```bash
+   uv sync --extra gpu
+   ```
+
+3. **Activate GPU libraries** (required before running):
+   ```bash
+   source activate_gpu.sh
+   ```
+
+4. **Enable in configuration**:
+   ```yaml
+   gpu:
+     enabled: true
+     use_for_c2c: true          # Recommended for large datasets
+     use_for_preprocessing: true # Optional (marginal benefit)
+     use_for_alignment: false   # Not recommended (unstable)
+   ```
+
+### Important Limitations
+
+⚠️ **GPU and parallel processing cannot run simultaneously** due to CUDA fork limitations. Choose one:
+- **Medium datasets (10-50M points)**: Use `parallel.enabled: true`, GPU disabled
+- **Large datasets (50M+ points)**: Use `gpu.enabled: true`, parallel disabled
+
+### Automatic Fallback
+
+The system automatically falls back to CPU if:
+- GPU libraries not installed
+- GPU memory insufficient
+- CUDA initialization fails
+- GPU operations produce invalid results
+
+Results are numerically identical (CPU vs GPU) with tolerance < 1e-5.
+
+For complete setup instructions, see [GPU_SETUP_GUIDE.md](docs/GPU_SETUP_GUIDE.md).
 
 ## CLI Options
 
 - `--config <path>`: Path to YAML configuration (defaults to `config/default.yaml`).
 - `--base-dir <path>`: Overrides `paths.base_dir` in config.
 
-## Performance
+## Performance Optimization
 
-The config key `performance.numpy_threads` sets `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, and `NUMEXPR_NUM_THREADS`. Use `auto` (default) or an explicit integer. Some BLAS backends read these at import time; launching via `uv run` ensures consistent environment handling.
+### Scaling Recommendations
+
+**Small Datasets (< 10M points)**:
+- Use default in-memory processing
+- No parallelization needed (overhead dominates)
+- GPU optional (launch overhead for small data)
+
+**Medium Datasets (10-50M points)**:
+- Enable out-of-core: `outofcore.enabled: true`
+- Enable CPU parallelization: `parallel.enabled: true`
+- Performance improvement for parallel operations
+
+**Large Datasets (50M+ points)**:
+- Enable out-of-core: `outofcore.enabled: true`
+- Enable GPU acceleration: `gpu.enabled: true`
+- Significant speedup for C2C operations
+- Constant memory usage regardless of size
+
+### Thread Control
+
+Configure NumPy/BLAS thread count:
+```yaml
+performance:
+  numpy_threads: auto  # or explicit integer (e.g., 4)
+```
+
+Sets `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, and `NUMEXPR_NUM_THREADS`. Launching via `uv run` ensures consistent environment.
+
+### Benchmarking
+
+Performance testing scripts available:
+```bash
+# C2C GPU performance
+uv run scripts/test_gpu_c2c_performance.py
+
+# DoD CPU vs GPU comparison
+uv run scripts/compare_cpu_gpu_dod.py
+
+# ICP alignment performance
+uv run scripts/test_icp_alignment_performance.py
+```
+
+See [GPU_PERFORMANCE_COMPARISON.md](docs/GPU_PERFORMANCE_COMPARISON.md) for detailed benchmarks.
+
+## Documentation
+
+Comprehensive documentation available in `docs/`:
+
+- **[PROJECT_STATUS.md](PROJECT_STATUS.md)** - Current status, v2.0.0 summary, merge details
+- **[ROADMAP.md](docs/ROADMAP.md)** - Development roadmap and achievements
+- **[CONFIGURATION_GUIDE.md](docs/CONFIGURATION_GUIDE.md)** - Complete configuration reference
+- **[GPU_SETUP_GUIDE.md](docs/GPU_SETUP_GUIDE.md)** - GPU acceleration setup and troubleshooting
+- **[PARALLELIZATION_PLAN.md](docs/PARALLELIZATION_PLAN.md)** - CPU parallelization architecture
+- **[GPU_PERFORMANCE_COMPARISON.md](docs/GPU_PERFORMANCE_COMPARISON.md)** - Performance benchmarks
+- **[ALGORITHMS.md](docs/ALGORITHMS.md)** - Algorithm explanations (DoD, C2C, M3C2)
+- **[CHANGELOG.md](docs/CHANGELOG.md)** - Detailed change history
+
+## Testing
+
+Run the comprehensive test suite (144 tests):
+
+```bash
+# All tests (CPU only, GPU tests will be skipped)
+uv run pytest
+
+# With GPU libraries activated
+source activate_gpu.sh
+uv run pytest  # All 144 tests should pass
+
+# Specific test categories
+uv run pytest tests/test_gpu_*.py -v          # GPU tests
+uv run pytest tests/test_parallel_*.py -v     # Parallelization tests
+uv run pytest tests/test_*_integration.py -v  # Integration tests
+```
+
+## Contributing
+
+This project is currently in active development. For questions or issues, please open a GitHub issue.
+
+## License
+
+[Add license information]
+
+## Acknowledgments
+
+- py4dgeo for M3C2 implementation
+- RAPIDS/cuML for GPU acceleration
+- hoydedata.no for LiDAR data standards
