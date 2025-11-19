@@ -204,6 +204,7 @@ def main():
     )
     data_discovery = DataDiscovery(
         base_dir,
+        source_type=cfg.discovery.source_type,
         data_dir_name=cfg.discovery.data_dir_name,
         metadata_dir_name=cfg.discovery.metadata_dir_name,
         loader=loader,
@@ -211,7 +212,14 @@ def main():
     areas = data_discovery.scan_areas()
 
     if not areas:
-        logger.error("No area/area directory found in the base directory.")
+        logger.error("No area directories found in the base directory.")
+        logger.error(f"Data source type: {cfg.discovery.source_type}")
+        if cfg.discovery.source_type == 'hoydedata':
+            logger.error(f"Expected structure for hoydedata: {base_dir}/<area>/<time_period>/{cfg.discovery.data_dir_name}/*.laz")
+            logger.error("If your data doesn't have a 'data' subdirectory, set source_type: drone in config")
+        else:
+            logger.error(f"Expected structure for drone: {base_dir}/<area>/<time_period>/*.laz")
+            logger.error("If your data has a 'data' subdirectory, set source_type: hoydedata in config")
         return
 
     # Find the first area with at least two time periods
@@ -222,7 +230,13 @@ def main():
             break
 
     if not selected_area:
+        # Provide detailed feedback about what was found
         logger.error("Could not find an area with at least two time periods for change detection.")
+        logger.error(f"Found {len(areas)} area(s):")
+        for area_name, area_info in areas.items():
+            logger.error(f"  - {area_name}: {len(area_info.time_periods)} time period(s) -> {area_info.time_periods}")
+        logger.error("Change detection requires at least 2 time periods per area.")
+        logger.error("Please organize your data with multiple time periods per area or add more data.")
         return
 
     # Select the first two time periods

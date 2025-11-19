@@ -6,6 +6,7 @@ It includes methods for:
 - Data loading and validation
 - Data quality assessment
 - Data exploration and discovery
+- Support for multiple data sources (hoydedata.no and drone scanning)
 """
 
 from .loader import PointCloudLoader

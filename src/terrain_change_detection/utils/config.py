@@ -28,6 +28,10 @@ class PreprocessingConfig(BaseModel):
 
 
 class DiscoveryConfig(BaseModel):
+    source_type: Literal["hoydedata", "drone"] = Field(
+        default="hoydedata",
+        description="Data source type: 'hoydedata' requires data/ subdirectory, 'drone' does not"
+    )
     data_dir_name: str = Field(default="data")
     metadata_dir_name: str = Field(default="metadata")
 
