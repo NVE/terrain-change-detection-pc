@@ -20,7 +20,7 @@ discovery:
 
 visualization:
   # plotly | pyvista | pyvistaqt
-  backend: plotly
+  backend: pyvista
   # Max points to draw for interactive views
   sample_size: 20000
 
@@ -34,7 +34,7 @@ alignment:
   coarse:
     enabled: true
     # Coarse alignment method: centroid | pca | phase | open3d_fpfh | none
-    method: phase
+    method: centroid
     # Voxel size (m) for coarse features/downsampling
     voxel_size: 2.0
     # Cell size (m) for phase correlation grid
@@ -42,7 +42,7 @@ alignment:
 
 detection:
   dod:
-    enabled: false
+    enabled: true
     # DEM grid resolution in meters
     cell_size: 1.0
     # Aggregation for per-cell elevation: mean | median | p95 | p5
@@ -87,7 +87,7 @@ logging:
 
 outofcore:
   # Master switch for streaming/tiling out-of-core workflows
-  enabled: false
+  enabled: true
   # Inner tile size in meters (processing region per tile)
   tile_size_m: 300.0
   # Halo width in meters (buffer around each tile to avoid edge effects)

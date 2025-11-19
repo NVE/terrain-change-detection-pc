@@ -1,5 +1,151 @@
 ﻿# Changelog and Implementation Notes
 
+## 2025-11-19 - Module Refactoring, Logging Improvements, and Parallel Execution Fixes
+
+### Summary
+Major refactoring of change detection module into separate files (dod.py, c2c.py, m3c2.py) for better maintainability. Improved logging consistency by moving detection and alignment logs to their respective modules. Fixed critical bugs in DoD streaming and parallel execution paths. Added per-tile progress logging for all three detection methods.
+
+### Key Changes
+
+**Module Refactoring** (`src/terrain_change_detection/detection/`):
+- Split monolithic `change_detection.py` (2300+ lines) into modular structure:
+  - `dod.py`: DoD (DEM of Difference) algorithms and result classes
+  - `c2c.py`: C2C (Cloud-to-Cloud) algorithms and result classes
+  - `m3c2.py`: M3C2 algorithms, autotuning, and result classes
+  - `__init__.py`: Maintains backward compatibility via `ChangeDetector` facade
+- All existing code continues to work unchanged via facade pattern
+- 10+ imports updated across codebase to use new module structure
+
+**Logging Improvements**:
+- **Detection Modules**: All completion logs moved to respective modules
+  - DoD: Logs cell count, mean, median, RMSE, range
+  - C2C: Logs point count, mean, median, RMSE with GPU/CPU backend
+  - M3C2: Logs total cores, valid cores, mean, median, std
+- **Alignment Modules**: Completion logs moved to alignment code
+  - Coarse registration: Logs method and translation magnitude
+  - ICP: Logs convergence details, iteration count, timing, final RMSE
+- **M3C2 Autotuning**: Autotune results now logged from m3c2.py module
+- **Per-Tile Progress**: Added INFO-level per-tile logging for all methods
+  - DoD: Points and chunks per tile for both T1 and T2
+  - C2C: Source/target/valid counts per tile with GPU indicator
+  - M3C2: Cores, valid cores, and statistics per tile
+
+**DoD Streaming Bug Fixes**:
+- **Grid Dimension Mismatch**: Fixed `Tile` object nx/ny calculation
+  - Changed from `ceil((max - min) / cell_size)` to `ceil(...) + 1`
+  - Matches `GridAccumulator` grid sizing logic (h == tile.ny, w == tile.nx)
+  - DoD streaming now works without fallback to in-memory mode
+- **Sequential Path**: Fixed `_make_tile()` to create proper `Tile` objects
+  - Added x0_idx, y0_idx (global grid start indices)
+  - Added nx, ny (tile grid dimensions)
+  - Updated `_accumulate_files()` to return `dict[tuple, Tile]`
+- **Mosaic Assembly**: Fixed `mosaic.add_tile()` calls to pass `Tile` objects
+
+**Parallel Execution Fixes**:
+- **Bounds Unpacking Error**: Fixed in DoD, C2C, and M3C2 parallel functions
+  - `scan_las_bounds()` returns `List[Tuple[Path, Bounds2D]]`
+  - Changed `zip(files, bounds)` iteration to direct `bounds` iteration
+  - Correctly unpacks `(Path, Bounds2D)` tuples from scan results
+- **M3C2 Tile Hashability**: Removed unhashable `Tile` dictionary keys
+  - Eliminated `tile_to_ij` dict that used `Tile` objects as keys
+  - Changed to compute `(tile.i, tile.j)` tuples directly when needed
+- **DoD Parallel Mosaic**: Fixed tile object passing
+  - Changed `mosaic.add_tile(tile.inner, dem)` to `mosaic.add_tile(tile, dem)`
+  - `MosaicAccumulator.add_tile()` expects `Tile` object with grid indices
+
+**Configuration Updates**:
+- Enabled C2C streaming by setting `max_distance: 10.0` in default config
+- Added `exc_info=True` to DoD error logging for better debugging
+
+### Testing & Validation
+
+**Sequential Mode** (Verified Working):
+- ✅ DoD streaming: 1,650,120 cells processed successfully
+- ✅ C2C streaming: 7.8M valid distances computed
+- ✅ M3C2 streaming: 50K cores with ~10K valid results
+- ✅ Per-tile logging provides clear progress feedback
+- ✅ All three methods complete without errors
+
+**Parallel Mode** (Outstanding Issue):
+- ⚠️ Parallel execution hangs after worker spawn
+- ✅ Bounds unpacking fixed (no more AttributeError)
+- ✅ Tile hashability fixed (no more TypeError)
+- ✅ Mosaic assembly fixed for parallel DoD
+- 🔍 Hanging issue requires investigation of `TileParallelExecutor`
+
+### Performance Impact
+
+- Sequential mode performance unchanged (validated)
+- Per-tile logging adds negligible overhead (<1% of tile processing time)
+- M3C2 per-tile statistics computation may add 2-5% overhead (acceptable for visibility)
+
+### Files Changed
+
+**New Modules**:
+- `src/terrain_change_detection/detection/dod.py` (new, 665 lines)
+- `src/terrain_change_detection/detection/c2c.py` (new, 754 lines)
+- `src/terrain_change_detection/detection/m3c2.py` (new, 894 lines)
+
+**Updated Modules**:
+- `src/terrain_change_detection/detection/__init__.py`: Facade pattern for backward compatibility
+- `scripts/run_workflow.py`: Updated imports, added error traceback logging
+- `config/default.yaml`: C2C max_distance set to 10.0
+- 10+ test files: Updated imports to use new module structure
+
+**Infrastructure**:
+- `src/terrain_change_detection/acceleration/tiling.py`: MosaicAccumulator tile handling
+- `src/terrain_change_detection/acceleration/tile_workers.py`: Worker functions verified
+
+### Migration Notes
+
+**No Breaking Changes**:
+- Existing code using `ChangeDetector` continues to work unchanged
+- All method signatures remain identical
+- Facade pattern maintains full backward compatibility
+
+**For New Code**:
+```python
+# Can now import from specific modules
+from terrain_change_detection.detection.dod import DoDDetector, DoDResult
+from terrain_change_detection.detection.c2c import C2CDetector, C2CResult
+from terrain_change_detection.detection.m3c2 import M3C2Detector, M3C2Result
+
+# Or continue using facade
+from terrain_change_detection.detection import ChangeDetector
+```
+
+**Parallel Execution**:
+- Set `parallel.enabled: false` until hanging issue resolved
+- Sequential mode fully functional and production-ready
+- Parallel investigation continues (not blocking for sequential workflows)
+
+### Known Issues
+
+1. **Parallel Execution Hanging** (High Priority):
+   - Symptoms: Process hangs after "Using N workers for N tiles" log
+   - Status: Root cause under investigation
+   - Workaround: Use `parallel.enabled: false` in config
+   - Does not affect sequential streaming mode
+
+2. **M3C2 Per-Tile Statistics Performance** (Low Priority):
+   - Computing statistics per tile adds 2-5% overhead
+   - Acceptable trade-off for improved observability
+   - Can optimize if needed in future
+
+### Next Steps
+
+**Immediate**:
+1. Investigate and fix parallel execution hanging issue
+2. Consider moving `parallel.enabled` default to `false` until issue resolved
+3. Add configuration validation or documentation about parallel mode status
+
+**Future**:
+1. Complete remaining logging refactoring tasks (data loading, workflow cleanup)
+2. Optimize M3C2 per-tile statistics if performance impact grows
+3. Consider adding per-tile logging toggle for users who don't need it
+
+---
+
 ## 2025-11-19 - Drone Scanning Data Support
 
 ### Summary

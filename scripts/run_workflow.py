@@ -379,10 +379,6 @@ def main():
         initial_transform = None
         try:
             if getattr(cfg.alignment, "coarse", None) and cfg.alignment.coarse.enabled:
-                logger.info(
-                    "Coarse registration enabled (method=%s)...",
-                    cfg.alignment.coarse.method,
-                )
                 coarse = CoarseRegistration(
                     method=cfg.alignment.coarse.method,
                     voxel_size=cfg.alignment.coarse.voxel_size,
@@ -401,11 +397,9 @@ def main():
                         convergence_rotation_epsilon_deg=cfg.alignment.convergence_rotation_epsilon_deg,
                     )
                     pre_err = tmp_icp.compute_registration_error(points2_init, points1)
-                    logger.info("Pre-ICP RMSE after coarse registration: %.6f", pre_err)
+                    logger.info("Alignment validation (pre-ICP): RMSE=%.6f m", pre_err)
                 except Exception:
                     pass
-            else:
-                logger.info("Coarse registration disabled.")
         except Exception as e:
             logger.warning(f"Coarse registration failed: {e}")
 
@@ -413,11 +407,7 @@ def main():
         transform_matrix = initial_transform if initial_transform is not None else np.eye(4)
 
         if getattr(cfg.alignment, "multiscale", None) and cfg.alignment.multiscale.enabled:
-            logger.info(
-                "Multi-scale ICP enabled: coarse_subsample_size=%d, coarse_max_iterations=%d",
-                cfg.alignment.multiscale.coarse_subsample_size,
-                cfg.alignment.multiscale.coarse_max_iterations,
-            )
+            logger.info("Running multi-scale ICP refinement...")
 
             # Coarse subsampling
             n_coarse = cfg.alignment.multiscale.coarse_subsample_size
@@ -453,11 +443,6 @@ def main():
             except Exception:
                 pre_coarse_err = None
 
-            logger.info(
-                "Running multi-scale ICP refinement on %d (src) / %d (tgt) points.",
-                len(points2_coarse),
-                len(points1_coarse),
-            )
             _, T_coarse, coarse_err = icp_coarse.align_point_clouds(
                 source=points2_coarse,
                 target=points1_coarse,
@@ -466,21 +451,15 @@ def main():
 
             if pre_coarse_err is not None and coarse_err > pre_coarse_err:
                 logger.info(
-                    "Multi-scale ICP refinement did not improve RMSE on subsample (before=%.6f, after=%.6f); "
-                    "keeping previous transform.",
-                    pre_coarse_err,
-                    coarse_err,
+                    "Multi-scale refinement unchanged (no improvement): RMSE %.6f m → %.6f m",
+                    pre_coarse_err, coarse_err
                 )
             else:
                 transform_matrix = T_coarse
                 if pre_coarse_err is not None:
-                    logger.info(
-                        "Multi-scale ICP refinement completed with RMSE: %.6f (improved from %.6f).",
-                        coarse_err,
-                        pre_coarse_err,
-                    )
+                    logger.info("Multi-scale refinement improved: RMSE %.6f m → %.6f m", pre_coarse_err, coarse_err)
                 else:
-                    logger.info("Multi-scale ICP refinement completed with RMSE: %.6f", coarse_err)
+                    logger.info("Multi-scale refinement completed: RMSE=%.6f m", coarse_err)
 
         # Fine ICP configuration
         icp = ICPRegistration(
@@ -506,12 +485,6 @@ def main():
             points2_subsampled = points2[indices2]
         else:
             points2_subsampled = points2
-
-        logger.info(
-            "Running fine ICP on %d (src) / %d (tgt) subsampled points.",
-            len(points2_subsampled),
-            len(points1_subsampled),
-        )
 
         # Perform ICP alignment
         points2_subsampled_aligned, transform_matrix, final_error = icp.align_point_clouds(
@@ -543,23 +516,8 @@ def main():
             target=tgt_err,
         )
 
-        # Clarify whether we're using full data or a validation subset
-        if len(src_err) < len(points2_full_aligned) or len(tgt_err) < len(points1):
-            logger.info(
-                "Alignment validation: RMSE on %d source / %d target validation points (sampled from %d / %d): %.6f",
-                len(src_err),
-                len(tgt_err),
-                len(points2_full_aligned),
-                len(points1),
-                alignment_error,
-            )
-        else:
-            logger.info(
-                "Alignment validation: RMSE on full dataset (%d source / %d target points): %.6f",
-                len(src_err),
-                len(tgt_err),
-                alignment_error,
-            )
+        # Log validation error
+        logger.info("Alignment validation (post-ICP): RMSE=%.6f m", alignment_error)
 
         # If streaming mode, optionally apply transform to original files
         if use_streaming and cfg.outofcore.save_transformed_files:
@@ -594,10 +552,7 @@ def main():
                 # Keep points2_full_aligned for DoD computation
 
         step2_end = time.time()
-        logger.info(
-            "Spatial alignment step completed in %.2f seconds.",
-            step2_end - step2_start,
-        )
+        logger.info("Spatial alignment completed in %.2f seconds", step2_end - step2_start)
 
         # Visualize the aligned point clouds
         logger.info("--- Visualizing aligned point clouds ---")
@@ -636,25 +591,12 @@ def main():
                         files_t2 = pc2_data['file_paths']
                         logger.warning("Transformed files not available, using original T2 files (misalignment may affect results)")
 
-                    logger.info("Using out-of-core streaming DoD (mean aggregator, tiled)...")
-
-                    def _fmt_files(files, max_show: int = 2) -> str:
-                        try:
-                            names = [Path(f).name for f in files]
-                        except Exception:
-                            names = list(files)
-                        if len(names) <= max_show:
-                            return f"{len(files)} files: {names}"
-                        return f"{len(files)} files: {names[:max_show]} + {len(files)-max_show} more"
-
-                    logger.info("T1 files: %s", _fmt_files(files_t1))
-                    logger.info("T2 files: %s", _fmt_files(files_t2))
-                    logger.info(f"Tile size: {cfg.outofcore.tile_size_m}m, Halo: {cfg.outofcore.halo_m}m")
+                    mode = "parallel" if cfg.parallel.enabled else "sequential"
+                    logger.info(f"Using streaming DoD ({mode}, tiled)...")
 
                     try:
                         # Choose parallel or sequential based on config
                         if cfg.parallel.enabled:
-                            logger.info(f"Using PARALLEL tile processing (workers={cfg.parallel.n_workers or 'auto'})")
                             dod_res = ChangeDetector.compute_dod_streaming_files_tiled_parallel(
                                 files_t1=files_t1,
                                 files_t2=files_t2,
@@ -670,7 +612,6 @@ def main():
                                 config=cfg,
                             )
                         else:
-                            logger.info("Using SEQUENTIAL tile processing")
                             dod_res = ChangeDetector.compute_dod_streaming_files_tiled(
                                 files_t1=files_t1,
                                 files_t2=files_t2,
@@ -684,7 +625,7 @@ def main():
                                 config=cfg,
                             )
                     except Exception as stream_error:
-                        logger.error(f"Streaming DoD failed: {stream_error}")
+                        logger.error(f"Streaming DoD failed: {stream_error}", exc_info=True)
                         logger.info("Falling back to in-memory DoD computation...")
                         # Fallback to in-memory
                         dod_res = ChangeDetector.compute_dod(
@@ -696,7 +637,7 @@ def main():
                         )
                 else:
                     # In-memory DoD computation
-                    logger.info("Using in-memory DoD computation...")
+                    logger.info("Using in-memory DoD...")
                     dod_res = ChangeDetector.compute_dod(
                         points_t1=points1,
                         points_t2=points2_full_aligned,
@@ -704,16 +645,7 @@ def main():
                         aggregator=cfg.detection.dod.aggregator,
                         config=cfg,
                     )
-                logger.info(
-                    "DoD stats: n_cells=%d, mean=%.4f m, median=%.4f m, rmse=%.4f m, min=%.4f m, max=%.4f m",
-                    dod_res.stats.get("n_cells", 0),
-                    dod_res.stats.get("mean_change", float('nan')),
-                    dod_res.stats.get("median_change", float('nan')),
-                    dod_res.stats.get("rmse", float('nan')),
-                    dod_res.stats.get("min_change", float('nan')),
-                    dod_res.stats.get("max_change", float('nan')),
-                )
-                # Visualize DoD immediately
+                # Visualize DoD
                 visualizer.visualize_dod_heatmap(dod_res, title="DEM of Difference (m)")
             except Exception as e:
                 logger.error(f"DoD computation failed: {e}")
@@ -734,8 +666,10 @@ def main():
                     
                     # Check if parallel processing is enabled
                     use_parallel = getattr(cfg.parallel, 'enabled', False)
+                    mode = "parallel" if use_parallel else "sequential"
+                    logger.info(f"Using streaming C2C ({mode}, tiled)...")
+                    
                     if use_parallel:
-                        logger.info("Using PARALLEL streaming tiled C2C...")
                         c2c_res = ChangeDetector.compute_c2c_streaming_files_tiled_parallel(
                             files_src=files_src,
                             files_tgt=files_tgt,
@@ -750,9 +684,8 @@ def main():
                             config=cfg,  # Pass config for GPU acceleration
                         )
                     else:
-                        logger.info("Using streaming tiled C2C...")
                         if getattr(cfg.detection.c2c, 'mode', 'euclidean') != 'euclidean':
-                            logger.warning("C2C mode '%s' not supported in streaming; falling back to euclidean distances.", cfg.detection.c2c.mode)
+                            logger.warning("C2C mode '%s' not supported in streaming; using euclidean.", cfg.detection.c2c.mode)
                         c2c_res = ChangeDetector.compute_c2c_streaming_files_tiled(
                             files_src=files_src,
                             files_tgt=files_tgt,
@@ -773,7 +706,8 @@ def main():
                     except Exception:
                         pass
                 else:
-                    logger.info("Using in-memory C2C with downsampling for speed...")
+                    c2c_mode = getattr(cfg.detection.c2c, 'mode', 'euclidean')
+                    logger.info(f"Using in-memory C2C ({c2c_mode})...")
                     # Downsample to keep pairwise search manageable if sklearn is unavailable
                     max_points = cfg.detection.c2c.max_points
                     src = points2_full_aligned
@@ -806,17 +740,6 @@ def main():
                         )
                     except Exception:
                         pass
-                logger.info(
-                    "C2C stats: n=%d, mean=%.4f m, median=%.4f m, rmse=%.4f m",
-                    c2c_res.n,
-                    c2c_res.mean,
-                    c2c_res.median,
-                    c2c_res.rmse,
-                )
-                # Report GPU usage if available in metadata
-                if hasattr(c2c_res, 'metadata') and 'gpu_used' in c2c_res.metadata:
-                    gpu_status = "GPU" if c2c_res.metadata['gpu_used'] else "CPU"
-                    logger.info(f"C2C computation used: {gpu_status}")
             except Exception as e:
                 logger.error(f"C2C computation failed: {e}")
         else:
@@ -825,7 +748,7 @@ def main():
     # 3c) M3C2
         if getattr(cfg.detection.m3c2, "enabled", True):
             try:
-                logger.info("Computing M3C2 distances on core points (downsampled)...")
+                logger.info("Computing M3C2 distances...")
 
                 # Core points selection or load from file for reproducibility across runs
                 max_core = cfg.detection.m3c2.core_points
@@ -910,12 +833,7 @@ def main():
                             logger.warning(
                                 f"Header-based autotune failed ({_e}); falling back to sample-based."
                             )
-                        if m3c2_params is not None:
-                            logger.info(
-                                "M3C2 autotune (header): radius=%.2f, max_depth=%.2f",
-                                m3c2_params.projection_scale, m3c2_params.max_depth,
-                            )
-                        else:
+                        if m3c2_params is None:
                             # Fallback to sample-based
                             m3c2_params = autotune_m3c2_params(
                                 points1,
@@ -923,10 +841,6 @@ def main():
                                 max_depth_factor=at.max_depth_factor,
                                 min_radius=at.min_radius,
                                 max_radius=at.max_radius,
-                            )
-                            logger.info(
-                                "M3C2 autotune (sample): radius=%.2f, max_depth=%.2f",
-                                m3c2_params.projection_scale, m3c2_params.max_depth,
                             )
                     else:
                         # Sample-based (current behavior)
@@ -936,10 +850,6 @@ def main():
                             max_depth_factor=at.max_depth_factor,
                             min_radius=at.min_radius,
                             max_radius=at.max_radius,
-                        )
-                        logger.info(
-                            "M3C2 autotune (sample): radius=%.2f, max_depth=%.2f",
-                            m3c2_params.projection_scale, m3c2_params.max_depth,
                         )
                 # Optional CLI override to enforce identical parameters across modes
                 if args.m3c2_radius is not None:
@@ -959,16 +869,9 @@ def main():
                         confidence=m3c2_params.confidence,
                     )
                     logger.info(
-                        "M3C2 overrides: radius=%.2f, normal_scale=%.2f, max_depth=%.2f (factor=%.2f)",
-                        r, normal_scale, r * depth_factor, depth_factor,
+                        "M3C2 CLI override: radius=%.2f m, normal_scale=%.2f m, max_depth=%.2f m",
+                        r, normal_scale, r * depth_factor
                     )
-                logger.info(
-                    "M3C2 auto-tuned params: proj_scale=%.2f, cyl_radius=%.2f, max_depth=%.2f, min_neighbors=%d",
-                    m3c2_params.projection_scale,
-                    m3c2_params.cylinder_radius,
-                    m3c2_params.max_depth,
-                    m3c2_params.min_neighbors,
-                )
 
                 # Prefer streaming tiled M3C2 when out-of-core is enabled and file paths are available
                 use_streaming_m3c2 = (
@@ -983,20 +886,9 @@ def main():
                     
                     # Check if parallel processing is enabled
                     use_parallel = getattr(cfg.parallel, 'enabled', False)
-                    if use_parallel:
-                        logger.info("Using PARALLEL streaming tiled M3C2...")
-                    else:
-                        logger.info("Using streaming tiled M3C2...")
-                    def _fmt_files(files, max_show: int = 2) -> str:
-                        try:
-                            names = [Path(f).name for f in files]
-                        except Exception:
-                            names = list(files)
-                        if len(names) <= max_show:
-                            return f"{len(files)} files: {names}"
-                        return f"{len(files)} files: {names[:max_show]} + {len(files)-max_show} more"
-                    logger.info("T1 files: %s", _fmt_files(files_t1))
-                    logger.info("T2 files: %s", _fmt_files(files_t2))
+                    mode = "parallel" if use_parallel else "sequential"
+                    logger.info(f"Using streaming M3C2 ({mode}, tiled)...")
+                    
                     try:
                         if use_parallel:
                             m3c2_res_stream = ChangeDetector.compute_m3c2_streaming_files_tiled_parallel(
@@ -1095,7 +987,7 @@ def main():
                         m3c2_res = m3c2_res_stream
                     except Exception as stream_err:
                         logger.error(f"Streaming M3C2 failed: {stream_err}")
-                        logger.info("Falling back to in-memory M3C2 (Original)...")
+                        logger.info("Falling back to in-memory M3C2...")
                         m3c2_res = ChangeDetector.compute_m3c2_original(
                             core_points=core_src,
                             cloud_t1=points1,
@@ -1103,35 +995,14 @@ def main():
                             params=m3c2_params,
                         )
                 else:
+                    logger.info("Using in-memory M3C2...")
                     m3c2_res = ChangeDetector.compute_m3c2_original(
                         core_points=core_src,
                         cloud_t1=points1,
                         cloud_t2=points2_full_aligned,
                         params=m3c2_params,
                     )
-                # Compute NaN-robust stats (py4dgeo may return NaN for some cores)
-                dists = np.asarray(m3c2_res.distances, dtype=float)
-                valid_mask = np.isfinite(dists)
-                n_all = int(dists.size)
-                n_valid = int(valid_mask.sum())
-                if n_valid > 0:
-                    mean_v = float(np.nanmean(dists))
-                    median_v = float(np.nanmedian(dists))
-                    std_v = float(np.nanstd(dists))
-                else:
-                    mean_v = float("nan")
-                    median_v = float("nan")
-                    std_v = float("nan")
-
-                logger.info(
-                    "M3C2 stats: n=%d (valid=%d), mean=%.4f m, median=%.4f m, std=%.4f m",
-                    n_all,
-                    n_valid,
-                    mean_v,
-                    median_v,
-                    std_v,
-                )
-                # Visualize M3C2 core points immediately
+                # Visualize M3C2 core points
                 visualizer.visualize_m3c2_corepoints(
                     m3c2_res.core_points,
                     m3c2_res.distances,

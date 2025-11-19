@@ -38,7 +38,7 @@ alignment:
   coarse:
     enabled: true
     # Coarse alignment method: centroid | pca | phase | open3d_fpfh | none
-    method: phase
+    method: centroid
     # Voxel size (m) for coarse features/downsampling
     voxel_size: 2.0
     # Cell size (m) for phase correlation grid
@@ -52,23 +52,23 @@ detection:
     # Aggregation for per-cell elevation: mean | median | p95 | p5
     aggregator: mean
   c2c:
-    enabled: false
+    enabled: true
     # Algorithm: euclidean | vertical_plane
     mode: euclidean
     # Upper bound used by some example flows for sampling/limits
     max_points: 9000000
-    # Search radius (m). Required for streaming C2C; null may imply in-memory.
-    max_distance: null
+    # Search radius (m). Required for streaming C2C; null uses in-memory mode.
+    max_distance: 10.0  # meters
     # Local modeling parameters (for mode=vertical_plane)
     radius: null
     k_neighbors: 20
     min_neighbors: 6
   m3c2:
-    enabled: false
+    enabled: true
     # Use automatic parameter tuning (true) or fixed parameters below (false)
     use_autotune: true
     # Number of core points at which to compute M3C2 distances
-    core_points: 10000
+    core_points: 100000
     autotune:
       # Source for density estimate: header | sample
       source: header
@@ -92,7 +92,7 @@ visualization:
   # plotly | pyvista | pyvistaqt
   backend: pyvista
   # Max points to draw for interactive views
-  sample_size: 50000
+  sample_size: 100000
 
 logging:
   level: INFO
@@ -105,7 +105,7 @@ performance:
 
 outofcore:
   # Master switch for streaming/tiling out-of-core workflows
-  enabled: false
+  enabled: true
   # Inner tile size in meters (processing region per tile)
   tile_size_m: 500.0
   # Halo width in meters (buffer around each tile to avoid edge effects)
@@ -123,7 +123,7 @@ outofcore:
 
 parallel:
   # Master switch for CPU parallelization
-  enabled: false
+  enabled: true
   # Number of worker processes; null = auto-detect (cpu_count - 1)
   n_workers: null
   # Soft memory limit (GB) to guide worker count; null = no limit

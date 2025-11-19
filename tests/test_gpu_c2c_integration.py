@@ -8,7 +8,7 @@ across all detection modes (basic, vertical plane, streaming/tiled).
 import numpy as np
 import pytest
 
-from terrain_change_detection.detection.change_detection import ChangeDetector
+from terrain_change_detection.detection import ChangeDetector
 from terrain_change_detection.utils.config import AppConfig
 from terrain_change_detection.acceleration import get_gpu_info
 

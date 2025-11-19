@@ -48,28 +48,36 @@ class CoarseRegistration:
             return np.eye(4)
 
         method = self.method.lower()
+        logger.info(f"Computing coarse registration ({method})...")
+        
         if method == "centroid":
-            return self._centroid_transform(source, target)
-        if method == "pca":
+            T = self._centroid_transform(source, target)
+        elif method == "pca":
             T = self._pca_transform(source, target)
-            return self._validate_or_fallback(source, target, T)
-        if method == "phase":
+            T = self._validate_or_fallback(source, target, T)
+        elif method == "phase":
             try:
                 T = self._phase_correlation_xy(source, target, cell=self.phase_grid_cell)
             except Exception as e:
                 logger.warning(f"Phase correlation failed: {e}; falling back to centroid.")
-                return self._centroid_transform(source, target)
-            return self._validate_or_fallback(source, target, T)
-        if method == "open3d_fpfh":
+                T = self._centroid_transform(source, target)
+            T = self._validate_or_fallback(source, target, T)
+        elif method == "open3d_fpfh":
             try:
                 T = self._open3d_fpfh_transform(source, target, voxel=self.voxel_size)
             except Exception as e:
                 logger.warning(f"Open3D FPFH coarse registration failed: {e}; falling back to PCA.")
                 T = self._pca_transform(source, target)
-            return self._validate_or_fallback(source, target, T)
-
-        logger.warning(f"Unknown coarse registration method '{self.method}', using identity.")
-        return np.eye(4)
+            T = self._validate_or_fallback(source, target, T)
+        else:
+            logger.warning(f"Unknown coarse registration method '{self.method}', using identity.")
+            T = np.eye(4)
+        
+        # Log translation magnitude
+        translation = np.linalg.norm(T[:3, 3])
+        logger.info(f"Coarse registration completed: translation magnitude = {translation:.3f} m")
+        
+        return T
 
     # ------------------------ Methods ------------------------
     def _centroid_transform(self, src: np.ndarray, dst: np.ndarray) -> np.ndarray:
