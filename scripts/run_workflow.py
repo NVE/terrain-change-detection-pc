@@ -17,6 +17,7 @@ sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from terrain_change_detection.preprocessing.loader import PointCloudLoader
 from terrain_change_detection.preprocessing.data_discovery import DataDiscovery, BatchLoader
+from terrain_change_detection.preprocessing.clipping import AreaClipper, check_shapely_available
 from terrain_change_detection.alignment.fine_registration import ICPRegistration
 from terrain_change_detection.alignment.coarse_registration import CoarseRegistration
 from terrain_change_detection.alignment import apply_transform_to_files, save_transform_matrix
@@ -357,6 +358,67 @@ def main():
             points1 = pc1_data['points']
             points2 = pc2_data['points']
 
+        # ============================================================
+        # Optional: Area Clipping (before alignment)
+        # ============================================================
+        # Check if clipping is enabled in config
+        clipping_cfg = getattr(cfg, 'clipping', None)
+        clip_bounds = None  # Will store (minx, miny, maxx, maxy) if clipping is enabled
+        
+        if clipping_cfg is not None and clipping_cfg.enabled:
+            if not check_shapely_available():
+                logger.error("Clipping is enabled but shapely is not installed. Install with: uv add shapely")
+                return
+            
+            if not clipping_cfg.boundary_file:
+                logger.error("Clipping is enabled but no boundary_file is specified in config.")
+                return
+            
+            boundary_path = Path(clipping_cfg.boundary_file)
+            if not boundary_path.is_absolute():
+                # Resolve relative to project root
+                boundary_path = Path(__file__).parent.parent / boundary_path
+            
+            if not boundary_path.exists():
+                logger.error(f"Clipping boundary file not found: {boundary_path}")
+                return
+            
+            logger.info("--- Applying area clipping ---")
+            
+            try:
+                # Load clipper with optional feature name filter
+                clipper = AreaClipper.from_file(
+                    str(boundary_path), 
+                    feature_name=clipping_cfg.feature_name
+                )
+                
+                # Store clip bounds for streaming processing (DoD, C2C)
+                clip_bounds = clipper.bounds
+                
+                # Store original counts
+                original_count_1 = len(points1)
+                original_count_2 = len(points2)
+                
+                # Clip both point clouds (logging happens inside clipper.clip)
+                points1 = clipper.clip(points1)
+                points2 = clipper.clip(points2)
+                
+                # Summary log
+                pct1 = 100.0 * len(points1) / original_count_1 if original_count_1 > 0 else 0
+                pct2 = 100.0 * len(points2) / original_count_2 if original_count_2 > 0 else 0
+                logger.info(
+                    f"Clipping complete: T1 {len(points1):,} pts ({pct1:.1f}%), "
+                    f"T2 {len(points2):,} pts ({pct2:.1f}%)"
+                )
+                
+                if len(points1) == 0 or len(points2) == 0:
+                    logger.error("Clipping resulted in empty point clouds. Check your boundary file.")
+                    return
+                    
+            except Exception as e:
+                logger.error(f"Clipping failed: {e}")
+                return
+
         # Instantiate the visualizer (choose backend)
         VIS_BACKEND = cfg.visualization.backend
         visualizer = PointCloudVisualizer(backend=VIS_BACKEND)
@@ -610,6 +672,7 @@ def main():
                                 n_workers=cfg.parallel.n_workers,
                                 threads_per_worker=getattr(cfg.parallel, 'threads_per_worker', 1),
                                 config=cfg,
+                                clip_bounds=clip_bounds,
                             )
                         else:
                             dod_res = ChangeDetector.compute_dod_streaming_files_tiled(
@@ -682,6 +745,7 @@ def main():
                             n_workers=None,  # auto-detect
                             threads_per_worker=getattr(cfg.parallel, 'threads_per_worker', 1),
                             config=cfg,  # Pass config for GPU acceleration
+                            clip_bounds=clip_bounds,
                         )
                     else:
                         if getattr(cfg.detection.c2c, 'mode', 'euclidean') != 'euclidean':

@@ -487,6 +487,7 @@ class DoDDetector:
         n_workers: Optional[int] = None,
         threads_per_worker: Optional[int] = 1,
         config: Optional[AppConfig] = None,
+        clip_bounds: Optional[tuple[float, float, float, float]] = None,
     ) -> DoDResult:
         """
         Parallel version of out-of-core tiled DoD.
@@ -506,6 +507,8 @@ class DoDDetector:
             memmap_dir: Optional directory for memory-mapped mosaicking
             transform_t2: Optional transformation matrix for epoch 2
             n_workers: Number of parallel workers (None = auto-detect)
+            clip_bounds: Optional (minx, miny, maxx, maxy) to restrict processing
+                         to tiles overlapping this region of interest
         
         Returns:
             DoDResult with DEMs, DoD grid, and statistics
@@ -537,7 +540,41 @@ class DoDDetector:
         # Create tiler
         tiler = Tiler(gb, cell_size, tile_size, halo)
         tiles = list(tiler.tiles())
-        n_tiles = len(tiles)
+        n_tiles_total = len(tiles)
+        
+        # Filter tiles by clip_bounds if provided
+        if clip_bounds is not None:
+            clip_minx, clip_miny, clip_maxx, clip_maxy = clip_bounds
+            
+            def tile_intersects_clip(tile) -> bool:
+                """Check if tile overlaps the clip region."""
+                t_minx = tile.inner.min_x
+                t_miny = tile.inner.min_y
+                t_maxx = tile.inner.max_x
+                t_maxy = tile.inner.max_y
+                # Check for intersection (not disjoint)
+                return not (t_maxx < clip_minx or t_minx > clip_maxx or
+                           t_maxy < clip_miny or t_miny > clip_maxy)
+            
+            tiles = [t for t in tiles if tile_intersects_clip(t)]
+            n_tiles = len(tiles)
+            logger.info(
+                f"Clip bounds filter: {n_tiles}/{n_tiles_total} tiles overlap region of interest"
+            )
+            
+            if n_tiles == 0:
+                logger.warning("No tiles overlap the clip bounds - returning empty result")
+                # Return empty result
+                return DoDResult(
+                    dem_t1=np.array([]),
+                    dem_t2=np.array([]),
+                    dod=np.array([]),
+                    cell_size=cell_size,
+                    origin=(gb.min_x, gb.min_y),
+                    stats={},
+                )
+        else:
+            n_tiles = n_tiles_total
         
         logger.info(
             "Parallel tiled DoD: tiles=%dx%d (%d total), tile=%.1fm, halo=%.1fm, chunk_points=%d",

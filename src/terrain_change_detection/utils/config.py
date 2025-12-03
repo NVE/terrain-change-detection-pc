@@ -36,6 +36,30 @@ class DiscoveryConfig(BaseModel):
     metadata_dir_name: str = Field(default="metadata")
 
 
+class ClippingConfig(BaseModel):
+    """Configuration for area clipping to focus on regions of interest."""
+    enabled: bool = Field(
+        default=False, 
+        description="Enable clipping point clouds to a region of interest before processing"
+    )
+    boundary_file: Optional[str] = Field(
+        default=None,
+        description="Path to GeoJSON or Shapefile defining the clipping boundary"
+    )
+    feature_name: Optional[str] = Field(
+        default=None,
+        description="Name of specific feature to use from the boundary file (if multiple features exist)"
+    )
+    save_clipped_files: bool = Field(
+        default=False,
+        description="Save clipped LAZ files to disk for reuse"
+    )
+    output_dir: Optional[str] = Field(
+        default=None,
+        description="Directory to save clipped files (auto if None)"
+    )
+
+
 class CoarseRegistrationConfig(BaseModel):
     enabled: bool = Field(default=True)
     method: Literal["centroid", "pca", "phase", "open3d_fpfh", "none"] = Field(default="pca")
@@ -182,6 +206,7 @@ class AppConfig(BaseModel):
     paths: PathsConfig = Field(default_factory=PathsConfig)
     preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
+    clipping: ClippingConfig = Field(default_factory=ClippingConfig)
     alignment: AlignmentICPConfig = Field(default_factory=AlignmentICPConfig)
     detection: DetectionConfig = Field(default_factory=DetectionConfig)
     visualization: VisualizationConfig = Field(default_factory=VisualizationConfig)

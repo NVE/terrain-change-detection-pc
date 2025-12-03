@@ -1,0 +1,123 @@
+# Default configuration with river clipping enabled
+#
+# This configuration clips point clouds to a river corridor before processing,
+# reducing data volume and focusing analysis on the area of interest.
+#
+# Run with:
+#   uv run python scripts/run_workflow.py --config config/default_clipped.yaml
+
+paths:
+  # Root folder containing area subdirectories
+  # Expected structure: base_dir/area/time_period/[data/]*.laz
+  base_dir: data/raw
+
+preprocessing:
+  # If true, keep only LAS class 2 (ground) unless classification_filter is set
+  ground_only: true
+  # Optional list of LAS classification codes to include; overrides ground_only
+  classification_filter: [2]
+
+discovery:
+  # Data source type: hoydedata | drone
+  source_type: hoydedata
+  # Subdirectory names (used only when source_type: hoydedata)
+  data_dir_name: data
+  metadata_dir_name: metadata
+
+clipping:
+  # Enable clipping point clouds to the river corridor
+  enabled: true
+  # Path to GeoJSON defining the river clipping boundary (reprojected to EPSG:25833)
+  boundary_file: data/raw/river_polygon_25833.geojson
+  # Name of specific feature to use (null = use all polygons combined)
+  feature_name: null
+  # Save clipped LAZ files to disk for reuse
+  save_clipped_files: false
+  # Directory to save clipped files; null = auto-generate
+  output_dir: null
+
+alignment:
+  # ICP/registration parameters
+  max_iterations: 100
+  tolerance: 1.0e-6
+  max_correspondence_distance: 1.0
+  # Number of points sampled per epoch for alignment
+  subsample_size: 50000
+  # Convergence criteria for motion-based stopping
+  convergence_translation_epsilon: 1.0e-4
+  convergence_rotation_epsilon_deg: 0.1
+  coarse:
+    enabled: false
+    method: centroid
+    voxel_size: 2.0
+    phase_grid_cell: 2.0
+
+detection:
+  dod:
+    enabled: true
+    # DEM grid resolution in meters
+    cell_size: 1.0
+    # Aggregation for per-cell elevation
+    aggregator: mean
+  c2c:
+    enabled: true
+    mode: euclidean
+    max_points: 9000000
+    max_distance: 10.0
+    radius: null
+    k_neighbors: 20
+    min_neighbors: 6
+  m3c2:
+    enabled: true
+    use_autotune: true
+    core_points: 100000
+    autotune:
+      source: header
+      target_neighbors: 16
+      max_depth_factor: 0.6
+      min_radius: 1.0
+      max_radius: 20.0
+    fixed:
+      radius: null
+      normal_scale: null
+      depth_factor: null
+    ep:
+      workers: null
+
+visualization:
+  backend: plotly
+  sample_size: 100000
+
+logging:
+  level: INFO
+  file: logs/river_clipped_processing.log
+
+performance:
+  numpy_threads: auto
+
+outofcore:
+  # Out-of-core processing - disable for smaller clipped datasets
+  enabled: true
+  tile_size_m: 500.0
+  halo_m: 20.0
+  chunk_points: 1000000
+  streaming_mode: true
+  save_transformed_files: false
+  output_dir: null
+  memmap_dir: null
+
+parallel:
+  # CPU parallelization - can enable for faster processing
+  enabled: true
+  n_workers: null
+  memory_limit_gb: null
+
+gpu:
+  # GPU acceleration - disabled by default
+  enabled: false
+  gpu_memory_limit_gb: null
+  fallback_to_cpu: true
+  use_for_c2c: true
+  use_for_preprocessing: true
+  use_for_alignment: false
+  batch_size: null
