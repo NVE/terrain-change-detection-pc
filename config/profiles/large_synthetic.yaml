@@ -50,7 +50,7 @@ detection:
     # Aggregation for per-cell elevation
     aggregator: mean
   c2c:
-    enabled: false
+    enabled: true
     # Algorithm: euclidean | vertical_plane
     mode: euclidean
     # Upper bound for sampling/limits
@@ -62,7 +62,7 @@ detection:
     k_neighbors: 20
     min_neighbors: 6
   m3c2:
-    enabled: false
+    enabled: true
     # Use automatic parameter tuning (true) or fixed parameters below (false)
     use_autotune: true
     # Number of core points at which to compute M3C2 distances
@@ -84,7 +84,7 @@ detection:
 
 visualization:
   # plotly | pyvista | pyvistaqt
-  backend: pyvista
+  backend: plotly
   # Max points to draw for interactive views
   sample_size: 100000
 
@@ -100,7 +100,7 @@ performance:
 outofcore:
   # Master switch for streaming/tiling out-of-core workflows
   # ENABLED for large dataset processing
-  enabled: false
+  enabled: true
   # Inner tile size in meters (processing region per tile)
   tile_size_m: 500.0
   # Halo width in meters (buffer around each tile to avoid edge effects)
@@ -119,7 +119,7 @@ outofcore:
 parallel:
   # Master switch for CPU parallelization
   # ENABLED to test parallel performance with large dataset
-  enabled: false
+  enabled: true
   # Number of worker processes; null = auto-detect (cpu_count - 1)
   n_workers: null
   # Soft memory limit (GB) to guide worker count; null = no limit
@@ -128,7 +128,7 @@ parallel:
 gpu:
   # Master switch for GPU acceleration (graceful CPU fallback if unavailable)
   # WARNING: Cannot be used simultaneously with parallel.enabled due to CUDA fork limitations
-  enabled: true
+  enabled: false
   # Max GPU memory to use in GB; null = auto-detect (80% of available)
   gpu_memory_limit_gb: null
   # Automatically fall back to CPU if GPU initialization fails
