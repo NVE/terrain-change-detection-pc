@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from terrain_change_detection.utils.config import AppConfig, load_config
 from terrain_change_detection.preprocessing.loader import PointCloudLoader
-from terrain_change_detection.detection.change_detection import ChangeDetector
+from terrain_change_detection.detection import ChangeDetector
 from terrain_change_detection.acceleration.hardware_detection import detect_gpu, get_gpu_info
 
 

@@ -20,7 +20,7 @@ discovery:
 
 visualization:
   # plotly | pyvista | pyvistaqt
-  backend: plotly
+  backend: pyvista
   # Max points to draw for interactive views
   sample_size: 20000
 
@@ -34,7 +34,7 @@ alignment:
   coarse:
     enabled: true
     # Coarse alignment method: centroid | pca | phase | open3d_fpfh | none
-    method: phase
+    method: centroid
     # Voxel size (m) for coarse features/downsampling
     voxel_size: 2.0
     # Cell size (m) for phase correlation grid
@@ -42,7 +42,7 @@ alignment:
 
 detection:
   dod:
-    enabled: false
+    enabled: true
     # DEM grid resolution in meters
     cell_size: 1.0
     # Aggregation for per-cell elevation: mean | median | p95 | p5
@@ -106,7 +106,7 @@ outofcore:
 parallel:
   # Master switch for CPU parallelization
   # Disabled by default for small synthetic datasets (overhead not worth it)
-  enabled: true
+  enabled: false
   # Number of worker processes; null = auto-detect (cpu_count - 1)
   n_workers: null
   # Soft memory limit (GB) to guide worker count; null = no limit

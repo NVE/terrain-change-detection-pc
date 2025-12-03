@@ -281,7 +281,7 @@ def process_m3c2_tile(
     Returns:
         Tuple of (tile, M3C2Result) for assembly
     """
-    from ..detection.change_detection import ChangeDetector, M3C2Result
+    from ..detection.m3c2 import M3C2Detector, M3C2Result
     
     # Get core points for this tile
     ij_key = (tile.i, tile.j)
@@ -330,7 +330,7 @@ def process_m3c2_tile(
     
     # Run M3C2 computation
     try:
-        result = ChangeDetector.compute_m3c2_original(core_points_tile, pc1, pc2, params)
+        result = M3C2Detector.compute_m3c2_original(core_points_tile, pc1, pc2, params, _verbose=False)
         
         logger.debug(
             f"Tile ({tile.i},{tile.j}) M3C2 complete: {len(core_points_tile):,} core points, "
