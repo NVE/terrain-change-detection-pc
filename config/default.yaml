@@ -25,6 +25,21 @@ discovery:
   data_dir_name: data
   metadata_dir_name: metadata
 
+clipping:
+  # Enable clipping point clouds to a region of interest before processing
+  # Use this to focus analysis on specific areas (e.g., rivers, erosion zones)
+  enabled: false
+  # Path to GeoJSON (.geojson, .json) or Shapefile (.shp) defining the clipping boundary
+  # The file should contain polygon(s) representing the area of interest
+  boundary_file: null
+  # Name of specific feature to use if the file contains multiple features
+  # If null, all polygons in the file are combined into one clipping boundary
+  feature_name: null
+  # Save clipped LAZ files to disk for reuse in subsequent runs
+  save_clipped_files: false
+  # Directory to save clipped files; null = auto-generate based on area name
+  output_dir: null
+
 alignment:
   # ICP/registration parameters
   max_iterations: 100
@@ -35,8 +50,8 @@ alignment:
   # Convergence criteria for motion-based stopping
   convergence_translation_epsilon: 1.0e-4
   convergence_rotation_epsilon_deg: 0.1
-  coarse:
-    enabled: true
+  coarse:  # Only use if point clouds are significantly misaligned
+    enabled: false
     # Coarse alignment method: centroid | pca | phase | open3d_fpfh | none
     method: centroid
     # Voxel size (m) for coarse features/downsampling
@@ -90,7 +105,7 @@ detection:
 
 visualization:
   # plotly | pyvista | pyvistaqt
-  backend: pyvista
+  backend: plotly
   # Max points to draw for interactive views
   sample_size: 100000
 

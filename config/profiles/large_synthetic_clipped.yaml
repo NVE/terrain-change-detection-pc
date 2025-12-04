@@ -1,0 +1,146 @@
+# Configuration profile for testing area clipping with large synthetic datasets
+#
+# This profile demonstrates clipping point clouds to a region of interest before
+# processing. It uses the central area from the clipping boundaries test file.
+#
+# The clipping is performed BEFORE ICP registration to:
+# - Reduce data volume for faster processing
+# - Focus analysis on specific areas of interest
+# - Exclude irrelevant regions from computations
+#
+# Generate the dataset first:
+#   uv run scripts/generate_large_synthetic_laz.py
+#
+# Then run the workflow:
+#   uv run scripts/run_workflow.py --config config/profiles/large_synthetic_clipped.yaml
+#
+# You can also test different clipping areas by modifying the feature_name or
+# creating your own boundary file.
+
+paths:
+  # Root folder containing large synthetic dataset
+  base_dir: data/large_synthetic
+
+preprocessing:
+  # Keep only LAS class 2 (ground)
+  ground_only: true
+  # Optional list of LAS classification codes to include
+  classification_filter: [2]
+
+discovery:
+  # Subdirectory names used when discovering datasets
+  data_dir_name: data
+  metadata_dir_name: metadata
+
+clipping:
+  # Enable clipping point clouds to a region of interest before processing
+  enabled: true
+  # Path to GeoJSON defining the clipping boundary
+  # Options:
+  #   - clip_central_area.geojson  : Single 2000x2000m rectangle (fastest)
+  #   - clip_areas.geojson         : Multiple named areas (use feature_name to select)
+  # boundary_file: data/large_synthetic/clip_central_area.geojson
+  boundary_file: data/large_synthetic/clip_areas.geojson
+  # Name of specific feature to use (only needed for multi-feature files)
+  # For clip_areas.geojson: central_area, small_box, change_zone_mound, change_zone_erosion
+  feature_name: null
+  # Save clipped LAZ files to disk for reuse
+  save_clipped_files: false
+  # Directory to save clipped files; null = auto-generate
+  output_dir: null
+
+alignment:
+  # ICP/registration parameters
+  max_iterations: 100
+  tolerance: 1.0e-6
+  max_correspondence_distance: 2.0
+  # Larger subsample for better alignment with big datasets
+  subsample_size: 100000
+  coarse:
+    # Disabled - no misalignment in synthetic data
+    enabled: false
+    # Coarse alignment method
+    method: phase
+    # Voxel size (m) for coarse features/downsampling
+    voxel_size: 3.0
+    # Cell size (m) for phase correlation grid
+    phase_grid_cell: 3.0
+
+detection:
+  dod:
+    enabled: true
+    # DEM grid resolution in meters
+    cell_size: 2.0
+    # Aggregation for per-cell elevation
+    aggregator: mean
+  c2c:
+    enabled: true
+    # Algorithm: euclidean | vertical_plane
+    mode: euclidean
+    # Upper bound for sampling/limits
+    max_points: 10000
+    # Search radius (m) - required for streaming C2C
+    max_distance: 10.0
+    # Local modeling parameters (for mode=vertical_plane)
+    radius: null
+    k_neighbors: 20
+    min_neighbors: 6
+  m3c2:
+    enabled: true
+    # Use automatic parameter tuning
+    use_autotune: true
+    # Number of core points at which to compute M3C2 distances
+    core_points: 50000
+    autotune:
+      source: header
+      target_neighbors: 20
+      max_depth_factor: 0.6
+      min_radius: 2.0
+      max_radius: 50.0
+    fixed:
+      radius: null
+      normal_scale: null
+      depth_factor: null
+    ep:
+      workers: null
+
+visualization:
+  # plotly | pyvista | pyvistaqt
+  backend: plotly
+  # Max points to draw for interactive views
+  sample_size: 100000
+
+logging:
+  level: INFO
+  # Path to log file
+  file: logs/large_synthetic_clipped_processing.log
+
+performance:
+  numpy_threads: auto
+
+outofcore:
+  # Out-of-core processing - can be used even with clipped data
+  enabled: true
+  tile_size_m: 500.0
+  halo_m: 30.0
+  chunk_points: 2000000
+  streaming_mode: true
+  save_transformed_files: false
+  output_dir: null
+  memmap_dir: null
+
+parallel:
+  # CPU parallelization
+  enabled: true
+  n_workers: null
+  memory_limit_gb: null
+
+gpu:
+  # GPU acceleration - disabled by default for compatibility
+  enabled: false
+  gpu_memory_limit_gb: null
+  fallback_to_cpu: true
+  use_for_c2c: true
+  use_for_preprocessing: true
+  use_for_alignment: false
+  batch_size: null

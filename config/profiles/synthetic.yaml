@@ -20,7 +20,7 @@ discovery:
 
 visualization:
   # plotly | pyvista | pyvistaqt
-  backend: pyvista
+  backend: plotly
   # Max points to draw for interactive views
   sample_size: 20000
 

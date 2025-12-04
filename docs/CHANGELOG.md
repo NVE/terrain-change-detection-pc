@@ -1,5 +1,106 @@
 ﻿# Changelog and Implementation Notes
 
+## 2025-12-03 - Area Clipping Feature
+
+### Summary
+Implemented area clipping functionality to focus terrain change analysis on specific regions of interest (e.g., rivers, erosion zones). Point clouds can now be clipped to polygon boundaries defined in GeoJSON or Shapefile format before ICP registration. This reduces data volume, improves processing speed, and enables targeted analysis of specific geographic features.
+
+### Key Changes
+
+**New Clipping Module** (`src/terrain_change_detection/preprocessing/clipping.py`):
+- `AreaClipper` class for point cloud clipping operations:
+  - `from_file()`: Load from GeoJSON (.geojson, .json) or Shapefile (.shp)
+  - `from_polygon()`: Create from coordinate list
+  - `from_bounds()`: Create rectangular clip region
+  - `clip()`: Vectorized point-in-polygon test using shapely's `contains_xy`
+  - `get_statistics()`: Point counts inside/outside boundary
+  - `to_geojson()` / `save_geojson()`: Export clip boundary
+- Two-stage clipping for performance:
+  1. Fast bounding box pre-filter
+  2. Precise polygon containment test (vectorized)
+- Support for `feature_name` parameter to select specific polygons from multi-feature files
+- Automatic geometry validation and repair via `buffer(0)`
+
+**Streaming Integration** (DoD/C2C tile filtering):
+- Added `clip_bounds` parameter to `compute_dod_streaming_files_tiled_parallel()`
+- Added `clip_bounds` parameter to `compute_c2c_streaming_files_tiled_parallel()`
+- Tiles outside clip region are skipped, reducing unnecessary processing
+- M3C2 already filters by core point locations (no change needed)
+
+**Configuration** (`src/terrain_change_detection/utils/config.py`):
+- New `ClippingConfig` model with fields:
+  - `enabled`: Master switch for clipping
+  - `boundary_file`: Path to GeoJSON/Shapefile
+  - `feature_name`: Optional filter for specific polygon by name
+  - `save_clipped_files`: Option to save clipped LAZ files
+  - `output_dir`: Output directory for clipped files
+
+**Workflow Integration** (`scripts/run_workflow.py`):
+- Clipping applied after data loading, before ICP alignment
+- Clip bounds passed to streaming DoD and C2C for tile filtering
+- Logging shows clipping statistics (points retained, percentage)
+
+**New Dependencies**:
+- `shapely>=2.0`: Required for geometry operations
+- `fiona`: Optional, for Shapefile support
+
+### New Files
+- `src/terrain_change_detection/preprocessing/clipping.py`: Core clipping module
+- `tests/test_clipping.py`: 22 unit tests for clipping functionality
+- `config/default_clipped.yaml`: Config for real data with river clipping
+- `config/profiles/large_synthetic_clipped.yaml`: Config for synthetic data with clipping
+- `docs/AREA_CLIPPING_GUIDE.md`: Comprehensive usage documentation
+- `docs/KNOWN_ISSUES.md`: Known limitations and issues tracker
+
+### Test Files (in data/large_synthetic/)
+- `clip_central_area.geojson`: Simple 2000×2000m rectangle for testing
+- `clip_areas.geojson`: Multiple named polygons (central_area, river_corridor, change_zone_mound, change_zone_erosion)
+
+### Usage Examples
+
+**Enable clipping in config:**
+```yaml
+clipping:
+  enabled: true
+  boundary_file: data/raw/river_polygon_25833.geojson
+  feature_name: null  # Use all polygons, or specify name
+  save_clipped_files: false
+```
+
+**Run workflow with clipping:**
+```bash
+uv run python scripts/run_workflow.py --config config/default_clipped.yaml
+```
+
+**Programmatic usage:**
+```python
+from terrain_change_detection.preprocessing import AreaClipper
+
+clipper = AreaClipper.from_file("boundary.geojson", feature_name="river")
+clipped_points = clipper.clip(points)
+```
+
+### Known Limitations
+
+Documented in `docs/KNOWN_ISSUES.md`:
+1. **Bounding box vs precise filtering**: DoD/C2C use bounding box filtering (fast but loose), while M3C2 uses precise core-point filtering
+2. **Coordinate system matching**: Clip boundary must be in same CRS as point cloud data (install `pyproj` separately if reprojection is needed)
+
+### Testing
+
+- 22 unit tests covering all clipping functionality
+- Tested with synthetic data (large_synthetic_clipped.yaml)
+- Tested with real Norwegian terrain data (default_clipped.yaml)
+- All tests passing
+
+### Performance Impact
+
+- Clipping reduces data volume significantly (e.g., 28% of points retained in river corridor)
+- Streaming tile filtering reduces tiles processed (e.g., 24/64 tiles for M3C2)
+- Overall workflow speedup proportional to data reduction
+
+---
+
 ## 2025-11-19 - Module Refactoring, Logging Improvements, and Parallel Execution Fixes
 
 ### Summary
