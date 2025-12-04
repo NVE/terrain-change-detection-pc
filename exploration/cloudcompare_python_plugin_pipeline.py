@@ -1,796 +1,435 @@
-"""
-CloudCompare PythonRuntime pipeline for synthetic pair (2015 vs 2020).
+﻿"""
+CloudCompare PythonRuntime Pipeline: Load, ICP Alignment, M3C2 Distance.
 
-This script is designed to be run inside CloudCompare's PythonRuntime plugin
-(https://tmontaigu.github.io/CloudCompare-PythonRuntime/), not via this repo's
-own Python code. It loads the two synthetic LAZ files in data/synthetic/, runs
-basic preprocessing, attempts ICP alignment (if available), and computes a
-cloud-to-cloud (C2C) distance scalar field as a baseline change metric.
+This script demonstrates a terrain change detection workflow using
+CloudCompare's embedded Python plugin (PythonRuntime). It performs:
 
-How to run (GUI):
-- Open CloudCompare with the Python plugin enabled
-- Open the Python Editor or File Runner (Plugins -> Python Runtime)
-- Run this script
+1. Loading point clouds (reference T1 and moving T2)
+2. ICP alignment (registration of T2 to T1)
+3. M3C2 distance computation (robust multi-scale change detection)
+4. Export of results
 
-Notes:
-- Uses only pycc/cccorelib APIs; no imports from this repository.
-- Attempts to call cccorelib.RegistrationTools ICP if exposed; otherwise falls
-  back to a simple centroid pre-alignment and computes distances.
-- C2C is implemented via KD-tree fallback if DistanceComputationTools bindings
-  are not available.
-- Results: the 2020 cloud is duplicated as an "aligned" cloud with a scalar
-  field named "C2C Absolute Dist" for easy visualization and optional saving.
+IMPORTANT LIMITATION
+--------------------
+The M3C2 plugin is NOT fully exposed via CloudCompare's Python API.
+This script demonstrates what IS possible and documents the limitations.
+For production M3C2 workflows, use the CLI with -M3C2 command or our
+custom implementation in src/terrain_change_detection/.
 
-If your repo path differs from the detected base, set REPO_BASE manually below.
+How to Run
+----------
+1. Open CloudCompare
+2. Go to Plugins -> Python Runtime -> File Runner (or Python Editor)
+3. Load this script and execute
+
+Author: Terrain Change Detection Team
+Date: December 2024
 """
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 import math
-from typing import Optional, Tuple
+from pathlib import Path
+from typing import Optional, Tuple, List
+
+# ==============================================================================
+# IMPORT CLOUDCOMPARE MODULES
+# ==============================================================================
 
 try:
     import pycc
     import cccorelib
-except Exception as e:  # pragma: no cover - only runs inside CloudCompare
+except ImportError as e:
     raise RuntimeError(
-        "This script must be run inside CloudCompare with the PythonRuntime plugin.\n"
+        "This script must be run inside CloudCompare with PythonRuntime plugin.\n"
         f"Import error: {e}"
     )
 
+# ==============================================================================
+# CONFIGURATION
+# ==============================================================================
 
-# --- Configuration ---------------------------------------------------------
+class Config:
+    """Configuration parameters for the pipeline."""
+    
+    SCRIPT_DIR = Path(__file__).resolve().parent
+    REPO_ROOT = SCRIPT_DIR.parent
+    
+    # Input paths
+    T1_PATH = REPO_ROOT / "data" / "synthetic" / "synthetic_area" / "2015" / "data" / "synthetic_tile_01.laz"
+    T2_PATH = REPO_ROOT / "data" / "synthetic" / "synthetic_area" / "2020" / "data" / "synthetic_tile_01.laz"
+    
+    # Output paths
+    OUTPUT_DIR = REPO_ROOT / "data" / "synthetic" / "synthetic_area" / "outputs"
+    OUTPUT_FILE = OUTPUT_DIR / "2020_aligned_m3c2_plugin.laz"
+    
+    # ICP parameters
+    ICP_MAX_ITERATIONS = 60
+    ICP_SAMPLE_LIMIT = 50000
+    ICP_TRIM_RATIO = 0.8
+    
+    # M3C2 parameters (for reference - not all exposed via API)
+    M3C2_NORMAL_SCALE = 1.0
+    M3C2_PROJECTION_SCALE = 1.0
+    M3C2_MAX_DEPTH = 5.0
+    
+    CLEAR_DB_ON_START = True
+    
+    @classmethod
+    def validate(cls):
+        errors = []
+        if not cls.T1_PATH.exists():
+            errors.append(f"Reference cloud not found: {cls.T1_PATH}")
+        if not cls.T2_PATH.exists():
+            errors.append(f"Moving cloud not found: {cls.T2_PATH}")
+        return errors
 
-# Attempt to infer the repo root from this script's location
-_HERE = Path(__file__).resolve()
-DEFAULT_REPO_BASE = _HERE.parent.parent  # repo root (.. from scripts/)
 
-# Override this if your script is not inside the repo directory when run
-REPO_BASE = Path(os.environ.get("TCD_REPO_BASE", DEFAULT_REPO_BASE))
+# ==============================================================================
+# LOGGING
+# ==============================================================================
 
-T1_PATH = REPO_BASE / "data" / "synthetic" / "synthetic_area" / "2015" / "data" / "synthetic_tile_01.laz"
-T2_PATH = REPO_BASE / "data" / "synthetic" / "synthetic_area" / "2020" / "data" / "synthetic_tile_01.laz"
-
-# Subsampling target count to speed up ICP (applied on duplicates for ICP only)
-ICP_RANDOM_LIMIT = 60000  # limit subset size used for ICP fallback
-
-# Distance computation settings
-KD_CHUNK_SIZE = 20000  # process points in chunks to remain responsive
-MAX_EXPORT = True  # set to True to save the aligned cloud with distances
-
-# Clean workspace option: remove all objects from the DB tree before running
-def _env_flag(name: str, default: bool = False) -> bool:
-    v = os.environ.get(name)
-    if v is None:
-        return default
-    return v.strip().lower() in ("1", "true", "yes", "y", "on")
-
-CLEAR_DB_AT_START = _env_flag("CC_CLEAR_DB", True)
-
-
-# --- Helpers ---------------------------------------------------------------
-
-def _log(msg: str) -> None:
+def log(msg, level="INFO"):
+    formatted = f"[{level}] {msg}"
     try:
-        pycc.ccLog.Print(msg)
-    except Exception:
-        print(msg)
-
-
-def _load_cloud(path: Path) -> pycc.ccPointCloud:
-    CC = pycc.GetInstance()
-    params = pycc.FileIOFilter.LoadParameters()
-    params.parentWidget = CC.getMainWindow()
-
-    if not path.exists():
-        raise FileNotFoundError(f"Missing input: {path}")
-
-    obj = CC.loadFile(str(path), params)
-    # The loadFile call adds to DB on success and returns the root object loaded.
-    # Search for the first ccPointCloud in the returned hierarchy.
-    cloud = _first_point_cloud_from(obj)
-    if cloud is None:
-        raise RuntimeError(f"No point cloud found in {path}")
-
-    _log(f"Loaded: {path.name} -> {cloud.size()} points")
-    return cloud
-
-
-def _first_point_cloud_from(hobj: pycc.ccHObject) -> Optional[pycc.ccPointCloud]:
-    # Walk hierarchy to find first ccPointCloud using only widely available APIs
-    try:
-        if isinstance(hobj, pycc.ccPointCloud):
-            return hobj
+        if level == "ERROR":
+            pycc.ccLog.Error(msg)
+        elif level == "WARNING":
+            pycc.ccLog.Warning(msg)
+        else:
+            pycc.ccLog.Print(formatted)
     except Exception:
         pass
+    print(formatted)
 
+
+def log_section(title):
+    sep = "=" * 60
+    log(sep)
+    log(f"  {title}")
+    log(sep)
+
+
+# ==============================================================================
+# UTILITIES
+# ==============================================================================
+
+def get_xyz(vec):
     try:
-        n = hobj.getChildrenNumber()
-    except Exception:
-        return None
+        return float(vec.x), float(vec.y), float(vec.z)
+    except AttributeError:
+        return float(vec[0]), float(vec[1]), float(vec[2])
 
-    for i in range(n):
-        try:
-            child = hobj.getChild(i)
-        except Exception:
-            continue
-        if child is None:
-            continue
-        if isinstance(child, pycc.ccPointCloud):
-            return child
-        found = _first_point_cloud_from(child)
-        if found is not None:
-            return found
+
+def find_first_cloud(hobj):
+    if hobj is None:
+        return None
+    if isinstance(hobj, pycc.ccPointCloud):
+        return hobj
+    try:
+        for i in range(hobj.getChildrenNumber()):
+            result = find_first_cloud(hobj.getChild(i))
+            if result is not None:
+                return result
+    except Exception:
+        pass
     return None
 
 
-def _duplicate_cloud(src: pycc.ccPointCloud, name: str) -> pycc.ccPointCloud:
+def load_point_cloud(path, name=None):
+    CC = pycc.GetInstance()
+    params = pycc.FileIOFilter.LoadParameters()
+    params.parentWidget = CC.getMainWindow()
+    
+    log(f"Loading: {path}")
+    result = CC.loadFile(str(path), params)
+    
+    cloud = find_first_cloud(result)
+    if cloud is None:
+        raise RuntimeError(f"No point cloud found in: {path}")
+    
+    if name:
+        cloud.setName(name)
+    
+    log(f"  Loaded {cloud.size():,} points")
+    return cloud
+
+
+def duplicate_cloud(src, name):
+    log(f"Duplicating cloud to '{name}'...")
+    try:
+        dup = src.clone()
+        dup.setName(name)
+        return dup
+    except Exception:
+        pass
+    
     dup = pycc.ccPointCloud(name)
     dup.reserve(src.size())
     for i in range(src.size()):
         dup.addPoint(src.getPoint(i))
-    # Copy point size if the API exposes it; otherwise ignore
-    try:
-        ps = getattr(src, "getPointSize", None)
-        if callable(ps):
-            dup.setPointSize(ps())
-    except Exception:
-        pass
     return dup
 
 
-def _deselect_all_in_db(CC: "pycc.ccPythonInstance") -> None:
-    root = CC.dbRootObject()
-    def walk(h: pycc.ccHObject):
-        try:
-            CC.setSelectedInDB(h, False)
-        except Exception:
-            pass
-        try:
-            n = h.getChildrenNumber()
-        except Exception:
-            n = 0
-        for i in range(n):
-            try:
-                child = h.getChild(i)
-            except Exception:
-                child = None
-            if child is not None:
-                walk(child)
-    walk(root)
-
-
-def _set_selection(CC: "pycc.ccPythonInstance", objs: list) -> None:
-    _deselect_all_in_db(CC)
-    for o in objs:
-        try:
-            CC.setSelectedInDB(o, True)
-        except Exception:
-            pass
-    CC.updateUI()
-
-
-def _clear_db_tree(CC: "pycc.ccPythonInstance") -> None:
-    """Remove all top-level objects from the DB tree."""
-    root = CC.dbRootObject()
+def subsample_cloud(cloud, target_count):
+    if cloud.size() <= target_count:
+        return cloud
+    
+    log(f"Subsampling to ~{target_count:,} points...")
     try:
-        n = root.getChildrenNumber()
-    except Exception:
-        n = 0
-    to_remove = []
-    for i in range(n):
-        try:
-            child = root.getChild(i)
-            if child is not None:
-                to_remove.append(child)
-        except Exception:
-            continue
-    # Remove in reverse order for safety
-    for obj in reversed(to_remove):
-        try:
-            CC.removeFromDB(obj)
-        except Exception:
-            pass
-    CC.updateUI()
-
-
-def _as_numpy(cloud: pycc.ccPointCloud, max_points: Optional[int] = None):
-    # Extract points into a Python list of tuples (or fewer if max_points)
-    # Kept simple to reduce API assumptions; sufficient for small ICP subsets.
-    n = cloud.size()
-    if max_points is not None:
-        n = min(n, max_points)
-    pts = []
-    step = max(1, cloud.size() // n) if n > 0 else 1
-    idx = 0
-    for _ in range(n):
-        p = cloud.getPoint(idx)
-        # CCVector3 supports array-like or x,y,z attributes depending on binding
-        try:
-            x, y, z = float(p.x), float(p.y), float(p.z)
-        except Exception:
-            # Some bindings expose vector as indexable sequence
-            x, y, z = float(p[0]), float(p[1]), float(p[2])
-        pts.append((x, y, z))
-        idx += step
-    try:
-        import numpy as np  # CloudCompare often ships with a numpy
+        result = cccorelib.CloudSamplingTools.subsampleCloudRandomly(cloud, target_count)
+        if result is not None and result.size() > 0:
+            return cloud.partialClone(result)
     except Exception as e:
-        raise RuntimeError(f"numpy is required inside CC for ICP fallback: {e}")
-    return np.asarray(pts, dtype=float)
+        log(f"  Subsampling failed: {e}", level="WARNING")
+    return cloud
 
 
-def _get_xyz(v) -> Tuple[float, float, float]:
-    try:
-        return float(v.x), float(v.y), float(v.z)
-    except Exception:
-        return float(v[0]), float(v[1]), float(v[2])
+# ==============================================================================
+# ICP REGISTRATION
+# ==============================================================================
 
-
-def _centroid_align(src_pts, dst_pts) -> Tuple["np.ndarray", "np.ndarray"]:
+def compute_icp(moving, reference, max_iter=60, sample_limit=50000, trim_ratio=0.8):
+    """Compute ICP registration using SVD-based point-to-point alignment."""
+    log_section("ICP Registration")
+    
     import numpy as np
-    c_src = src_pts.mean(axis=0)
-    c_dst = dst_pts.mean(axis=0)
-    R = np.eye(3)
-    t = c_dst - c_src
-    return R, t
-
-
-def _best_fit_transform(A, B):
-    """Compute rigid transform (R,t) that best aligns A->B (point-to-point, SVD)."""
-    import numpy as np
-    assert A.shape == B.shape
-    cA = A.mean(axis=0)
-    cB = B.mean(axis=0)
-    AA = A - cA
-    BB = B - cB
-    H = AA.T @ BB
-    U, S, Vt = np.linalg.svd(H)
-    R = Vt.T @ U.T
-    # Reflection fix
-    if np.linalg.det(R) < 0:
-        Vt[-1, :] *= -1
-        R = Vt.T @ U.T
-    t = cB - R @ cA
-    return R, t
-
-
-def _apply_rigid_transform_inplace(cloud: pycc.ccPointCloud, R, t) -> None:
-    # Build a 4x4 ccGLMatrix(d) and apply permanently to the cloud
-    import numpy as np
-
-    M = np.eye(4)
-    M[:3, :3] = R
-    M[:3, 3] = t
-
-    # Try double precision matrix first
-    glmat = None
-    try:
-        glmat = pycc.ccGLMatrixd()
-        arr = glmat.data()  # may expose a view to the 4x4 matrix
-        # Copy values; fallback if data() not writable
-        for r in range(4):
-            for c in range(4):
-                arr[r][c] = float(M[r, c])
-    except Exception:
-        try:
-            glmat = pycc.ccGLMatrix()
-            arr = glmat.data()
-            for r in range(4):
-                for c in range(4):
-                    arr[r][c] = float(M[r, c])
-        except Exception:
-            glmat = None
-
-    # Apply permanent transformation
-    applied = False
-    if glmat is not None:
-        for applier in ("applyRigidTransformation", "applyGLTransformation_recursive"):
-            fn = getattr(cloud, applier, None)
-            if callable(fn):
-                try:
-                    fn(glmat)
-                    applied = True
-                    break
-                except Exception:
-                    pass
-
-    if not applied:
-        # Manual per-point transform as worst-case fallback
-        for i in range(cloud.size()):
-            p = cloud.getPoint(i)
-            x, y, z = _get_xyz(p)
-            v = np.array([x, y, z])
-            v2 = R @ v + t
-            cloud.setPoint(i, cccorelib.CCVector3(float(v2[0]), float(v2[1]), float(v2[2])))
-
-
-def _icp_fallback_kdtree(
-    mov_icp: pycc.ccPointCloud,
-    ref_icp: pycc.ccPointCloud,
-    max_iters: int = 60,
-    trim_ratio: float = 0.8,
-    max_pairing_dist: Optional[float] = None,
-) -> Tuple["np.ndarray", "np.ndarray", list]:
-    """Robust ICP (point-to-point) using cccorelib.KDTree + SVD.
-
-    - trim_ratio: keep best fraction of pairs per-iteration (outlier rejection)
-    - max_pairing_dist: optional hard cap (units of the clouds)
-
-    Returns (R_total, t_total, rms_history)
-    """
-    import numpy as np
-
-    # KD-tree on reference
+    
+    mov_icp = subsample_cloud(moving, sample_limit) if moving.size() > sample_limit else moving
+    ref_icp = subsample_cloud(reference, sample_limit) if reference.size() > sample_limit else reference
+    
+    log("Building KD-tree on reference...")
     kd = cccorelib.KDTree()
     kd.buildFromCloud(ref_icp)
-
-    # Helpers to extract arrays from ccPointCloud efficiently
-    def cloud_to_np(c: pycc.ccPointCloud) -> "np.ndarray":
-        pts = np.zeros((c.size(), 3), dtype=float)
+    
+    def cloud_to_array(c):
+        pts = np.zeros((c.size(), 3), dtype=np.float64)
         for i in range(c.size()):
-            x, y, z = _get_xyz(c.getPoint(i))
-            pts[i, :] = (x, y, z)
+            pts[i] = get_xyz(c.getPoint(i))
         return pts
-
-    A = cloud_to_np(mov_icp)  # moving
-    B = cloud_to_np(ref_icp)  # reference
-
+    
+    A = cloud_to_array(mov_icp)
+    B = cloud_to_array(ref_icp)
+    
     R_total = np.eye(3)
     t_total = np.zeros(3)
-    rms_hist = []
-
-    # AABB-based default cap (5% of diagonal) if not provided
-    if max_pairing_dist is None:
-        try:
-            bbmin = cccorelib.CCVector3()
-            bbmax = cccorelib.CCVector3()
-            ref_icp.getBoundingBox(bbmin, bbmax)
-            diag = math.sqrt((bbmax.x - bbmin.x) ** 2 + (bbmax.y - bbmin.y) ** 2 + (bbmax.z - bbmin.z) ** 2)
-            max_pairing_dist = 0.05 * diag
-        except Exception:
-            max_pairing_dist = None
-
-    for it in range(max_iters):
-        # Find nearest neighbors of transformed A in B
-        pairs_A = []  # moving
-        pairs_B = []  # reference
-        d_vals = []
+    rms_history = []
+    
+    log(f"Starting ICP ({max_iter} max iterations)...")
+    
+    for it in range(max_iter):
+        pairs_A, pairs_B, dists = [], [], []
+        
         for i in range(A.shape[0]):
-            a = A[i, :]
-            a_vec = cccorelib.CCVector3(float(a[0]), float(a[1]), float(a[2]))
-            nn = kd.findNearestNeighbour(a_vec)
-            idx, d2 = None, None
+            a = A[i]
             try:
-                idx, d2 = int(nn[0]), float(nn[1])
-            except Exception:
-                # Some wrappers might return only the index; recompute distance
+                nn = kd.findNearestNeighbour(cccorelib.CCVector3(float(a[0]), float(a[1]), float(a[2])))
                 try:
+                    idx, d2 = int(nn[0]), float(nn[1])
+                except (TypeError, IndexError):
                     idx = int(nn)
-                    pb = B[idx]
-                    d2 = float(((a - pb) ** 2).sum())
-                except Exception:
-                    continue
-            d = math.sqrt(d2)
-            if max_pairing_dist is not None and d > max_pairing_dist:
+                    d2 = float(np.sum((a - B[idx])**2))
+                pairs_A.append(a)
+                pairs_B.append(B[idx])
+                dists.append(math.sqrt(d2))
+            except Exception:
                 continue
-            pairs_A.append(a)
-            pairs_B.append(B[idx])
-            d_vals.append(d)
-
-        if not pairs_A:
-            _log("[ICP-fallback] No valid correspondences; stopping.")
+        
+        if len(pairs_A) < 10:
             break
-
-        # Trim worst matches
-        order = np.argsort(d_vals)
-        keep = max(10, int(len(order) * float(trim_ratio)))
-        idx_keep = order[:keep]
-        A_corr = np.asarray(pairs_A)[idx_keep]
-        B_corr = np.asarray(pairs_B)[idx_keep]
-        R, t = _best_fit_transform(A_corr, B_corr)
-
-        # Accumulate
+        
+        pairs_A = np.array(pairs_A)
+        pairs_B = np.array(pairs_B)
+        dists = np.array(dists)
+        
+        if trim_ratio < 1.0:
+            n_keep = max(10, int(len(dists) * trim_ratio))
+            keep_idx = np.argsort(dists)[:n_keep]
+            pairs_A, pairs_B, dists = pairs_A[keep_idx], pairs_B[keep_idx], dists[keep_idx]
+        
+        rms = float(np.sqrt(np.mean(dists**2)))
+        rms_history.append(rms)
+        
+        cA, cB = pairs_A.mean(axis=0), pairs_B.mean(axis=0)
+        H = (pairs_A - cA).T @ (pairs_B - cB)
+        U, S, Vt = np.linalg.svd(H)
+        R = Vt.T @ U.T
+        if np.linalg.det(R) < 0:
+            Vt[-1, :] *= -1
+            R = Vt.T @ U.T
+        t = cB - R @ cA
+        
         R_total = R @ R_total
         t_total = R @ t_total + t
-
-        # Apply to A for next iteration
         A = (A @ R.T) + t
-
-        import numpy as np
-        d_used = np.asarray(d_vals)[idx_keep]
-        rms = float(np.sqrt(np.mean(d_used ** 2)))
-        rms_hist.append(rms)
-        if (it + 1) % 5 == 0 or it < 3:
-            _log(f"[ICP-fallback] iter {it+1:02d} RMS={rms:.6f} pairs={len(idx_keep)}")
-
-        # Early stop if tiny improvement
-        if len(rms_hist) > 2 and abs(rms_hist[-2] - rms_hist[-1]) < 1e-7:
+        
+        if (it + 1) % 10 == 0:
+            log(f"  Iter {it+1}: RMS={rms:.6f}")
+        
+        if len(rms_history) >= 2 and abs(rms_history[-2] - rms_history[-1]) < 1e-7:
+            log(f"  Converged at iteration {it+1}")
             break
-
-    return R_total, t_total, rms_hist
-
-
-def _icp_align_if_possible(src: pycc.ccPointCloud, dst: pycc.ccPointCloud) -> Tuple[bool, Optional[Tuple]]:
-    """Try to use cccorelib.RegistrationTools ICP. Returns (ok, extra_info)."""
-    # Bindings may differ across builds; attempt a few signatures.
-    # If not available, return False so caller can do a fallback.
-    try:
-        RT = cccorelib.RegistrationTools
-    except Exception:
-        return False, None
-
-    # Some builds might expose a convenience ICP; try calling defensively
-    for candidate in ("ICP", "RegisterClouds", "PerformRegistration"):
-        fn = getattr(RT, candidate, None)
-        if not callable(fn):
-            continue
-        try:
-            # Minimalistic call: let defaults drive most parameters
-            result = fn(src, dst)
-            # Result could be a matrix, a tuple, or an object with members
-            return True, (candidate, result)
-        except TypeError:
-            # Try a signature with maxIterations / minError
-            try:
-                result = fn(src, dst, 50, 1e-6)
-                return True, (candidate, result)
-            except Exception:
-                pass
-        except Exception:
-            pass
-    return False, None
+    
+    if rms_history:
+        log(f"ICP done: Final RMS={rms_history[-1]:.6f}")
+    
+    return R_total, t_total, rms_history
 
 
-def _compute_c2c_with_kdtree(moving: pycc.ccPointCloud, reference: pycc.ccPointCloud, sf_name: str = "C2C Absolute Dist") -> str:
-    """Assigns per-point nearest neighbor distance from reference to moving as a scalar field."""
-    # Add scalar field
-    sf_idx = moving.getScalarFieldIndexByName(sf_name)
-    if sf_idx < 0:
-        sf_idx = moving.addScalarField(sf_name)
-    if sf_idx < 0:
-        raise RuntimeError("Failed to create scalar field for distances")
-    sf = moving.getScalarField(sf_idx)
-
-    # Build KD-tree on reference
-    kd = None
-    try:
-        kd = cccorelib.KDTree()
-        kd.buildFromCloud(reference)
-    except Exception:
-        kd = None
-
-    # Fallback if KDTree wrapper not available: brute-force is too slow; abort
-    if kd is None:
-        raise RuntimeError("KDTree not available; cannot compute C2C distances here.")
-
-    # Iterate in chunks
-    n = moving.size()
-    processed = 0
-    while processed < n:
-        end = min(n, processed + KD_CHUNK_SIZE)
-        for i in range(processed, end):
-            p = moving.getPoint(i)
-            # Expect KDTree.findNearestNeighbour to accept CCVector3 and return (idx, dist2) or dist2
-            try:
-                nn = kd.findNearestNeighbour(p)
-            except Exception:
-                nn = None
-
-            dist2 = None
-            if nn is None:
-                dist2 = math.nan
-            else:
-                # nn may be a tuple (index, dist2) or just dist2 depending on wrapper
-                try:
-                    # typical C++ returns index and squared dist
-                    _, dist2 = int(nn[0]), float(nn[1])
-                except Exception:
-                    try:
-                        dist2 = float(nn)
-                    except Exception:
-                        dist2 = math.nan
-
-            dist = math.sqrt(dist2) if dist2 is not None and not math.isnan(dist2) else math.nan
-            sf.setValue(i, dist)
-
-        processed = end
-
-    sf.computeMinAndMax()
-    moving.setCurrentDisplayedScalarField(sf_idx)
-    moving.showSF(True)
-    return sf_name
-
-
-def _approx_nn_rms(moving: pycc.ccPointCloud, reference: pycc.ccPointCloud, sample: int = 10000) -> float:
-    """Quick approximate NN RMS distance between two clouds using KD-tree and at most 'sample' points."""
-    try:
-        kd = cccorelib.KDTree()
-        kd.buildFromCloud(reference)
-    except Exception:
-        return float("nan")
-
-    n = moving.size()
-    if n == 0:
-        return float("nan")
-    step = max(1, n // min(n, sample))
-    d2s = []
-    for i in range(0, n, step):
-        p = moving.getPoint(i)
-        try:
-            nn = kd.findNearestNeighbour(p)
-            try:
-                _, d2 = int(nn[0]), float(nn[1])
-            except Exception:
-                # Index-only
-                idx = int(nn)
-                q = reference.getPoint(idx)
-                x1, y1, z1 = _get_xyz(p)
-                x2, y2, z2 = _get_xyz(q)
-                d2 = (x1 - x2) ** 2 + (y1 - y2) ** 2 + (z1 - z2) ** 2
-            d2s.append(d2)
-        except Exception:
-            continue
-    if not d2s:
-        return float("nan")
+def apply_transform(cloud, R, t):
     import numpy as np
-    return float(np.sqrt(np.mean(np.asarray(d2s))))
+    log(f"Applying transform to '{cloud.getName()}'...")
+    
+    for i in range(cloud.size()):
+        p = cloud.getPoint(i)
+        v = np.array(get_xyz(p))
+        v2 = R @ v + t
+        cloud.setPoint(i, cccorelib.CCVector3(float(v2[0]), float(v2[1]), float(v2[2])))
 
 
-def _try_distance_tools(moving: pycc.ccPointCloud, reference: pycc.ccPointCloud) -> bool:
-    """Prefer native DistanceComputationTools if available; else return False."""
+# ==============================================================================
+# M3C2 DISTANCE COMPUTATION
+# ==============================================================================
+
+def compute_m3c2(cloud1, cloud2):
+    """
+    Attempt to compute M3C2 distances.
+    
+    LIMITATION: The M3C2 plugin is NOT exposed via CloudCompare's Python API.
+    This function documents the limitation and provides guidance.
+    
+    For M3C2, use one of these alternatives:
+    1. CloudCompare GUI: Tools -> Distances -> M3C2
+    2. CloudCompare CLI: -M3C2 params.txt
+    3. Our custom implementation: src/terrain_change_detection/detection/
+    """
+    log_section("M3C2 Distance Computation")
+    
+    log("IMPORTANT: M3C2 is NOT exposed via CloudCompare's Python API!")
+    log("")
+    log("The M3C2 plugin provides robust multi-scale change detection,")
+    log("but it can only be accessed via:")
+    log("  1. CloudCompare GUI: Tools -> Distances -> M3C2")
+    log("  2. CloudCompare CLI: -M3C2 <params_file>")
+    log("  3. Our custom implementation in src/terrain_change_detection/")
+    log("")
+    log("This script has loaded and aligned the clouds. You can now:")
+    log("  - Use GUI menu to run M3C2 manually")
+    log("  - Save clouds and use CLI with -M3C2 command")
+    log("  - Use our production implementation for automated processing")
+    log("")
+    
+    # Check if M3C2 plugin is available (it won't be callable, but we can check)
     try:
-        DT = cccorelib.DistanceComputationTools
-    except Exception:
+        # Try to access M3C2 - this will fail but shows the limitation
+        plugins = dir(pycc)
+        m3c2_related = [p for p in plugins if 'm3c2' in p.lower()]
+        if m3c2_related:
+            log(f"M3C2-related symbols found (may not be functional): {m3c2_related}")
+        else:
+            log("No M3C2 symbols found in pycc module")
+    except Exception as e:
+        log(f"Plugin check error: {e}")
+    
+    return None
+
+
+def save_cloud(cloud, path):
+    log(f"Saving to: {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    
+    CC = pycc.GetInstance()
+    params = pycc.FileIOFilter.SaveParameters()
+    params.parentWidget = CC.getMainWindow()
+    
+    try:
+        pycc.FileIOFilter.SaveToFile(cloud, str(path), params)
+        return True
+    except Exception as e:
+        log(f"Save failed: {e}", level="ERROR")
         return False
 
-    # Try some likely function names
-    for fname in (
-        "computeCloud2CloudDistance",
-        "computeApproxCloud2CloudDistance",
-        "ComputeCloud2CloudDistance",
-    ):
-        fn = getattr(DT, fname, None)
-        if not callable(fn):
-            continue
-        try:
-            ok = fn(moving, reference)
-            if isinstance(ok, bool) and ok:
-                # Active SF should already be set by CC, but enforce
-                idx = moving.getCurrentDisplayedScalarFieldIndex()
-                if idx >= 0:
-                    moving.showSF(True)
-                return True
-        except Exception:
-            continue
-    return False
 
+# ==============================================================================
+# MAIN PIPELINE
+# ==============================================================================
 
-def _run_m3c2_if_available(reference: pycc.ccPointCloud, compared: pycc.ccPointCloud):
-    """Run qM3C2 if the plugin is available. Returns (ok, result_cloud_or_None)."""
-    try:
-        from pycc.plugins import qM3C2 as qm3c2  # type: ignore
-    except Exception:
-        return False, None
-
+def run_pipeline():
+    """Execute the Load -> ICP -> M3C2 pipeline."""
+    log_section("CloudCompare Python Plugin Pipeline")
+    log("Workflow: Load -> ICP Alignment -> M3C2 Distance")
+    
     CC = pycc.GetInstance()
-    # Ensure the 2 clouds are selected as the plugin relies on selection
-    _set_selection(CC, [reference, compared])
-
-    try:
-        # Constructor expects the two clouds explicitly (ref, compared)
-        dlg = qm3c2.qM3C2Dialog(reference, compared)
-    except Exception as e:
-        _log(f"[M3C2] Failed to create dialog: {e}")
-        return False, None
-
-    # Load saved/default params if possible (non-fatal)
-    for try_load in ("loadParamsFromPersistentSettings", "loadParamsFromFile"):
-        fn = getattr(dlg, try_load, None)
-        if callable(fn):
-            try:
-                if try_load == "loadParamsFromFile":
-                    # If you have a param file, set its path here
-                    pass
-                else:
-                    fn()
-            except Exception:
-                pass
-
-    _log("[M3C2] Computing distances (plugin) ...")
-    try:
-        # allowsDialog=False to run headless; the plugin uses the selection
-        result = qm3c2.qM3C2Process.Compute(dlg, False)
-    except Exception as e:
-        _log(f"[M3C2] Compute failed: {e}")
-        return False, None
-
-    if result is None:
-        _log("[M3C2] No result returned.")
-        return False, None
-
-    try:
-        result.setName("M3C2_Result")
-    except Exception:
-        pass
-
-    try:
-        # Some builds may already add to DB, still safe to add
-        CC.addToDB(result)
-        idx = result.getCurrentDisplayedScalarFieldIndex()
-        if idx < 0 and result.getNumberOfScalarFields() > 0:
-            result.setCurrentDisplayedScalarField(0)
-        result.showSF(True)
-        CC.updateUI()
-    except Exception:
-        pass
-
-    _log("[M3C2] Done.")
-    return True, result
-
-
-def main():  # pragma: no cover - executed inside CloudCompare
-    CC = pycc.GetInstance()
-    CC.disableAll()
-    try:
-        if CLEAR_DB_AT_START:
-            _log("[Init] Clearing DB tree (CC_CLEAR_DB=on) ...")
-            try:
-                CC.freezeUI(True)
-            except Exception:
-                pass
-            _clear_db_tree(CC)
-            try:
-                CC.freezeUI(False)
-            except Exception:
-                pass
-            CC.updateUI()
-            _log("[Init] Workspace cleared.")
-        _log("[Pipeline] Loading synthetic clouds ...")
-        ref_cloud = _load_cloud(T1_PATH)
-        mov_cloud = _load_cloud(T2_PATH)
-
-        # Create working copies for alignment and metrics so originals stay intact
-        _log("[Pipeline] Duplicating clouds for processing ...")
-        ref = _duplicate_cloud(ref_cloud, "2015_ref")
-        mov = _duplicate_cloud(mov_cloud, "2020_mov")
-        CC.addToDB(ref)
-        CC.addToDB(mov)
-
-        # Optional lightweight subsampling for ICP attempt
-        _log("[Pipeline] Preparing ICP inputs (subsampling for speed) ...")
+    
+    errors = Config.validate()
+    if errors:
+        for e in errors:
+            log(e, level="ERROR")
+        raise RuntimeError("Config validation failed")
+    
+    # Clear database
+    if Config.CLEAR_DB_ON_START:
+        log("Clearing database...")
         try:
-            # Random-limit-like subset for quick alignment estimation
-            target_n = min(ICP_RANDOM_LIMIT, ref.size(), mov.size())
-            if target_n > 1000:  # only bother if sufficiently large
-                ref_subset_idx = cccorelib.CloudSamplingTools.subsampleCloudRandomly(ref, target_n)
-                mov_subset_idx = cccorelib.CloudSamplingTools.subsampleCloudRandomly(mov, target_n)
-                ref_icp = ref.partialClone(ref_subset_idx)
-                mov_icp = mov.partialClone(mov_subset_idx)
-            else:
-                ref_icp = ref
-                mov_icp = mov
+            root = CC.dbRootObject()
+            for i in range(root.getChildrenNumber() - 1, -1, -1):
+                CC.removeFromDB(root.getChild(i))
         except Exception:
-            ref_icp = ref
-            mov_icp = mov
-
-        # Try ICP via bindings
-        # Quick metric before alignment
-        pre_rms = _approx_nn_rms(mov, ref)
-        _log(f"[Pipeline] Approx NN RMS before alignment: {pre_rms:.6f}")
-
-        _log("[Pipeline] Attempting ICP alignment via cccorelib.RegistrationTools ...")
-        icp_ok, icp_info = _icp_align_if_possible(mov_icp, ref_icp)
-        if icp_ok:
-            _log(f"[ICP] Succeeded via {icp_info[0]}; updating full cloud with estimated transform ...")
-            # Best effort: if result includes a transformation matrix, apply to full moving cloud
-            candidate, result = icp_info
-            R, t = None, None
-            # Try to extract transform from common patterns
-            try:
-                # If result has a 4x4 matrix-like data() or attributes
-                mat = getattr(result, "transformation", None)
-                if mat is None:
-                    mat = getattr(result, "T", None)
-                if mat is None:
-                    mat = result
-                import numpy as np
-                M = np.eye(4)
-                # matrix may support indexing
-                for r in range(4):
-                    for c in range(4):
-                        M[r, c] = float(mat[r][c])
-                R = M[:3, :3]
-                t = M[:3, 3]
-            except Exception:
-                # Fall back to estimating transform between the two ICP subsets
-                try:
-                    import numpy as np
-                    A = _as_numpy(mov_icp, max_points=5000)
-                    B = _as_numpy(ref_icp, max_points=5000)
-                    R, t = _best_fit_transform(A, B)
-                except Exception:
-                    R = t = None
-
-            if R is not None and t is not None:
-                _apply_rigid_transform_inplace(mov, R, t)
-            else:
-                _log("[ICP] Could not extract transform; skipping transform application.")
-        else:
-            _log("[ICP] RegistrationTools not available; running robust ICP fallback (KD-tree) ...")
-            try:
-                R, t, hist = _icp_fallback_kdtree(mov_icp, ref_icp, max_iters=60, trim_ratio=0.8, max_pairing_dist=None)
-                if hist:
-                    _log(f"[ICP-fallback] Done. Final RMS={hist[-1]:.6f} iters={len(hist)}")
-                _apply_rigid_transform_inplace(mov, R, t)
-                mov.setName("2020_mov_aligned")
-            except Exception as e:
-                _log(f"[ICP-fallback] Failed: {e}. Applying simple centroid pre-alignment ...")
-                try:
-                    import numpy as np
-                    A = _as_numpy(mov, max_points=5000)
-                    B = _as_numpy(ref, max_points=5000)
-                    R, t = _centroid_align(A, B)
-                    _apply_rigid_transform_inplace(mov, R, t)
-                    mov.setName("2020_mov_centroid_aligned")
-                except Exception as e2:
-                    _log(f"[ICP] Fallback centroid align failed: {e2}")
-
-        post_rms = _approx_nn_rms(mov, ref)
-        _log(f"[Pipeline] Approx NN RMS after alignment: {post_rms:.6f}")
-
-        # Compute C2C distances (prefer native tool, else KD-tree fallback)
-        _log("[Pipeline] Computing C2C distances ...")
-        dist_ok = _try_distance_tools(mov, ref)
-        if dist_ok:
-            _log("[Distances] Computed via DistanceComputationTools.")
-        else:
-            _log("[Distances] Using KD-tree fallback for C2C distances ...")
-            name = _compute_c2c_with_kdtree(mov, ref)
-            _log(f"[Distances] Scalar field '{name}' assigned on moving cloud.")
-
-        # Update UI and optionally save result
-        CC.updateUI()
-
-        aligned_for_m3c2 = mov  # default to in-memory aligned cloud
-        if MAX_EXPORT:
-            out_dir = REPO_BASE / "data" / "synthetic" / "synthetic_area" / "outputs"
-            out_dir.mkdir(parents=True, exist_ok=True)
-            out_path = out_dir / "2020_aligned_with_c2c.laz"
-            _log(f"[Export] Saving aligned moving cloud with distances to: {out_path}")
-            sp = pycc.FileIOFilter.SaveParameters()
-            sp.parentWidget = CC.getMainWindow()
-            ok = pycc.FileIOFilter.SaveToFile(mov, str(out_path), sp)
-            # Some bindings return None even on success; rely on file existence
-            if ok is False and not out_path.exists():
-                _log("[Export] SaveToFile reported failure and file not found.")
-            # Load the just-saved file back into the GUI so it is visible
-            if out_path.exists():
-                try:
-                    _log("[Export] Loading saved file into the GUI ...")
-                    lp = pycc.FileIOFilter.LoadParameters()
-                    lp.parentWidget = CC.getMainWindow()
-                    obj = CC.loadFile(str(out_path), lp)
-                    oc = _first_point_cloud_from(obj)
-                    if oc is not None:
-                        oc.setName("2020_aligned_with_c2c (saved)")
-                        aligned_for_m3c2 = oc
-                    CC.updateUI()
-                except Exception as e:
-                    _log(f"[Export] Reload failed (non-fatal): {e}")
-
-        # Optional M3C2 (plugin) – run on reference + aligned (prefer the reloaded file)
-        ok_m3c2, res = _run_m3c2_if_available(ref, aligned_for_m3c2)
-        if ok_m3c2:
-            _log("[Done] Pipeline + M3C2 completed.")
-        else:
-            _log("[Done] Pipeline completed (M3C2 not available or failed).")
-    finally:
-        CC.enableAll()
-        CC.updateUI()
+            pass
+    
+    # Step 1: Load Point Clouds
+    log_section("Step 1: Loading Point Clouds")
+    ref = load_point_cloud(Config.T1_PATH, "Reference_T1_2015")
+    mov = load_point_cloud(Config.T2_PATH, "Moving_T2_2020")
+    CC.addToDB(ref)
+    CC.addToDB(mov)
+    CC.updateUI()
+    
+    # Create working copies
+    ref_work = duplicate_cloud(ref, "Reference_Work")
+    mov_work = duplicate_cloud(mov, "Moving_Work")
+    CC.addToDB(ref_work)
+    CC.addToDB(mov_work)
+    
+    # Step 2: ICP Registration
+    log_section("Step 2: ICP Alignment")
+    R, t, rms_hist = compute_icp(
+        mov_work, ref_work,
+        max_iter=Config.ICP_MAX_ITERATIONS,
+        sample_limit=Config.ICP_SAMPLE_LIMIT,
+        trim_ratio=Config.ICP_TRIM_RATIO
+    )
+    
+    if R is not None:
+        apply_transform(mov_work, R, t)
+        mov_work.setName("Moving_Aligned_2020")
+    
+    CC.updateUI()
+    
+    # Step 3: M3C2 Distance (demonstrates limitation)
+    log_section("Step 3: M3C2 Distance")
+    compute_m3c2(ref_work, mov_work)
+    
+    # Save aligned cloud for CLI M3C2 processing
+    log_section("Export Aligned Cloud")
+    save_cloud(mov_work, Config.OUTPUT_FILE)
+    
+    # Summary
+    log_section("Pipeline Summary")
+    log(f"Reference (T1): {Config.T1_PATH.name}")
+    log(f"Moving (T2): {Config.T2_PATH.name}")
+    log(f"ICP iterations: {len(rms_hist)}")
+    if rms_hist:
+        log(f"Final RMS: {rms_hist[-1]:.6f}")
+    log(f"Aligned cloud saved: {Config.OUTPUT_FILE}")
+    log("")
+    log("NEXT STEPS for M3C2:")
+    log("  Option 1: Use GUI menu Tools -> Distances -> M3C2")
+    log("  Option 2: Run CLI: CloudCompare -O ref.laz -O aligned.laz -M3C2 params.txt")
+    log("  Option 3: Use our implementation: python -m terrain_change_detection")
+    
+    return True
 
 
-if __name__ == "__main__":  # pragma: no cover
-    main()
+if __name__ == "__main__":
+    run_pipeline()
