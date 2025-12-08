@@ -38,9 +38,6 @@ python exploration/cloudcompare_cli_pipeline.py --dry-run
 Environment Variables
 ---------------------
 CLOUDCOMPARE_BIN : Path to CloudCompare executable (if not on PATH)
-
-Author: Terrain Change Detection Team
-Date: December 2024
 """
 
 from __future__ import annotations
@@ -455,6 +452,7 @@ def create_default_m3c2_params(output_path: Path) -> Path:
     Adjust based on your data characteristics.
     """
     params = """[General]
+M3C2VER=1
 ExportDensityAtProjScale=false
 ExportStdDevInfo=true
 UseMinPoints4Stat=false
