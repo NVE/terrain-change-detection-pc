@@ -9,13 +9,11 @@ WHAT THIS SCRIPT DEMONSTRATES
 -----------------------------
 1. Loading multi-temporal point clouds
 2. Point cloud subsampling using CloudSamplingTools
-3. M3C2 distance computation (if qM3C2 plugin is available)
-4. Manual transformation application via ccGLMatrix
+3. ICP registration using cccorelib.ICPRegistrationTools
+4. M3C2 distance computation (if qM3C2 plugin is available)
 
 API LIMITATIONS DISCOVERED
 --------------------------
-- ICP: ICPRegistrationTools is NOT exposed in the Python API. Only RegistrationTools
-  with transformation filters is available. For ICP, use CLI or GUI.
 - C2C: DistanceComputationTools.computeCloud2CloudDistances is NOT exposed.
   Only error measure constants are available.
 - M3C2: Available via pycc.plugins.qM3C2 IF compiled with PLUGIN_STANDARD_QM3C2=ON
@@ -214,81 +212,6 @@ def subsample_cloud(cloud, target_count):
         return cloud
 
 
-# ==============================================================================
-# ALIGNMENT USING GRAVITY CENTER
-# ==============================================================================
-
-def align_clouds_by_centroid(reference_cloud, moving_cloud):
-    """
-    Align clouds by matching their gravity centers (centroids).
-    
-    This is a simple alignment method using GeometricalAnalysisTools.ComputeGravityCenter()
-    which IS exposed in the Python API. For more precise alignment (ICP), use GUI or CLI.
-    
-    This is useful when:
-    - Clouds are roughly aligned but have a translation offset
-    - As a coarse alignment before fine registration
-    
-    Parameters
-    ----------
-    reference_cloud : ccPointCloud
-        The reference cloud (target)
-    moving_cloud : ccPointCloud
-        The cloud to be aligned (will be modified in place)
-    
-    Returns
-    -------
-    tuple
-        (success: bool, translation: CCVector3 or None)
-    """
-    log_section("Centroid-Based Alignment")
-    log(f"Reference: {reference_cloud.getName()} ({reference_cloud.size():,} points)")
-    log(f"Moving: {moving_cloud.getName()} ({moving_cloud.size():,} points)")
-    
-    try:
-        # Compute gravity centers
-        ref_center = cccorelib.GeometricalAnalysisTools.ComputeGravityCenter(reference_cloud)
-        mov_center = cccorelib.GeometricalAnalysisTools.ComputeGravityCenter(moving_cloud)
-        
-        log(f"  Reference center: ({ref_center.x:.2f}, {ref_center.y:.2f}, {ref_center.z:.2f})")
-        log(f"  Moving center: ({mov_center.x:.2f}, {mov_center.y:.2f}, {mov_center.z:.2f})")
-        
-        # Compute translation needed
-        tx = ref_center.x - mov_center.x
-        ty = ref_center.y - mov_center.y
-        tz = ref_center.z - mov_center.z
-        
-        distance = (tx**2 + ty**2 + tz**2)**0.5
-        log(f"  Translation needed: ({tx:.4f}, {ty:.4f}, {tz:.4f})")
-        log(f"  Distance: {distance:.4f}")
-        
-        if distance < 0.001:
-            log("  Clouds are already aligned (distance < 0.001)")
-            return True, None
-        
-        # Apply translation using ccGLMatrix
-        glMat = moving_cloud.getGLTransformation()
-        translation = glMat.getTranslationAsVec3D()
-        translation.x += tx
-        translation.y += ty
-        translation.z += tz
-        glMat.setTranslation(translation)
-        moving_cloud.setGLTransformation(glMat)
-        moving_cloud.applyGLTransformation_recursive()
-        
-        log("  Centroid alignment applied successfully!")
-        log("")
-        log("NOTE: This is a coarse alignment (translation only).")
-        log("For precise alignment with rotation, use:")
-        log("  1. GUI: Tools -> Registration -> Fine Registration (ICP)")
-        log("  2. CLI: CloudCompare -O ref.laz -O mov.laz -ICP")
-        
-        return True, cccorelib.CCVector3(tx, ty, tz)
-        
-    except Exception as e:
-        log(f"Centroid alignment failed: {e}", level="ERROR")
-        return False, None
-
 
 # ==============================================================================
 # M3C2 DISTANCE COMPUTATION
@@ -372,120 +295,143 @@ def compute_m3c2(cloud1, cloud2, params_file=None):
         return None
 
 
+
 # ==============================================================================
-# TRANSFORMATION UTILITIES
+# ICP REGISTRATION
 # ==============================================================================
 
-def apply_translation(cloud, tx, ty, tz):
+def register_with_icp(reference_cloud, moving_cloud):
     """
-    Apply a translation to a point cloud using ccGLMatrix.
+    Register (align) two point clouds using ICP.
     
-    Based on official example:
-    https://tmontaigu.github.io/CloudCompare-PythonRuntime/examples.html#translation
+    Uses: cccorelib.ICPRegistrationTools.Register()
     
     Parameters
     ----------
-    cloud : ccPointCloud
-        The cloud to transform
-    tx, ty, tz : float
-        Translation in X, Y, Z
+    reference_cloud : ccPointCloud
+        The reference cloud (model - fixed)
+    moving_cloud : ccPointCloud
+        The cloud to be aligned (data - will be transformed)
+    
+    Returns
+    -------
+    tuple
+        (success: bool, rms: float, transform: PointProjectionTools.Transformation or None)
     """
-    log(f"Applying translation ({tx}, {ty}, {tz}) to '{cloud.getName()}'...")
+    log_section("ICP Registration")
+    log(f"Model (reference): {reference_cloud.getName()} ({reference_cloud.size():,} points)")
+    log(f"Data (moving): {moving_cloud.getName()} ({moving_cloud.size():,} points)")
     
-    glMat = cloud.getGLTransformation()
-    translation = glMat.getTranslationAsVec3D()
-    translation.x += tx
-    translation.y += ty
-    translation.z += tz
-    glMat.setTranslation(translation)
-    cloud.setGLTransformation(glMat)
-    cloud.applyGLTransformation_recursive()
-    
-    log("  Translation applied")
-
-
-def apply_rotation(cloud, angle_degrees, axis='z'):
-    """
-    Apply a rotation to a point cloud around its center.
-    
-    Based on official example:
-    https://tmontaigu.github.io/CloudCompare-PythonRuntime/examples.html#rotation
-    
-    Parameters
-    ----------
-    cloud : ccPointCloud
-        The cloud to transform
-    angle_degrees : float
-        Rotation angle in degrees
-    axis : str
-        Rotation axis: 'x', 'y', or 'z'
-    """
-    log(f"Applying rotation ({angle_degrees}° around {axis}) to '{cloud.getName()}'...")
-    
-    # Rotation axis vector
-    axis_vectors = {
-        'x': cccorelib.CCVector3(1.0, 0.0, 0.0),
-        'y': cccorelib.CCVector3(0.0, 1.0, 0.0),
-        'z': cccorelib.CCVector3(0.0, 0.0, 1.0),
-    }
-    axis_vec = axis_vectors.get(axis.lower(), axis_vectors['z'])
-    
-    # Get center of the cloud
-    center = cloud.getDisplayBB_recursive(True).getCenter()
-    
-    # Step 1: Translate to origin
-    glTrans = cloud.getGLTransformation()
-    translation = glTrans.getTranslationAsVec3D()
-    translation = translation - center
-    glTrans.setTranslation(translation)
-    cloud.setGLTransformation(glTrans)
-    cloud.applyGLTransformation_recursive()
-    
-    # Step 2: Rotate
-    glRot = pycc.ccGLMatrix()
-    glRot.initFromParameters(
-        math.radians(angle_degrees),
-        axis_vec,
-        cccorelib.CCVector3(0.0, 0.0, 0.0)
-    )
-    
-    glMat = cloud.getGLTransformation()
-    glMat = glMat * glRot
-    
-    # Step 3: Translate back
-    translation = glMat.getTranslationAsVec3D()
-    translation = translation + center
-    glMat.setTranslation(translation)
-    cloud.setGLTransformation(glMat)
-    cloud.applyGLTransformation_recursive()
-    
-    log("  Rotation applied")
-
-
-# ==============================================================================
-# ICP REGISTRATION DOCUMENTATION
-# ==============================================================================
-
-def document_icp_limitation():
-    """
-    Document the ICP limitation in the Python Plugin API.
-    
-    Based on API research, ICPRegistrationTools is NOT exposed in the Python API.
-    Only RegistrationTools with transformation filters is available.
-    """
-    log_section("ICP Registration - API Limitation")
-    log("")
-    log("ICPRegistrationTools is NOT exposed in the Python Plugin API.")
-    log("The cccorelib module only exposes RegistrationTools with filters:")
-    log("  - SKIP_NONE, SKIP_ROTATION, SKIP_TRANSLATION, etc.")
-    log("")
-    log("For ICP alignment, use one of these alternatives:")
-    log("  1. CloudCompare GUI: Tools -> Registration -> Fine Registration (ICP)")
-    log("  2. CloudCompare CLI: CloudCompare -O ref.laz -O mov.laz -ICP")
-    log("  3. Our custom Python implementation in src/terrain_change_detection/")
-    log("")
-    log("The clouds are loaded and ready for manual ICP via the GUI.")
-    log("")
+    try:
+        # Set up ICP parameters with defaults
+        params = cccorelib.ICPRegistrationTools.Parameters()
+        # Optionally configure params here:
+        # params.convType = cccorelib.ICPRegistrationTools.CONVERGENCE_TYPE_*
+        # params.adjustScale = False
+        # params.filterOutFarthestPoints = True
+        # params.samplingLimit = 50000
+        # params.maxIterationCount = 20
+        
+        # Prepare transformation output container
+        total_trans = cccorelib.PointProjectionTools.Transformation()
+        
+        # Note: final_rms and final_point_count are modified in place by Register()
+        # In Python, we pass them but capture the result's attributes
+        final_rms = 0.0
+        final_point_count = 0
+        
+        log("Running ICP registration...")
+        
+        # Run ICP registration
+        # Parameters:
+        #   - model_cloud: reference cloud (GenericIndexedCloudPersist*)
+        #   - model_mesh: mesh model or None for cloud-to-cloud
+        #   - data_cloud: cloud to align (GenericIndexedCloudPersist*)
+        #   - params: ICP parameters
+        #   - total_trans: output transformation
+        #   - final_rms: output RMS (modified in place)
+        #   - final_point_count: output point count (modified in place)
+        #   - progress_callback: optional progress callback or None
+        result = cccorelib.ICPRegistrationTools.Register(
+            reference_cloud,  # model (fixed)
+            None,             # no mesh model (cloud-to-cloud)
+            moving_cloud,     # data (to be transformed)
+            params,
+            total_trans,
+            final_rms,
+            final_point_count,
+            None              # no progress callback
+        )
+        
+        log(f"ICP result code: {result}")
+        log(f"Final RMS: {final_rms}")
+        log(f"Final point count: {final_point_count}")
+        
+        # Check result - ICP_APPLY_TRANSFO (value 1) indicates success
+        # Other values: ICP_NOTHING_TO_DO (0), ICP_ERROR (-1)
+        if result == cccorelib.ICPRegistrationTools.ICP_APPLY_TRANSFO:
+            log("ICP converged successfully!")
+            
+            # Apply the transformation to the moving cloud
+            # The transformation is stored in total_trans
+            # We need to convert it to a ccGLMatrix and apply it
+            
+            # Get rotation matrix (R) and translation vector (T)
+            # total_trans.R is a 3x3 rotation matrix as a flat array
+            # total_trans.T is a CCVector3d translation
+            
+            log("Applying transformation to moving cloud...")
+            
+            # Log what we have
+            log(f"  Transformation attributes: {[m for m in dir(total_trans) if not m.startswith('_')]}")
+            
+            # The Transformation object has an 'apply' method!
+            # Also has: R (rotation matrix), T (translation), s (scale)
+            if hasattr(total_trans, 'apply'):
+                try:
+                    # Apply the full transformation (rotation + translation + scale) to the cloud
+                    total_trans.apply(moving_cloud)
+                    log("  Full transformation (rotation + translation) applied successfully!")
+                    
+                    # Log transformation details
+                    if hasattr(total_trans, 'T'):
+                        T = total_trans.T
+                        log(f"  Translation: ({T.x:.4f}, {T.y:.4f}, {T.z:.4f})")
+                    if hasattr(total_trans, 's'):
+                        log(f"  Scale: {total_trans.s}")
+                        
+                except Exception as apply_err:
+                    log(f"  apply() failed: {apply_err}", level="WARNING")
+                    # Fallback to translation only
+                    if hasattr(total_trans, 'T'):
+                        T = total_trans.T
+                        log(f"  Falling back to translation only: ({T.x:.4f}, {T.y:.4f}, {T.z:.4f})")
+                        glMat = moving_cloud.getGLTransformation()
+                        translation = glMat.getTranslationAsVec3D()
+                        translation.x += T.x
+                        translation.y += T.y
+                        translation.z += T.z
+                        glMat.setTranslation(translation)
+                        moving_cloud.setGLTransformation(glMat)
+                        moving_cloud.applyGLTransformation_recursive()
+            else:
+                log("  No apply() method found on Transformation", level="WARNING")
+            
+            log("ICP completed!")
+            return True, final_rms, total_trans
+            
+        elif result == cccorelib.ICPRegistrationTools.ICP_NOTHING_TO_DO:
+            log("ICP: Nothing to do (clouds already aligned)")
+            return True, 0.0, None
+        else:
+            log(f"ICP failed with result code: {result}", level="ERROR")
+            return False, 0.0, None
+            
+    except Exception as e:
+        log(f"ICP registration failed: {e}", level="ERROR")
+        import traceback
+        log(traceback.format_exc(), level="ERROR")
+        return False, 0.0, None
 
 
 # ==============================================================================
@@ -511,8 +457,7 @@ def run_pipeline():
     log("Available features:")
     log(f"  - qM3C2 plugin: {'YES' if HAS_QM3C2 else 'NO'}")
     log(f"  - CloudSamplingTools: YES")
-    log(f"  - Transformations (ccGLMatrix): YES")
-    log(f"  - ICPRegistrationTools: NO (not exposed in Python API)")
+    log(f"  - ICPRegistrationTools: YES")
     log("")
     
     # Clear database if requested
@@ -544,12 +489,9 @@ def run_pipeline():
         CC.addToDB(mov_sub)
     CC.updateUI()
     
-    # Step 3: Centroid-based alignment (coarse alignment)
-    align_success, _ = align_clouds_by_centroid(ref, mov)
+    # Step 3: ICP registration (fine alignment)
+    icp_success, icp_rms, icp_transform = register_with_icp(ref, mov)
     CC.updateUI()
-    
-    # Step 4: Document ICP limitation (fine alignment not available via Python API)
-    document_icp_limitation()
     
     # Step 5: M3C2 Distance Computation
     m3c2_result = None
@@ -574,16 +516,16 @@ def run_pipeline():
         log(f"Reference subsampled: {ref_sub.size():,} points")
     if mov_sub != mov:
         log(f"Moving subsampled: {mov_sub.size():,} points")
+    log(f"ICP registration: {'SUCCESS (RMS=' + str(icp_rms) + ')' if icp_success else 'FAILED'}")
     log(f"M3C2 computed: {'YES' if m3c2_result else 'NO'}")
     log("")
     log("WHAT WORKS in Python Plugin:")
     log("  [OK] Loading point clouds")
     log("  [OK] Cloud subsampling (CloudSamplingTools)")
-    log("  [OK] Point cloud transformations (ccGLMatrix)")
+    log("  [OK] ICP registration (ICPRegistrationTools)")
     log(f"  [{'OK' if HAS_QM3C2 else '--'}] M3C2 distance (requires qM3C2 plugin)")
     log("")
     log("WHAT REQUIRES CLI/GUI:")
-    log("  [--] ICP Registration (ICPRegistrationTools not exposed)")
     log("  [--] C2C Distance (DistanceComputationTools.computeCloud2CloudDistances not exposed)")
     log("")
     log("For production workflows, use our custom Python implementation")
