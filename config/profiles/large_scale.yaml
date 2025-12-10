@@ -82,7 +82,7 @@ detection:
 
 visualization:
   # plotly | pyvista | pyvistaqt
-  backend: pyvista
+  backend: plotly
   # Max points to draw for interactive views
   sample_size: 100000
 
@@ -115,7 +115,7 @@ outofcore:
 
 parallel:
   # Master switch for CPU parallelization
-  enabled: false
+  enabled: true
   # Number of worker processes; null = auto-detect (cpu_count - 1)
   n_workers: null
   # Soft memory limit (GB) to guide worker count; null = no limit
@@ -124,7 +124,7 @@ parallel:
 gpu:
   # Master switch for GPU acceleration (graceful CPU fallback if unavailable)
   # WARNING: Cannot be used simultaneously with parallel.enabled due to CUDA fork limitations
-  enabled: true
+  enabled: false
   # Max GPU memory to use in GB; null = auto-detect (80% of available)
   gpu_memory_limit_gb: null
   # Automatically fall back to CPU if GPU initialization fails

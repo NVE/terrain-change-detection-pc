@@ -32,7 +32,7 @@ alignment:
   # Number of points sampled per epoch for alignment (approx.)
   subsample_size: 30000
   coarse:
-    enabled: true
+    enabled: false
     # Coarse alignment method: centroid | pca | phase | open3d_fpfh | none
     method: centroid
     # Voxel size (m) for coarse features/downsampling
@@ -42,13 +42,13 @@ alignment:
 
 detection:
   dod:
-    enabled: true
+    enabled: false
     # DEM grid resolution in meters
     cell_size: 1.0
     # Aggregation for per-cell elevation: mean | median | p95 | p5
     aggregator: mean
   c2c:
-    enabled: true
+    enabled: false
     # Algorithm: euclidean | vertical_plane
     mode: vertical_plane
     # Lower point budget for quick C2C tests

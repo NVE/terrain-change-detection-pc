@@ -61,13 +61,13 @@ alignment:
 
 detection:
   dod:
-    enabled: true
+    enabled: false
     # DEM grid resolution in meters
     cell_size: 1.0
     # Aggregation for per-cell elevation: mean | median | p95 | p5
     aggregator: mean
   c2c:
-    enabled: true
+    enabled: false
     # Algorithm: euclidean | vertical_plane
     mode: euclidean
     # Upper bound used by some example flows for sampling/limits
@@ -83,7 +83,7 @@ detection:
     # Use automatic parameter tuning (true) or fixed parameters below (false)
     use_autotune: true
     # Number of core points at which to compute M3C2 distances
-    core_points: 100000
+    core_points: 50000
     autotune:
       # Source for density estimate: header | sample
       source: header

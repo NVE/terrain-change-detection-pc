@@ -54,13 +54,13 @@ alignment:
 
 detection:
   dod:
-    enabled: true
+    enabled: false
     # DEM grid resolution in meters
     cell_size: 1.0
     # Aggregation for per-cell elevation
     aggregator: mean
   c2c:
-    enabled: true
+    enabled: false
     mode: euclidean
     max_points: 9000000
     max_distance: 10.0
@@ -70,7 +70,7 @@ detection:
   m3c2:
     enabled: true
     use_autotune: true
-    core_points: 100000
+    core_points: 50000
     autotune:
       source: header
       target_neighbors: 16
@@ -97,7 +97,7 @@ performance:
 
 outofcore:
   # Out-of-core processing - disable for smaller clipped datasets
-  enabled: true
+  enabled: false
   tile_size_m: 500.0
   halo_m: 20.0
   chunk_points: 1000000
@@ -108,7 +108,7 @@ outofcore:
 
 parallel:
   # CPU parallelization - can enable for faster processing
-  enabled: true
+  enabled: false
   n_workers: null
   memory_limit_gb: null
 

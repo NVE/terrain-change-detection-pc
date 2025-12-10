@@ -50,7 +50,7 @@ detection:
     # Aggregation for per-cell elevation
     aggregator: mean
   c2c:
-    enabled: true
+    enabled: false
     # Algorithm: euclidean | vertical_plane
     mode: euclidean
     # Upper bound for sampling/limits
