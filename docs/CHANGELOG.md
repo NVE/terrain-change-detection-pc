@@ -1,5 +1,58 @@
 ﻿# Changelog and Implementation Notes
 
+## 2025-12-11 - Local Coordinate Transformation Infrastructure
+
+### Summary
+Implemented local coordinate transformation infrastructure to handle large UTM coordinates (e.g., Easting ~500,000m, Northing ~6,000,000m) and prevent floating-point precision issues during numerical computations, especially on GPUs with float32 limitations.
+
+### Key Changes
+
+**New Coordinate Transform Utility** (`src/terrain_change_detection/utils/coordinate_transform.py`):
+- `LocalCoordinateTransform` dataclass with offset storage
+- Creation methods: `from_bounds()`, `from_centroid()`, `from_first_point()`
+- Transform methods: `to_local()`, `to_global()`, `transform_bounds()`
+- Serialization: `to_dict()`, `from_dict()` for persistence
+- Exported via `__init__.py` for project-wide access
+
+**Configuration Updates** (`config.py`):
+- New `CoordinateConfig` class with:
+  - `use_local_coordinates`: Enable/disable feature (default: True)
+  - `origin_method`: "min_bounds" | "centroid" | "first_point" (default: min_bounds)
+  - `include_z_offset`: Whether to offset Z (default: False)
+
+**Data Loading Integration**:
+- `PointCloudLoader.load(transform=...)`: Apply transform during loading, store in metadata
+- `LaspyStreamReader.stream_points(transform=...)`: Apply transform to streamed chunks
+- `BatchLoader.load_dataset(transform=...)`: Pass transform through to file loading
+
+**Export Utilities Integration**:
+- `export_points_to_laz(local_transform=...)`: Reverts to global coords before writing LAZ
+- `export_distances_to_geotiff(local_transform=...)`: Reverts to global coords for raster
+- `apply_transform_to_files(local_transform=...)`: Reverts in streaming alignment export
+
+### New Files
+- `src/terrain_change_detection/utils/coordinate_transform.py`: Core transform utility
+- `tests/test_coordinate_transform.py`: 24 unit tests covering all functionality
+
+### Testing
+- 27 tests passing
+- Round-trip precision verified (to_local → to_global preserves coordinates)
+- Large UTM coordinate handling validated
+
+### Usage Notes
+
+The infrastructure is in place but not yet wired into the main workflow. To complete integration:
+1. Compute transform from T1 bounds in `run_workflow.py`
+2. Pass transform to all loading/streaming calls
+3. Pass transform to export calls
+
+### Migration Notes
+- No breaking changes - all new parameters are optional
+- Existing code continues to work without modification
+- Feature is opt-in via configuration
+
+---
+
 ## 2025-12-11 - Output File Export (LAZ Point Clouds & GeoTIFF Rasters)
 
 ### Summary

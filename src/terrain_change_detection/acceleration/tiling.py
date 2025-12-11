@@ -19,9 +19,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator, List, Optional, Tuple, Dict
+from typing import Iterable, Iterator, List, Optional, Tuple, Dict, TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from ..utils.coordinate_transform import LocalCoordinateTransform
 
 from ..utils.point_cloud_filters import create_classification_mask
 from .gpu_array_ops import ArrayBackend, get_array_backend, ensure_cpu_array, is_gpu_array
@@ -484,7 +487,12 @@ class LaspyStreamReader:
         # No classification attribute: accept all points
         return np.ones(n, dtype=bool)
 
-    def stream_points(self, bbox: Optional[Bounds2D] = None) -> Iterator[np.ndarray]:
+    def stream_points(
+        self,
+        bbox: Optional[Bounds2D] = None,
+        *,
+        transform: Optional["LocalCoordinateTransform"] = None,
+    ) -> Iterator[np.ndarray]:
         """Stream point coordinates from all files with optional spatial filtering.
         
         Points are read in chunks, filtered by classification and optionally by
@@ -493,6 +501,8 @@ class LaspyStreamReader:
         Args:
             bbox: Optional bounding box to filter points spatially.
                 Only points within bbox are yielded.
+            transform: Optional LocalCoordinateTransform to apply to points.
+                If provided, points are transformed to local coordinates.
                 
         Yields:
             Nx3 arrays of filtered point coordinates [X, Y, Z]
@@ -525,6 +535,11 @@ class LaspyStreamReader:
                     
                     # Yield filtered points as Nx3 array
                     pts = np.column_stack([x[mask], y[mask], z[mask]])
+                    
+                    # Apply local coordinate transform if provided
+                    if transform is not None:
+                        pts = transform.to_local(pts)
+                    
                     yield pts
 
 

@@ -6,10 +6,13 @@ in a streaming fashion, enabling out-of-core alignment processing.
 """
 
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 import numpy as np
 
 from ..utils.logging import setup_logger
+
+if TYPE_CHECKING:
+    from ..utils.coordinate_transform import LocalCoordinateTransform
 
 logger = setup_logger(__name__)
 
@@ -23,6 +26,7 @@ def apply_transform_to_files(
     classification_filter: Optional[List[int]] = None,
     chunk_points: int = 1_000_000,
     preserve_attributes: bool = True,
+    local_transform: Optional["LocalCoordinateTransform"] = None,
 ) -> List[str]:
     """Apply a transformation matrix to LAZ files in streaming fashion.
     
@@ -37,6 +41,7 @@ def apply_transform_to_files(
         classification_filter: Optional list of classification codes to process
         chunk_points: Number of points to process per chunk
         preserve_attributes: If True, copy all attributes to output files
+        local_transform: If provided, reverts points from local to global coordinates
         
     Returns:
         List of output file paths

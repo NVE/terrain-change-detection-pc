@@ -35,6 +35,22 @@ class PreprocessingConfig(BaseModel):
     classification_filter: List[int] = Field(default_factory=lambda: [2])
 
 
+class CoordinateConfig(BaseModel):
+    """Configuration for local coordinate transformation."""
+    use_local_coordinates: bool = Field(
+        default=True,
+        description="Transform to local coordinates for numerical stability during processing"
+    )
+    origin_method: Literal["min_bounds", "centroid", "first_point"] = Field(
+        default="min_bounds",
+        description="Method for determining local origin: 'min_bounds' guarantees positive coords"
+    )
+    include_z_offset: bool = Field(
+        default=False,
+        description="Also offset Z coordinates (usually not needed for terrain data)"
+    )
+
+
 class DiscoveryConfig(BaseModel):
     source_type: Literal["hoydedata", "drone"] = Field(
         default="hoydedata",
@@ -244,6 +260,7 @@ class AppConfig(BaseModel):
 
     paths: PathsConfig = Field(default_factory=PathsConfig)
     preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
+    coordinates: CoordinateConfig = Field(default_factory=CoordinateConfig)
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
     clipping: ClippingConfig = Field(default_factory=ClippingConfig)
     alignment: AlignmentICPConfig = Field(default_factory=AlignmentICPConfig)

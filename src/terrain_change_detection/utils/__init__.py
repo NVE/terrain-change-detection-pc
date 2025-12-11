@@ -6,6 +6,7 @@ This module provides common utility functions used across the terrain change det
 - Logging and progress tracking
 - Point cloud filtering utilities
 - Export utilities for LAZ and GeoTIFF
+- Coordinate transformation utilities
 """
 
 from .logging import setup_logger
@@ -20,6 +21,7 @@ from .export import (
     export_distances_to_geotiff,
     detect_crs_from_laz,
 )
+from .coordinate_transform import LocalCoordinateTransform
 
 __all__ = [
     "setup_logger",
@@ -30,4 +32,5 @@ __all__ = [
     "export_dod_to_geotiff",
     "export_distances_to_geotiff",
     "detect_crs_from_laz",
+    "LocalCoordinateTransform",
 ]
