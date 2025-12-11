@@ -1,5 +1,103 @@
 ﻿# Changelog and Implementation Notes
 
+## 2025-12-11 - Output File Export (LAZ Point Clouds & GeoTIFF Rasters)
+
+### Summary
+Implemented comprehensive output file export capabilities for terrain change detection results, enabling QGIS-compatible outputs. Point cloud results (M3C2 core points, C2C source points) can now be exported as LAZ files with distance values as extra dimensions. Raster outputs (DoD, interpolated M3C2/C2C distances) can be exported as GeoTIFF files with proper CRS metadata.
+
+### Key Changes
+
+**New Export Module** (`src/terrain_change_detection/utils/export.py`):
+- `export_points_to_laz()`: Export points with distance as extra dimension, supports uncertainty/significant flags
+- `export_dod_to_geotiff()`: Export DoD result directly to GeoTIFF
+- `export_distances_to_geotiff()`: Interpolate point distances to raster grid using KDTree nearest-neighbor
+- `detect_crs_from_laz()`: Auto-detect CRS from LAZ file WKT VLRs
+- `_epsg_to_wkt()`: Convert EPSG codes to WKT using pyproj
+
+**Configuration Updates** (`config.py`, all YAML files):
+- `paths.output_dir`: Base directory for exports (defaults to `base_dir/output/`)
+- `paths.output_crs`: Fallback CRS when auto-detection fails (default: EPSG:25833)
+- `alignment.export_aligned_pc`: Export aligned T2 point cloud
+- `detection.dod.export_raster`: Export DoD as GeoTIFF
+- `detection.c2c.export_pc`, `detection.c2c.export_raster`: C2C exports
+- `detection.m3c2.export_pc`, `detection.m3c2.export_raster`: M3C2 exports (enabled by default)
+
+**Workflow Integration** (`scripts/run_workflow.py`):
+- Export calls added after DoD, C2C, and M3C2 computations
+- CRS auto-detected from input LAZ files with fallback to config
+- Flat output structure: files saved as `{method}_{area}_{t1}_{t2}.{ext}`
+
+**New Dependencies**:
+- `rasterio>=1.3`: Required for GeoTIFF operations
+
+### Output Files
+
+All exports saved to `{base_dir}/output/`:
+
+| File | Format | Content |
+|------|--------|---------|
+| `dod_{area}_{t1}_{t2}.tif` | GeoTIFF | DoD raster grid |
+| `c2c_{area}_{t1}_{t2}.laz` | LAZ | Source points with `distance` dimension |
+| `c2c_{area}_{t1}_{t2}.tif` | GeoTIFF | C2C interpolated to raster |
+| `m3c2_{area}_{t1}_{t2}.laz` | LAZ | Core points with `distance`, `uncertainty`, `significant` |
+| `m3c2_{area}_{t1}_{t2}.tif` | GeoTIFF | M3C2 interpolated to raster |
+
+### New Files
+- `src/terrain_change_detection/utils/export.py`: Core export module
+- `tests/test_export.py`: 9 test cases for export functionality
+
+### Usage Example
+
+```yaml
+# Enable exports in config
+paths:
+  output_crs: "EPSG:25833"
+detection:
+  m3c2:
+    export_pc: true    # LAZ with distances
+    export_raster: true  # GeoTIFF
+```
+
+Run workflow normally; outputs appear in `data/raw/output/`.
+
+---
+
+## 2025-12-11 - M3C2 Core Points Percentage
+
+### Summary
+Added ability to specify M3C2 core points as a percentage of reference ground points instead of an absolute number. This provides more intuitive and dataset-adaptive configuration, especially when processing datasets of varying sizes.
+
+### Key Changes
+
+**Configuration** (`config.py`, all YAML files):
+- Added `core_points_percent` field to `DetectionM3C2Config` (default: 10.0)
+- Original `core_points` field remains for backward compatibility
+- Percentage takes precedence; absolute count used only if percentage is null/not set
+
+**Workflow Logic** (`scripts/run_workflow.py`):
+- In-memory mode: calculates from loaded array length
+- Streaming mode: uses LAS header point counts for efficiency (no data loading)
+- Logs the calculated core point count for transparency
+
+### Configuration Example
+
+```yaml
+detection:
+  m3c2:
+    # Use 10% of reference ground points as M3C2 core points
+    core_points_percent: 10.0
+    # Or specify absolute count (takes precedence if set):
+    # core_points: 50000
+```
+
+### Migration Notes
+
+- Default changed from `core_points: 50000` to `core_points_percent: 10.0`
+- All YAML configs updated to use percentage-based configuration
+- Backward compatible: existing configs with `core_points` still work
+
+---
+
 ## 2025-12-03 - Area Clipping Feature
 
 ### Summary
