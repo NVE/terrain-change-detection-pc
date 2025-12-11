@@ -9,6 +9,10 @@ paths:
   # Expected structure: base_dir/area/time_period/[data/]*.laz
   # NOTE: base_dir should point to the parent of area folders, NOT to an area folder itself
   base_dir: data/raw
+  # Base directory for all output files; null = auto-generate in base_dir/output/
+  output_dir: null
+  # CRS for outputs (auto-detect from LAZ if possible, fallback to this)
+  output_crs: "EPSG:25833"
 
 preprocessing:
   # If true, keep only LAS class 2 (ground) unless classification_filter is set
@@ -50,6 +54,8 @@ alignment:
   # Convergence criteria for motion-based stopping
   convergence_translation_epsilon: 1.0e-4
   convergence_rotation_epsilon_deg: 0.1
+  # Export aligned T2 point cloud as LAZ file
+  export_aligned_pc: false
   coarse:  # Only use if point clouds are significantly misaligned
     enabled: false
     # Coarse alignment method: centroid | pca | phase | open3d_fpfh | none
@@ -66,6 +72,8 @@ detection:
     cell_size: 1.0
     # Aggregation for per-cell elevation: mean | median | p95 | p5
     aggregator: mean
+    # Export DoD as GeoTIFF raster
+    export_raster: false
   c2c:
     enabled: false
     # Algorithm: euclidean | vertical_plane
@@ -78,12 +86,16 @@ detection:
     radius: null
     k_neighbors: 20
     min_neighbors: 6
+    # Export C2C distances as LAZ point cloud
+    export_pc: false
+    # Export C2C as interpolated GeoTIFF raster
+    export_raster: false
   m3c2:
     enabled: true
     # Use automatic parameter tuning (true) or fixed parameters below (false)
     use_autotune: true
     # Percentage of reference ground points to use as M3C2 core points
-    core_points_percent: 100.0
+    core_points_percent: 10.0
     # (Optional) Absolute number of core points - overrides percentage if set
     # core_points: null
     autotune:
@@ -104,6 +116,10 @@ detection:
     ep:
       # Number of worker processes/threads; null = OS default
       workers: null
+    # Export M3C2 core points with distances as LAZ point cloud
+    export_pc: true
+    # Export M3C2 distances as interpolated GeoTIFF raster
+    export_raster: true
 
 visualization:
   # plotly | pyvista | pyvistaqt

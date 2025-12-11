@@ -20,6 +20,10 @@
 paths:
   # Root folder containing large synthetic dataset
   base_dir: data/large_synthetic
+  # Base directory for all output files; null = auto-generate in base_dir/output/
+  output_dir: null
+  # CRS for outputs (auto-detect from LAZ if possible, fallback to this)
+  output_crs: "EPSG:25833"
 
 preprocessing:
   # Keep only LAS class 2 (ground)
@@ -56,6 +60,8 @@ alignment:
   max_correspondence_distance: 2.0
   # Larger subsample for better alignment with big datasets
   subsample_size: 100000
+  # Export aligned T2 point cloud as LAZ file
+  export_aligned_pc: false
   coarse:
     # Disabled - no misalignment in synthetic data
     enabled: false
@@ -73,6 +79,8 @@ detection:
     cell_size: 2.0
     # Aggregation for per-cell elevation
     aggregator: mean
+    # Export DoD as GeoTIFF raster
+    export_raster: true
   c2c:
     enabled: true
     # Algorithm: euclidean | vertical_plane
@@ -85,6 +93,10 @@ detection:
     radius: null
     k_neighbors: 20
     min_neighbors: 6
+    # Export C2C distances as LAZ point cloud
+    export_pc: true
+    # Export C2C as interpolated GeoTIFF raster
+    export_raster: true
   m3c2:
     enabled: true
     # Use automatic parameter tuning
@@ -103,6 +115,10 @@ detection:
       depth_factor: null
     ep:
       workers: null
+    # Export M3C2 core points with distances as LAZ point cloud
+    export_pc: true
+    # Export M3C2 distances as interpolated GeoTIFF raster
+    export_raster: true
 
 visualization:
   # plotly | pyvista | pyvistaqt

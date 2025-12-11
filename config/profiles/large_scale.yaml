@@ -12,6 +12,10 @@
 paths:
   # Root folder containing your datasets
   base_dir: data/raw
+  # Base directory for all output files; null = auto-generate in base_dir/output/
+  output_dir: null
+  # CRS for outputs (auto-detect from LAZ if possible, fallback to this)
+  output_crs: "EPSG:25833"
 
 preprocessing:
   # Keep only LAS class 2 (ground) unless classification_filter is set
@@ -31,6 +35,8 @@ alignment:
   max_correspondence_distance: 2.0
   # Number of points sampled per epoch for alignment (approx.)
   subsample_size: 100000
+  # Export aligned T2 point cloud as LAZ file
+  export_aligned_pc: false
   coarse:
     enabled: true
     # Coarse alignment method: centroid | pca | phase | open3d_fpfh | none
@@ -47,6 +53,8 @@ detection:
     cell_size: 2.0
     # Aggregation for per-cell elevation: mean | median | p95 | p5
     aggregator: mean
+    # Export DoD as GeoTIFF raster
+    export_raster: true
   c2c:
     enabled: false
     # Algorithm: euclidean | vertical_plane
@@ -59,6 +67,10 @@ detection:
     radius: null
     k_neighbors: 20
     min_neighbors: 6
+    # Export C2C distances as LAZ point cloud
+    export_pc: false
+    # Export C2C as interpolated GeoTIFF raster
+    export_raster: false
   m3c2:
     enabled: false
     # Use automatic parameter tuning (true) or fixed parameters below (false)
@@ -80,6 +92,10 @@ detection:
     ep:
       # Number of worker processes/threads; null = OS default
       workers: null
+    # Export M3C2 core points with distances as LAZ point cloud
+    export_pc: true
+    # Export M3C2 distances as interpolated GeoTIFF raster
+    export_raster: true
 
 visualization:
   # plotly | pyvista | pyvistaqt

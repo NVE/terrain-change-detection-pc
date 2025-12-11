@@ -20,6 +20,14 @@ import yaml
 
 class PathsConfig(BaseModel):
     base_dir: str = Field(default="data/raw")
+    output_dir: Optional[str] = Field(
+        default=None,
+        description="Base directory for all output files (auto-generate if None)"
+    )
+    output_crs: str = Field(
+        default="EPSG:25833",
+        description="CRS for outputs (auto-detect from LAZ if possible, fallback to this)"
+    )
 
 
 class PreprocessingConfig(BaseModel):
@@ -101,12 +109,20 @@ class AlignmentICPConfig(BaseModel):
     )
     coarse: CoarseRegistrationConfig = Field(default_factory=CoarseRegistrationConfig)
     multiscale: AlignmentMultiscaleConfig = Field(default_factory=AlignmentMultiscaleConfig)
+    export_aligned_pc: bool = Field(
+        default=False,
+        description="Export aligned T2 point cloud as LAZ file"
+    )
 
 
 class DetectionDoDConfig(BaseModel):
     enabled: bool = Field(default=True)
     cell_size: float = Field(default=1.0)
     aggregator: Literal["mean", "median", "p95", "p5"] = Field(default="mean")
+    export_raster: bool = Field(
+        default=False,
+        description="Export DoD as GeoTIFF raster"
+    )
 
 
 class DetectionC2CConfig(BaseModel):
@@ -121,6 +137,14 @@ class DetectionC2CConfig(BaseModel):
     radius: Optional[float] = Field(default=None, description="Search radius (m) for local plane fit")
     k_neighbors: int = Field(default=20, description="If radius is None, use k-NN for local plane fit")
     min_neighbors: int = Field(default=6, description="Minimum neighbors required to fit a plane")
+    export_pc: bool = Field(
+        default=False,
+        description="Export C2C distances as LAZ point cloud"
+    )
+    export_raster: bool = Field(
+        default=False,
+        description="Export C2C as interpolated GeoTIFF raster"
+    )
 
 
 class DetectionM3C2AutotuneConfig(BaseModel):
@@ -162,6 +186,14 @@ class DetectionM3C2Config(BaseModel):
     autotune: DetectionM3C2AutotuneConfig = Field(default_factory=DetectionM3C2AutotuneConfig)
     fixed: DetectionM3C2FixedConfig = Field(default_factory=DetectionM3C2FixedConfig)
     ep: DetectionM3C2EPConfig = Field(default_factory=DetectionM3C2EPConfig)
+    export_pc: bool = Field(
+        default=True,
+        description="Export M3C2 core points with distances as LAZ point cloud"
+    )
+    export_raster: bool = Field(
+        default=True,
+        description="Export M3C2 distances as interpolated GeoTIFF raster"
+    )
 
 
 class DetectionConfig(BaseModel):

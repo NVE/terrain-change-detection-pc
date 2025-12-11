@@ -711,6 +711,35 @@ def main():
                     )
                 # Visualize DoD
                 visualizer.visualize_dod_heatmap(dod_res, title="DEM of Difference (m)")
+                
+                # Export DoD to GeoTIFF if enabled
+                if getattr(cfg.detection.dod, 'export_raster', False):
+                    try:
+                        from terrain_change_detection.utils.export import export_dod_to_geotiff, detect_crs_from_laz
+                        
+                        # Determine output directory (flat structure, area name in filename)
+                        if cfg.paths.output_dir:
+                            export_dir = Path(cfg.paths.output_dir)
+                        else:
+                            export_dir = Path(cfg.paths.base_dir) / "output"
+                        export_dir.mkdir(parents=True, exist_ok=True)
+                        
+                        # Try to auto-detect CRS from input files
+                        crs = cfg.paths.output_crs
+                        try:
+                            detected_crs = detect_crs_from_laz(str(ds1.laz_files[0]))
+                            if detected_crs:
+                                crs = detected_crs
+                                logger.info(f"Auto-detected CRS from input: {crs}")
+                        except Exception:
+                            pass
+                        
+                        area_prefix = selected_area.area_name
+                        dod_output = export_dir / f"dod_{area_prefix}_{t1}_{t2}.tif"
+                        export_dod_to_geotiff(dod_res, str(dod_output), crs=crs)
+                        logger.info(f"Exported DoD raster: {dod_output}")
+                    except Exception as export_err:
+                        logger.error(f"DoD export failed: {export_err}")
             except Exception as e:
                 logger.error(f"DoD computation failed: {e}")
         else:
@@ -805,6 +834,52 @@ def main():
                         )
                     except Exception:
                         pass
+                    
+                    # Export C2C results if enabled
+                    export_c2c_pc = getattr(cfg.detection.c2c, 'export_pc', False)
+                    export_c2c_raster = getattr(cfg.detection.c2c, 'export_raster', False)
+                    if export_c2c_pc or export_c2c_raster:
+                        try:
+                            from terrain_change_detection.utils.export import (
+                                export_points_to_laz,
+                                export_distances_to_geotiff,
+                                detect_crs_from_laz,
+                            )
+                            
+                            # Determine output directory (flat structure, area name in filename)
+                            if cfg.paths.output_dir:
+                                export_dir = Path(cfg.paths.output_dir)
+                            else:
+                                export_dir = Path(cfg.paths.base_dir) / "output"
+                            export_dir.mkdir(parents=True, exist_ok=True)
+                            
+                            # Try to auto-detect CRS from input files
+                            crs = cfg.paths.output_crs
+                            try:
+                                detected_crs = detect_crs_from_laz(str(ds1.laz_files[0]))
+                                if detected_crs:
+                                    crs = detected_crs
+                            except Exception:
+                                pass
+                            
+                            area_prefix = selected_area.area_name
+                            if export_c2c_pc:
+                                c2c_laz = export_dir / f"c2c_{area_prefix}_{t1}_{t2}.laz"
+                                export_points_to_laz(
+                                    src, c2c_res.distances, str(c2c_laz),
+                                    crs=crs, source_laz_path=str(ds1.laz_files[0])
+                                )
+                                logger.info(f"Exported C2C point cloud: {c2c_laz}")
+                            
+                            if export_c2c_raster:
+                                c2c_tif = export_dir / f"c2c_{area_prefix}_{t1}_{t2}.tif"
+                                export_distances_to_geotiff(
+                                    src, c2c_res.distances, str(c2c_tif),
+                                    cell_size=cfg.detection.dod.cell_size, crs=crs
+                                )
+                                logger.info(f"Exported C2C raster: {c2c_tif}")
+                        except Exception as export_err:
+                            logger.error(f"C2C export failed: {export_err}")
             except Exception as e:
                 logger.error(f"C2C computation failed: {e}")
         else:
@@ -1108,6 +1183,59 @@ def main():
                 )
                 # Visualize M3C2 distance histogram
                 # visualizer.visualize_distance_histogram(m3c2_res.distances, title="M3C2 distances (m)", bins=60)
+                
+                # Export M3C2 results if enabled
+                export_m3c2_pc = getattr(cfg.detection.m3c2, 'export_pc', True)
+                export_m3c2_raster = getattr(cfg.detection.m3c2, 'export_raster', True)
+                if export_m3c2_pc or export_m3c2_raster:
+                    try:
+                        from terrain_change_detection.utils.export import (
+                            export_points_to_laz,
+                            export_distances_to_geotiff,
+                            detect_crs_from_laz,
+                        )
+                        
+                        # Determine output directory (flat structure, area name in filename)
+                        if cfg.paths.output_dir:
+                            export_dir = Path(cfg.paths.output_dir)
+                        else:
+                            export_dir = Path(cfg.paths.base_dir) / "output"
+                        export_dir.mkdir(parents=True, exist_ok=True)
+                        
+                        # Try to auto-detect CRS from input files
+                        crs = cfg.paths.output_crs
+                        try:
+                            detected_crs = detect_crs_from_laz(str(ds1.laz_files[0]))
+                            if detected_crs:
+                                crs = detected_crs
+                        except Exception:
+                            pass
+                        
+                        area_prefix = selected_area.area_name
+                        if export_m3c2_pc:
+                            m3c2_laz = export_dir / f"m3c2_{area_prefix}_{t1}_{t2}.laz"
+                            # Include uncertainty as extra dimension if available
+                            extra_dims = {}
+                            if m3c2_res.uncertainty is not None:
+                                extra_dims['uncertainty'] = m3c2_res.uncertainty
+                            if m3c2_res.significant is not None:
+                                extra_dims['significant'] = m3c2_res.significant
+                            export_points_to_laz(
+                                m3c2_res.core_points, m3c2_res.distances, str(m3c2_laz),
+                                crs=crs, extra_dims=extra_dims if extra_dims else None,
+                                source_laz_path=str(ds1.laz_files[0])
+                            )
+                            logger.info(f"Exported M3C2 point cloud: {m3c2_laz}")
+                        
+                        if export_m3c2_raster:
+                            m3c2_tif = export_dir / f"m3c2_{area_prefix}_{t1}_{t2}.tif"
+                            export_distances_to_geotiff(
+                                m3c2_res.core_points, m3c2_res.distances, str(m3c2_tif),
+                                cell_size=cfg.detection.dod.cell_size, crs=crs
+                            )
+                            logger.info(f"Exported M3C2 raster: {m3c2_tif}")
+                    except Exception as export_err:
+                        logger.error(f"M3C2 export failed: {export_err}")
             except Exception as e:
                 logger.error(f"M3C2 computation failed: {e}")
         else:

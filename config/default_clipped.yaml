@@ -10,6 +10,10 @@ paths:
   # Root folder containing area subdirectories
   # Expected structure: base_dir/area/time_period/[data/]*.laz
   base_dir: data/raw
+  # Base directory for all output files; null = auto-generate in base_dir/output/
+  output_dir: null
+  # CRS for outputs (auto-detect from LAZ if possible, fallback to this)
+  output_crs: "EPSG:25833"
 
 preprocessing:
   # If true, keep only LAS class 2 (ground) unless classification_filter is set
@@ -46,6 +50,8 @@ alignment:
   # Convergence criteria for motion-based stopping
   convergence_translation_epsilon: 1.0e-4
   convergence_rotation_epsilon_deg: 0.1
+  # Export aligned T2 point cloud as LAZ file
+  export_aligned_pc: false
   coarse:
     enabled: false
     method: centroid
@@ -59,6 +65,8 @@ detection:
     cell_size: 1.0
     # Aggregation for per-cell elevation
     aggregator: mean
+    # Export DoD as GeoTIFF raster
+    export_raster: false
   c2c:
     enabled: false
     mode: euclidean
@@ -67,6 +75,10 @@ detection:
     radius: null
     k_neighbors: 20
     min_neighbors: 6
+    # Export C2C distances as LAZ point cloud
+    export_pc: false
+    # Export C2C as interpolated GeoTIFF raster
+    export_raster: false
   m3c2:
     enabled: true
     use_autotune: true
@@ -84,6 +96,10 @@ detection:
       depth_factor: null
     ep:
       workers: null
+    # Export M3C2 core points with distances as LAZ point cloud
+    export_pc: true
+    # Export M3C2 distances as interpolated GeoTIFF raster
+    export_raster: true
 
 visualization:
   backend: plotly
