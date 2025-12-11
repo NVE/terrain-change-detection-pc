@@ -37,7 +37,8 @@ from terrain_change_detection.acceleration import LaspyStreamReader
 
 # Tuning knobs (now configured via YAML):
 # - alignment.subsample_size: subsample size for ICP alignment
-# - detection.m3c2.core_points: number of core points for M3C2
+# - detection.m3c2.core_points_percent: percentage of reference ground points for M3C2 core points
+# - detection.m3c2.core_points: (optional) absolute number - overrides percentage if set
 # - detection.c2c.max_points: maximum points per cloud for C2C distances
 # - visualization.sample_size: sample size for visualization
 
@@ -815,7 +816,38 @@ def main():
                 logger.info("Computing M3C2 distances...")
 
                 # Core points selection or load from file for reproducibility across runs
-                max_core = cfg.detection.m3c2.core_points
+                # Determine the total number of reference ground points for percentage calculation
+                if use_streaming and 'file_paths' in pc1_data:
+                    # Streaming mode: use header-based point counts from T1 files
+                    try:
+                        total_ref_points = sum(
+                            LaspyStreamReader(f).las_header.point_count
+                            for f in pc1_data['file_paths']
+                        )
+                        logger.debug(f"Header-based T1 point count: {total_ref_points:,}")
+                    except Exception as _e:
+                        logger.warning(f"Header-based count failed ({_e}); using in-memory array length")
+                        total_ref_points = len(points1)
+                else:
+                    # In-memory mode: use loaded array length
+                    total_ref_points = len(points1)
+
+                # Determine number of core points (percentage-based or absolute override)
+                if cfg.detection.m3c2.core_points is not None:
+                    # Backward compatibility: use absolute number if explicitly set
+                    max_core = cfg.detection.m3c2.core_points
+                    logger.info(f"M3C2 core points: {max_core:,} (absolute override)")
+                else:
+                    # New behavior: calculate from percentage of reference ground points
+                    pct = cfg.detection.m3c2.core_points_percent
+                    if pct is None:
+                        pct = 10.0  # Default fallback
+                    pct = max(0.1, min(100.0, pct))  # Clamp to valid range [0.1%, 100%]
+                    max_core = max(1, int(total_ref_points * pct / 100.0))
+                    logger.info(
+                        f"M3C2 core points: {max_core:,} ({pct:.1f}% of {total_ref_points:,} reference ground points)"
+                    )
+
                 cores_path = Path(args.cores_file) if args.cores_file else None
                 core_src = None
                 if cores_path is not None and cores_path.exists():
@@ -843,6 +875,7 @@ def main():
                             logger.info(f"Saved {len(core_src)} core points to {cores_path}")
                         except Exception as e:
                             logger.warning(f"Could not save cores to {cores_path}: {e}")
+
 
                 # Auto-tune M3C2 parameters based on point density
                 # Select M3C2 parameters: fixed from config or autotuned from data

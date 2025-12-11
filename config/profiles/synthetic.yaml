@@ -63,8 +63,8 @@ detection:
     enabled: true
     # Use automatic parameter tuning (true) or fixed parameters below (false)
     use_autotune: true
-    # Fewer core points for fast runs
-    core_points: 8000
+    # Percentage of reference ground points for M3C2 core points
+    core_points_percent: 10.0
     autotune:
       source: header
       target_neighbors: 16

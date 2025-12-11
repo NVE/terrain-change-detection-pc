@@ -57,7 +57,8 @@ detection:
   m3c2:
     enabled: false
     use_autotune: true
-    core_points: 10000
+    # Percentage of reference ground points to use as M3C2 core points
+    core_points_percent: 10.0
     autotune:
       source: header
       target_neighbors: 16

@@ -82,15 +82,17 @@ detection:
     enabled: true
     # Use automatic parameter tuning (true) or fixed parameters below (false)
     use_autotune: true
-    # Number of core points at which to compute M3C2 distances
-    core_points: 50000
+    # Percentage of reference ground points to use as M3C2 core points
+    core_points_percent: 100.0
+    # (Optional) Absolute number of core points - overrides percentage if set
+    # core_points: null
     autotune:
       # Source for density estimate: header | sample
       source: header
       # Target neighbor count for choosing scales
       target_neighbors: 16
       # Half-depth along normal as a fraction of cylinder radius
-      max_depth_factor: 0.6
+      max_depth_factor: 20.0
       # Min/max search radii (m) for scale selection
       min_radius: 1.0
       max_radius: 20.0
@@ -105,9 +107,9 @@ detection:
 
 visualization:
   # plotly | pyvista | pyvistaqt
-  backend: plotly
+  backend: pyvista
   # Max points to draw for interactive views
-  sample_size: 100000
+  sample_size: 5000000
 
 logging:
   level: INFO

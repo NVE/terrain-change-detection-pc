@@ -149,7 +149,14 @@ class DetectionM3C2FixedConfig(BaseModel):
 
 class DetectionM3C2Config(BaseModel):
     enabled: bool = Field(default=True)
-    core_points: int = Field(default=10000)
+    core_points_percent: Optional[float] = Field(
+        default=10.0,
+        description="Percentage of reference ground points to use as M3C2 core points (e.g., 10.0 = 10%)"
+    )
+    core_points: Optional[int] = Field(
+        default=None,
+        description="(Deprecated) Absolute number of core points. If set, overrides core_points_percent."
+    )
     # Choose between autotuned parameters or fixed ones from config
     use_autotune: bool = Field(default=True)
     autotune: DetectionM3C2AutotuneConfig = Field(default_factory=DetectionM3C2AutotuneConfig)

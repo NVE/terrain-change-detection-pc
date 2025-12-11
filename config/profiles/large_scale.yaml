@@ -63,8 +63,9 @@ detection:
     enabled: false
     # Use automatic parameter tuning (true) or fixed parameters below (false)
     use_autotune: true
-    # Number of core points for M3C2
-    core_points: 100000
+    # Percentage of reference ground points for M3C2 core points
+    # Lower percentage for very large datasets
+    core_points_percent: 5.0
     autotune:
       source: header
       target_neighbors: 20
