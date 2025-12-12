@@ -10,8 +10,11 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass
-from typing import Optional, Tuple, Dict, List
+from typing import Optional, Tuple, Dict, List, TYPE_CHECKING
 import numpy as np
+
+if TYPE_CHECKING:
+    from ..utils.coordinate_transform import LocalCoordinateTransform
 
 from ..utils.logging import setup_logger
 from ..acceleration import (
@@ -579,6 +582,7 @@ class C2CDetector:
         threads_per_worker: Optional[int] = 1,
         config: Optional[AppConfig] = None,
         clip_bounds: Optional[tuple[float, float, float, float]] = None,
+        local_transform: Optional["LocalCoordinateTransform"] = None,
     ) -> C2CResult:
         """
         Parallel version of out-of-core tiled C2C.
@@ -620,8 +624,19 @@ class C2CDetector:
         # Note: File header bounds are scanned below and filtered per tile.
         # Paths are passed per-tile to workers to avoid redundant I/O.
         
-        # Get global bounds
-        gb = union_bounds(files_src, files_tgt)
+        # Get global bounds from file headers
+        gb_global = union_bounds(files_src, files_tgt)
+        
+        # Transform bounds to local coordinates if transform is provided
+        if local_transform is not None:
+            gb = Bounds2D(
+                min_x=gb_global.min_x - local_transform.offset_x,
+                min_y=gb_global.min_y - local_transform.offset_y,
+                max_x=gb_global.max_x - local_transform.offset_x,
+                max_y=gb_global.max_y - local_transform.offset_y,
+            )
+        else:
+            gb = gb_global
         
         # Calculate tile grid (halo = max_distance for radius coverage)
         halo = float(max_distance)
@@ -696,8 +711,27 @@ class C2CDetector:
 
         per_tile_kwargs = []
         for tile in tiles:
-            files_src_tile = [str(f) for f, b in src_bounds if bounds_intersect(tile.inner, b)]
-            files_tgt_tile = [str(f) for f, b in tgt_bounds if bounds_intersect(tile.outer, b)]
+            # Convert tile bounds back to global coords for file intersection check
+            # (file header bounds are in global coords, tile bounds are in local coords)
+            if local_transform is not None:
+                tile_inner_global = Bounds2D(
+                    min_x=tile.inner.min_x + local_transform.offset_x,
+                    min_y=tile.inner.min_y + local_transform.offset_y,
+                    max_x=tile.inner.max_x + local_transform.offset_x,
+                    max_y=tile.inner.max_y + local_transform.offset_y,
+                )
+                tile_outer_global = Bounds2D(
+                    min_x=tile.outer.min_x + local_transform.offset_x,
+                    min_y=tile.outer.min_y + local_transform.offset_y,
+                    max_x=tile.outer.max_x + local_transform.offset_x,
+                    max_y=tile.outer.max_y + local_transform.offset_y,
+                )
+            else:
+                tile_inner_global = tile.inner
+                tile_outer_global = tile.outer
+            
+            files_src_tile = [str(f) for f, b in src_bounds if bounds_intersect(tile_inner_global, b)]
+            files_tgt_tile = [str(f) for f, b in tgt_bounds if bounds_intersect(tile_outer_global, b)]
             per_tile_kwargs.append({'files_source': [Path(f) for f in files_src_tile], 'files_target': [Path(f) for f in files_tgt_tile]})
 
         # Process tiles in parallel
@@ -708,6 +742,7 @@ class C2CDetector:
             'transform_matrix': transform_src,
             'ground_only': ground_only,
             'use_gpu': use_gpu,
+            'local_transform': local_transform,
         }
         
         if use_gpu:

@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Optional, Tuple, Dict, Literal, List
+from typing import Optional, Tuple, Dict, Literal, List, TYPE_CHECKING
 import numpy as np
+
+if TYPE_CHECKING:
+    from ..utils.coordinate_transform import LocalCoordinateTransform
 
 from ..utils.logging import setup_logger
 from ..acceleration import (
@@ -488,6 +491,7 @@ class DoDDetector:
         threads_per_worker: Optional[int] = 1,
         config: Optional[AppConfig] = None,
         clip_bounds: Optional[tuple[float, float, float, float]] = None,
+        local_transform: Optional["LocalCoordinateTransform"] = None,
     ) -> DoDResult:
         """
         Parallel version of out-of-core tiled DoD.
@@ -522,8 +526,19 @@ class DoDDetector:
         # Note: File header bounds are scanned below and filtered per tile.
         # Paths are passed per-tile to workers to avoid redundant I/O.
         
-        # Get global bounds
-        gb = union_bounds(files_t1, files_t2)
+        # Get global bounds from file headers
+        gb_global = union_bounds(files_t1, files_t2)
+        
+        # Transform bounds to local coordinates if transform is provided
+        if local_transform is not None:
+            gb = Bounds2D(
+                min_x=gb_global.min_x - local_transform.offset_x,
+                min_y=gb_global.min_y - local_transform.offset_y,
+                max_x=gb_global.max_x - local_transform.offset_x,
+                max_y=gb_global.max_y - local_transform.offset_y,
+            )
+        else:
+            gb = gb_global
         
         # Calculate tile grid
         tx = int(np.ceil((gb.max_x - gb.min_x) / tile_size))
@@ -614,8 +629,20 @@ class DoDDetector:
 
         per_tile_kwargs = []
         for tile in tiles:
-            files_t1_tile = [str(f) for f, b in t1_bounds if bounds_intersect(tile.outer, b)]
-            files_t2_tile = [str(f) for f, b in t2_bounds if bounds_intersect(tile.outer, b)]
+            # Convert tile bounds back to global coords for file intersection check
+            # (file header bounds are in global coords, tile bounds are in local coords)
+            if local_transform is not None:
+                tile_outer_global = Bounds2D(
+                    min_x=tile.outer.min_x + local_transform.offset_x,
+                    min_y=tile.outer.min_y + local_transform.offset_y,
+                    max_x=tile.outer.max_x + local_transform.offset_x,
+                    max_y=tile.outer.max_y + local_transform.offset_y,
+                )
+            else:
+                tile_outer_global = tile.outer
+            
+            files_t1_tile = [str(f) for f, b in t1_bounds if bounds_intersect(tile_outer_global, b)]
+            files_t2_tile = [str(f) for f, b in t2_bounds if bounds_intersect(tile_outer_global, b)]
             per_tile_kwargs.append({
                 'files_t1': [Path(f) for f in files_t1_tile],
                 'files_t2': [Path(f) for f in files_t2_tile],
@@ -629,6 +656,7 @@ class DoDDetector:
             'transform_matrix': transform_t2,
             'ground_only': ground_only,
             'use_gpu': use_gpu,
+            'local_transform': local_transform,
         }
 
         t0 = time.time()

@@ -30,6 +30,7 @@ from terrain_change_detection.detection import (
 )
 from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
 from terrain_change_detection.utils.config import load_config, AppConfig
+from terrain_change_detection.utils.coordinate_transform import LocalCoordinateTransform
 from terrain_change_detection.acceleration import LaspyStreamReader
 
 # Hardware optimizations
@@ -260,6 +261,45 @@ def main():
         and len(ds2.laz_files) > 0
     )
 
+    # ============================================================
+    # Local Coordinate Transform Setup (if enabled)
+    # ============================================================
+    # Compute local coordinate transform from T1 bounds to handle large UTM coordinates
+    local_transform = None
+    coord_cfg = getattr(cfg, 'coordinates', None)
+    use_local_coords = coord_cfg is not None and getattr(coord_cfg, 'use_local_coordinates', True)
+    
+    if use_local_coords and ds1.bounds:
+        # Compute transform from T1 (reference) bounds
+        origin_method = getattr(coord_cfg, 'origin_method', 'min_bounds')
+        include_z = getattr(coord_cfg, 'include_z_offset', False)
+        
+        if origin_method == 'min_bounds':
+            offset_z = ds1.bounds.get('min_z', 0.0) if include_z else 0.0
+            local_transform = LocalCoordinateTransform.from_bounds(
+                min_x=ds1.bounds['min_x'],
+                min_y=ds1.bounds['min_y'],
+                min_z=offset_z,
+            )
+        elif origin_method == 'centroid':
+            # Compute centroid from bounds
+            cx = (ds1.bounds['min_x'] + ds1.bounds['max_x']) / 2
+            cy = (ds1.bounds['min_y'] + ds1.bounds['max_y']) / 2
+            cz = ((ds1.bounds['min_z'] + ds1.bounds['max_z']) / 2) if include_z else 0.0
+            local_transform = LocalCoordinateTransform(offset_x=cx, offset_y=cy, offset_z=cz)
+        else:
+            # first_point not practical here, fall back to min_bounds
+            offset_z = ds1.bounds.get('min_z', 0.0) if include_z else 0.0
+            local_transform = LocalCoordinateTransform.from_bounds(
+                min_x=ds1.bounds['min_x'],
+                min_y=ds1.bounds['min_y'],
+                min_z=offset_z,
+            )
+        
+        logger.info("Local coordinate transform: offset=(%.2f, %.2f, %.2f) using %s origin",
+                    local_transform.offset_x, local_transform.offset_y, local_transform.offset_z,
+                    origin_method)
+
     try:
         # No pooled executor reuse; each phase manages its own pool
         # Step 1: Load Data (or prepare for streaming)
@@ -294,45 +334,25 @@ def main():
             # Load samples for alignment (streaming-based reservoir sampling)
             logger.info("Loading subsampled data for alignment (subsample_size=%d)...", cfg.alignment.subsample_size)
 
-            def stream_sample(files: list[str], n: int) -> np.ndarray:
-                reader = LaspyStreamReader(
-                    files,
-                    ground_only=cfg.preprocessing.ground_only,
-                    classification_filter=cfg.preprocessing.classification_filter,
-                    chunk_points=cfg.outofcore.chunk_points,
-                )
-                reservoir = None
-                filled = 0
-                seen = 0
-                for chunk in reader.stream_points():
-                    if chunk.size == 0:
-                        continue
-                    m = len(chunk)
-                    if reservoir is None:
-                        reservoir = np.empty((n, 3), dtype=np.float64)
-                    # Fill reservoir first
-                    take = min(n - filled, m)
-                    if take > 0:
-                        reservoir[filled:filled + take] = chunk[:take]
-                        filled += take
-                        seen += take
-                        start = take
-                    else:
-                        start = 0
-                    # Replacement
-                    for k in range(start, m):
-                        j = seen + (k - start)
-                        r = np.random.randint(0, j + 1)
-                        if r < n:
-                            reservoir[r] = chunk[k]
-                    seen += (m - start)
-                if reservoir is None:
-                    return np.empty((0, 3), dtype=np.float64)
-                return reservoir
-
             n_per_dataset = cfg.alignment.subsample_size
-            points1 = stream_sample([str(p) for p in ds1.laz_files], n_per_dataset)
-            points2 = stream_sample([str(p) for p in ds2.laz_files], n_per_dataset)
+            
+            # T1 alignment subsample
+            reader1 = LaspyStreamReader(
+                [str(p) for p in ds1.laz_files],
+                ground_only=cfg.preprocessing.ground_only,
+                classification_filter=cfg.preprocessing.classification_filter,
+                chunk_points=cfg.outofcore.chunk_points,
+            )
+            points1 = reader1.reservoir_sample(n_per_dataset, transform=local_transform)
+            
+            # T2 alignment subsample
+            reader2 = LaspyStreamReader(
+                [str(p) for p in ds2.laz_files],
+                ground_only=cfg.preprocessing.ground_only,
+                classification_filter=cfg.preprocessing.classification_filter,
+                chunk_points=cfg.outofcore.chunk_points,
+            )
+            points2 = reader2.reservoir_sample(n_per_dataset, transform=local_transform)
             
             logger.info(f"Loaded {len(points1)} sample points from T1 for alignment")
             logger.info(f"Loaded {len(points2)} sample points from T2 for alignment")
@@ -341,17 +361,17 @@ def main():
             batch_loader = BatchLoader(loader=loader)
             if len(ds1.laz_files) > 1:
                 logger.info(f"Batch loading {len(ds1.laz_files)} files for time period {t1}...")
-                pc1_data = batch_loader.load_dataset(ds1)
+                pc1_data = batch_loader.load_dataset(ds1, transform=local_transform)
             else:
                 logger.info(f"Loading single file for time period {t1}...")
-                pc1_data = batch_loader.loader.load(str(ds1.laz_files[0]))
+                pc1_data = batch_loader.loader.load(str(ds1.laz_files[0]), transform=local_transform)
 
             if len(ds2.laz_files) > 1:
                 logger.info(f"Batch loading {len(ds2.laz_files)} files for time period {t2}...")
-                pc2_data = batch_loader.load_dataset(ds2)
+                pc2_data = batch_loader.load_dataset(ds2, transform=local_transform)
             else:
                 logger.info(f"Loading single file for time period {t2}...")
-                pc2_data = batch_loader.loader.load(str(ds2.laz_files[0]))
+                pc2_data = batch_loader.loader.load(str(ds2.laz_files[0]), transform=local_transform)
 
             logger.info(f"Dataset 1 ({t1}): {pc1_data['points'].shape[0]} points")
             logger.info(f"Dataset 2 ({t2}): {pc2_data['points'].shape[0]} points")
@@ -674,6 +694,7 @@ def main():
                                 threads_per_worker=getattr(cfg.parallel, 'threads_per_worker', 1),
                                 config=cfg,
                                 clip_bounds=clip_bounds,
+                                local_transform=local_transform,
                             )
                         else:
                             dod_res = ChangeDetector.compute_dod_streaming_files_tiled(
@@ -776,6 +797,7 @@ def main():
                             threads_per_worker=getattr(cfg.parallel, 'threads_per_worker', 1),
                             config=cfg,  # Pass config for GPU acceleration
                             clip_bounds=clip_bounds,
+                            local_transform=local_transform,
                         )
                     else:
                         if getattr(cfg.detection.c2c, 'mode', 'euclidean') != 'euclidean':
@@ -867,7 +889,8 @@ def main():
                                 c2c_laz = export_dir / f"c2c_{area_prefix}_{t1}_{t2}.laz"
                                 export_points_to_laz(
                                     src, c2c_res.distances, str(c2c_laz),
-                                    crs=crs, source_laz_path=str(ds1.laz_files[0])
+                                    crs=crs, source_laz_path=str(ds1.laz_files[0]),
+                                    local_transform=local_transform
                                 )
                                 logger.info(f"Exported C2C point cloud: {c2c_laz}")
                             
@@ -875,7 +898,8 @@ def main():
                                 c2c_tif = export_dir / f"c2c_{area_prefix}_{t1}_{t2}.tif"
                                 export_distances_to_geotiff(
                                     src, c2c_res.distances, str(c2c_tif),
-                                    cell_size=cfg.detection.dod.cell_size, crs=crs
+                                    cell_size=cfg.detection.dod.cell_size, crs=crs,
+                                    local_transform=local_transform
                                 )
                                 logger.info(f"Exported C2C raster: {c2c_tif}")
                         except Exception as export_err:
@@ -892,19 +916,24 @@ def main():
 
                 # Core points selection or load from file for reproducibility across runs
                 # Determine the total number of reference ground points for percentage calculation
-                if use_streaming and 'file_paths' in pc1_data:
-                    # Streaming mode: use header-based point counts from T1 files
-                    try:
-                        total_ref_points = sum(
-                            LaspyStreamReader(f).las_header.point_count
-                            for f in pc1_data['file_paths']
-                        )
-                        logger.debug(f"Header-based T1 point count: {total_ref_points:,}")
-                    except Exception as _e:
-                        logger.warning(f"Header-based count failed ({_e}); using in-memory array length")
-                        total_ref_points = len(points1)
+                if use_streaming and 'metadata' in pc1_data:
+                    # Streaming mode: use metadata ground point count collected during discovery
+                    m1 = pc1_data['metadata']
+                    total_ref_points = m1.get('total_points_ground')
+                    if total_ref_points is None or total_ref_points == 0:
+                        # Fallback to total_points_all if ground count not available
+                        total_ref_points = m1.get('total_points_all', 0)
+                        if total_ref_points > 0:
+                            logger.warning(
+                                f"No ground point count in metadata; using total points ({total_ref_points:,}). "
+                                "M3C2 core point percentage may be inaccurate."
+                            )
+                    if total_ref_points == 0:
+                        logger.error("Cannot determine reference point count for M3C2 core points percentage.")
+                        raise ValueError("No reference point count available for M3C2")
+                    logger.debug(f"Metadata-based T1 ground point count: {total_ref_points:,}")
                 else:
-                    # In-memory mode: use loaded array length
+                    # In-memory mode: use loaded array length (already filtered to ground)
                     total_ref_points = len(points1)
 
                 # Determine number of core points (percentage-based or absolute override)
@@ -936,12 +965,40 @@ def main():
                         logger.warning(f"Failed to load cores from {cores_path}: {e}; falling back to selection")
                         core_src = None
                 if core_src is None:
-                    # Uniform subsample of T1 to 'max_core'
-                    if len(points1) > max_core:
-                        idx = np.random.choice(len(points1), max_core, replace=False)
-                        core_src = points1[idx]
+                    # Select core points using appropriate method
+                    # Check if we'll use per-tile M3C2 (parallel + streaming)
+                    use_parallel_streaming = (
+                        use_streaming and 'file_paths' in pc1_data and
+                        getattr(cfg.parallel, 'enabled', False)
+                    )
+                    
+                    if use_parallel_streaming:
+                        # Skip global core selection - per-tile M3C2 handles it internally
+                        logger.info(
+                            f"Per-tile M3C2 will select {cfg.detection.m3c2.core_points_percent or 10.0:.1f}% "
+                            "core points per tile (no global core selection needed)"
+                        )
+                        core_src = None  # Will be handled per-tile
+                    elif use_streaming and 'file_paths' in pc1_data:
+                        # Sequential streaming mode: still needs global core selection
+                        logger.info(f"Selecting {max_core:,} core points via streaming from T1 files...")
+                        
+                        core_reader = LaspyStreamReader(
+                            [str(p) for p in pc1_data['file_paths']],
+                            ground_only=cfg.preprocessing.ground_only,
+                            classification_filter=cfg.preprocessing.classification_filter,
+                            chunk_points=cfg.outofcore.chunk_points,
+                        )
+                        core_src = core_reader.reservoir_sample(max_core, transform=local_transform)
+                        logger.info(f"Selected {len(core_src):,} core points from T1 via streaming")
                     else:
-                        core_src = points1
+                        # In-memory mode: subsample from loaded points1
+                        if len(points1) > max_core:
+                            idx = np.random.choice(len(points1), max_core, replace=False)
+                            core_src = points1[idx]
+                        else:
+                            core_src = points1
+                    
                     # Save if a path was provided but did not exist
                     if cores_path is not None:
                         try:
@@ -1063,11 +1120,12 @@ def main():
                     
                     try:
                         if use_parallel:
-                            m3c2_res_stream = ChangeDetector.compute_m3c2_streaming_files_tiled_parallel(
-                                core_points=core_src,
+                            # Use per-tile core selection for truly out-of-core processing
+                            m3c2_res_stream = ChangeDetector.compute_m3c2_streaming_pertile_parallel(
                                 files_t1=files_t1,
                                 files_t2=files_t2,
                                 params=m3c2_params,
+                                core_points_percent=cfg.detection.m3c2.core_points_percent or 10.0,
                                 tile_size=cfg.outofcore.tile_size_m,
                                 halo=None,
                                 ground_only=cfg.preprocessing.ground_only,
@@ -1076,6 +1134,7 @@ def main():
                                 transform_t2=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
                                 n_workers=None,  # auto-detect
                                 threads_per_worker=getattr(cfg.parallel, 'threads_per_worker', 1),
+                                local_transform=local_transform,
                             )
                         else:
                             m3c2_res_stream = ChangeDetector.compute_m3c2_streaming_files_tiled(
@@ -1223,7 +1282,8 @@ def main():
                             export_points_to_laz(
                                 m3c2_res.core_points, m3c2_res.distances, str(m3c2_laz),
                                 crs=crs, extra_dims=extra_dims if extra_dims else None,
-                                source_laz_path=str(ds1.laz_files[0])
+                                source_laz_path=str(ds1.laz_files[0]),
+                                local_transform=local_transform
                             )
                             logger.info(f"Exported M3C2 point cloud: {m3c2_laz}")
                         
@@ -1231,7 +1291,8 @@ def main():
                             m3c2_tif = export_dir / f"m3c2_{area_prefix}_{t1}_{t2}.tif"
                             export_distances_to_geotiff(
                                 m3c2_res.core_points, m3c2_res.distances, str(m3c2_tif),
-                                cell_size=cfg.detection.dod.cell_size, crs=crs
+                                cell_size=cfg.detection.dod.cell_size, crs=crs,
+                                local_transform=local_transform
                             )
                             logger.info(f"Exported M3C2 raster: {m3c2_tif}")
                     except Exception as export_err:

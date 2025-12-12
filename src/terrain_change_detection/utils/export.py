@@ -124,7 +124,7 @@ def export_points_to_laz(
     # Revert to global coordinates if transform was used
     if local_transform is not None:
         points = local_transform.to_global(points)
-        logger.debug(f"Reverted {len(points):,} points to global coordinates for export")
+        logger.info(f"Reverting {len(points):,} points from local to global coordinates for export")
 
     # Try to auto-detect CRS if not provided
     detected_crs = None
@@ -316,7 +316,7 @@ def export_distances_to_geotiff(
     # Revert to global coordinates if transform was used
     if local_transform is not None:
         points = local_transform.to_global(points)
-        logger.debug(f"Reverted {len(points):,} points to global coordinates for raster export")
+        logger.info(f"Reverting {len(points):,} points from local to global coordinates for raster export")
 
     # Use XY coordinates only for gridding
     xy = points[:, :2]

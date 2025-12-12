@@ -38,7 +38,7 @@ alignment:
   # Export aligned T2 point cloud as LAZ file
   export_aligned_pc: false
   coarse:
-    enabled: true
+    enabled: false
     # Coarse alignment method: centroid | pca | phase | open3d_fpfh | none
     method: phase
     # Voxel size (m) for coarse features/downsampling
@@ -56,7 +56,7 @@ detection:
     # Export DoD as GeoTIFF raster
     export_raster: true
   c2c:
-    enabled: false
+    enabled: true
     # Algorithm: euclidean | vertical_plane
     mode: euclidean
     # Upper bound used by some example flows for sampling/limits
@@ -72,7 +72,7 @@ detection:
     # Export C2C as interpolated GeoTIFF raster
     export_raster: false
   m3c2:
-    enabled: false
+    enabled: true
     # Use automatic parameter tuning (true) or fixed parameters below (false)
     use_autotune: true
     # Percentage of reference ground points for M3C2 core points

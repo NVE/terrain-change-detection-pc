@@ -1,5 +1,46 @@
 ﻿# Changelog and Implementation Notes
 
+## 2025-12-12 - Streaming LocalCoordinateTransform Fix
+
+### Summary
+Fixed critical bug where streaming DoD, C2C, and M3C2 methods returned zero valid results when `LocalCoordinateTransform` was enabled. The issue was a coordinate space mismatch between ICP alignment (running in local coords) and streaming workers (processing files in global coords).
+
+### Root Cause
+- ICP alignment operated in local coordinates (0-2000m range)
+- Streaming workers processed file headers in global coordinates (280475m+ range)
+- `bounds_intersect()` comparing local tile bounds with global file bounds always returned `False`
+- Result: empty file lists for all tiles → no points processed → `n_cells=0`
+
+### Key Changes
+
+**Detection Modules** (`dod.py`, `c2c.py`, `m3c2.py`):
+- Added `local_transform` parameter to parallel streaming functions
+- Transform global bounds to local for tile grid generation
+- Convert tile bounds back to global for `bounds_intersect()` file filtering
+- Pass `local_transform` to worker kwargs
+
+**Tile Workers** (`tile_workers.py`):
+- Added `local_transform` parameter to `process_dod_tile`, `process_c2c_tile`, `process_m3c2_tile`
+- Convert tile bounds back to global for bbox filtering
+- Pass `local_transform` to `stream_points()` which applies `to_local()` to points
+
+**Workflow** (`run_workflow.py`):
+- Pass `local_transform` to all three streaming parallel functions
+
+### Verification Results
+
+| Method | Before Fix | After Fix |
+|--------|-----------|-----------|
+| DoD | n_cells=0, mean=nan | n_cells=481,146, mean=-0.017m |
+| C2C | valid=0, RMSE=inf | valid=9,061,786, RMSE=0.354m |
+| M3C2 | valid=0, RMSE=inf | 494,325 cells exported |
+
+### Testing
+- All 178 tests pass
+- Verified against main branch results (values match within expected variance)
+
+---
+
 ## 2025-12-11 - Local Coordinate Transformation Infrastructure
 
 ### Summary

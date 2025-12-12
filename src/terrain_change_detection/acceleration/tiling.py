@@ -542,6 +542,62 @@ class LaspyStreamReader:
                     
                     yield pts
 
+    def reservoir_sample(
+        self,
+        n: int,
+        transform: Optional["LocalCoordinateTransform"] = None,
+        bbox: Optional[Bounds2D] = None,
+    ) -> np.ndarray:
+        """Reservoir sample n points uniformly from all files.
+        
+        Uses Algorithm R (reservoir sampling) to select n points uniformly at
+        random from the streaming data without loading all points into memory.
+        
+        Args:
+            n: Number of points to sample.
+            transform: Optional local coordinate transform to apply.
+            bbox: Optional spatial bounding box filter.
+            
+        Returns:
+            np.ndarray: (n, 3) array of sampled points, or fewer if total
+                points available is less than n.
+        """
+        reservoir = None
+        filled = 0
+        seen = 0
+        
+        for chunk in self.stream_points(bbox=bbox, transform=transform):
+            if chunk.size == 0:
+                continue
+            m = len(chunk)
+            
+            if reservoir is None:
+                reservoir = np.empty((n, 3), dtype=np.float64)
+            
+            # Fill reservoir first
+            take = min(n - filled, m)
+            if take > 0:
+                reservoir[filled:filled + take] = chunk[:take]
+                filled += take
+                seen += take
+                start = take
+            else:
+                start = 0
+            
+            # Replacement phase (Algorithm R)
+            for k in range(start, m):
+                j = seen + (k - start)
+                r = np.random.randint(0, j + 1)
+                if r < n:
+                    reservoir[r] = chunk[k]
+            seen += (m - start)
+        
+        if reservoir is None:
+            return np.empty((0, 3), dtype=np.float64)
+        
+        # Return only filled portion if we didn't get n points
+        return reservoir[:filled] if filled < n else reservoir
+
 
 def union_bounds(files_a: Iterable[str | Path], files_b: Iterable[str | Path]) -> Bounds2D:
     """Compute the union of bounding boxes from two sets of LAS/LAZ files.
