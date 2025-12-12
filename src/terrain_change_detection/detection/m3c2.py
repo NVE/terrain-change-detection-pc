@@ -337,6 +337,7 @@ class M3C2Detector:
         classification_filter: Optional[list[int]] = None,
         chunk_points: int = 1_000_000,
         transform_t2: Optional[np.ndarray] = None,
+        local_transform: Optional["LocalCoordinateTransform"] = None,
     ) -> M3C2Result:
         """
         Out-of-core tiled M3C2 over streaming LAS/LAZ files using py4dgeo.
@@ -346,7 +347,7 @@ class M3C2Detector:
         py4dgeo M3C2 over the tile core points, and stitch the results.
 
         Args:
-            core_points: Core points where distances are evaluated (N x 3)
+            core_points: Core points where distances are evaluated (N x 3), in local coords if local_transform provided
             files_t1: LAS/LAZ file paths for epoch T1
             files_t2: LAS/LAZ file paths for epoch T2 (aligned to T1)
             params: M3C2 parameters (uses cylinder_radius, projection_scale, max_depth, ...)
@@ -355,6 +356,8 @@ class M3C2Detector:
             ground_only: Apply ground/classification filter during streaming
             classification_filter: Optional classification filter list
             chunk_points: Points per streaming chunk
+            transform_t2: Optional transformation for T2 points (ICP alignment)
+            local_transform: Optional local coordinate transform (for numerical precision)
 
         Returns:
             M3C2Result with distances for all input core points
@@ -366,7 +369,18 @@ class M3C2Detector:
 
         # Determine processing bounds from the union of LAS headers, not only core extents.
         # Using core-point bounds can clip halos at the dataset edge and alter neighborhoods.
-        gb = union_bounds(files_t1, files_t2)
+        gb_global = union_bounds(files_t1, files_t2)
+        
+        # Transform bounds to local coordinates if transform is provided
+        if local_transform is not None:
+            gb = Bounds2D(
+                min_x=gb_global.min_x - local_transform.offset_x,
+                min_y=gb_global.min_y - local_transform.offset_y,
+                max_x=gb_global.max_x - local_transform.offset_x,
+                max_y=gb_global.max_y - local_transform.offset_y,
+            )
+        else:
+            gb = gb_global
 
         # Determine halo
         normal_r = float(params.normal_scale) if getattr(params, "normal_scale", None) is not None else float(params.projection_scale)
@@ -387,7 +401,7 @@ class M3C2Detector:
             len(core_points), tx, ty, tile_size, used_halo, chunk_points,
         )
 
-        # Assign core points to tiles
+        # Assign core points to tiles (core points are in local coords)
         ix = np.floor((core_points[:, 0] - gb.min_x) / tile_size).astype(int)
         iy = np.floor((core_points[:, 1] - gb.min_y) / tile_size).astype(int)
         ix = np.clip(ix, 0, max(0, tx - 1))
@@ -404,6 +418,7 @@ class M3C2Detector:
         from ..acceleration.tiling import LaspyStreamReader
 
         def _tile_bounds(i: int, j: int) -> tuple[Bounds2D, Bounds2D]:
+            """Returns inner and outer bounds in LOCAL coordinates."""
             ox = gb.min_x + i * tile_size
             oy = gb.min_y + j * tile_size
             inner = Bounds2D(ox, oy, min(ox + tile_size, gb.max_x), min(oy + tile_size, gb.max_y))
@@ -419,9 +434,20 @@ class M3C2Detector:
         t0 = __import__('time').time()
         for rec in uniq_tiles:
             i, j = int(rec['i']), int(rec['j'])
-            inner, outer = _tile_bounds(i, j)
+            inner, outer = _tile_bounds(i, j)  # Local coordinates
             tile_mask = (ix == i) & (iy == j)
             tile_cores = core_points[tile_mask]
+            
+            # Convert tile bounds back to global for file bbox filtering
+            if local_transform is not None:
+                outer_global = Bounds2D(
+                    min_x=outer.min_x + local_transform.offset_x,
+                    min_y=outer.min_y + local_transform.offset_y,
+                    max_x=outer.max_x + local_transform.offset_x,
+                    max_y=outer.max_y + local_transform.offset_y,
+                )
+            else:
+                outer_global = outer
             
             # Stream epoch 1 points for this tile (outer bounds)
             reader1 = LaspyStreamReader(
@@ -430,7 +456,7 @@ class M3C2Detector:
                 classification_filter=classification_filter,
                 chunk_points=chunk_points,
             )
-            chunks_t1 = list(reader1.stream_points(bbox=outer))
+            chunks_t1 = list(reader1.stream_points(bbox=outer_global, transform=local_transform))
             if not chunks_t1:
                 logger.debug(f"Tile ({i},{j}) has no T1 points, skipping")
                 continue
@@ -443,7 +469,7 @@ class M3C2Detector:
                 classification_filter=classification_filter,
                 chunk_points=chunk_points,
             )
-            chunks_t2 = list(reader2.stream_points(bbox=outer))
+            chunks_t2 = list(reader2.stream_points(bbox=outer_global, transform=local_transform))
             if not chunks_t2:
                 logger.debug(f"Tile ({i},{j}) has no T2 points, skipping")
                 continue

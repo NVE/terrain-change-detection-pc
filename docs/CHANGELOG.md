@@ -1,5 +1,58 @@
 ﻿# Changelog and Implementation Notes
 
+## 2025-12-12 - Cross-Platform GPU Support & Sequential Streaming Fixes
+
+### Summary
+Enabled GPU acceleration on Windows (CuPy-only mode) and fixed coordinate transform handling in sequential streaming paths for C2C and M3C2. Previously, GPU acceleration required cuML which is Linux-only (RAPIDS). Now Windows users can use CuPy for partial GPU acceleration.
+
+### Key Changes
+
+**Cross-Platform GPU Library Check** (`run_workflow.py`):
+- Modified GPU library check to allow CuPy-only mode on Windows
+- cuML is Linux-only (RAPIDS); CuPy works on both platforms
+- Now shows GPU mode: **FULL** (CuPy + cuML on Linux) or **PARTIAL** (CuPy only on Windows)
+- Platform-aware error messages for missing libraries
+- Added `use_for_dod` and `use_for_alignment` status to GPU info log
+
+**GPUConfig** (`config.py`):
+- Added `use_for_dod: bool` field to control GPU acceleration for DoD grid accumulation
+- Default: `true` (enabled)
+
+**Sequential C2C Streaming Fix** (`c2c.py`, `run_workflow.py`):
+- Added `local_transform` parameter to `compute_c2c_streaming_files_tiled()`
+- Fixed coordinate mismatch: sequential path was reading files in global coordinates but tile bounds were in local coordinates
+- Transforms global file bounds to local for tile grid generation
+- Converts tile bounds back to global for file bbox filtering
+- Passes `local_transform` to `stream_points()` for coordinate transformation
+
+**Sequential M3C2 Streaming Fix** (`m3c2.py`, `run_workflow.py`):
+- Added `local_transform` parameter to `compute_m3c2_streaming_files_tiled()`
+- Same fix as C2C: transforms bounds appropriately between coordinate spaces
+- Core points (in local coords) now correctly match file data (transformed to local)
+
+### Verification Results
+
+| Method | Before Fix | After Fix |
+|--------|-----------|-----------|
+| C2C (GPU, sequential) | valid=6,172 (0.07%) | valid=9,061,786 (100%) |
+| M3C2 (sequential) | valid=0 | Expected: all valid |
+
+### Known Issues
+
+**CuPy NVRTC DLL on Windows**:
+- DoD GPU may fail with `nvrtc64_130_0.dll` missing
+- This is a CuPy/CUDA installation issue, not a code bug
+- Solution: Install CUDA Toolkit or set `gpu.use_for_dod: false`
+- DoD falls back to CPU successfully
+
+### Files Changed
+- `scripts/run_workflow.py`: Cross-platform GPU check, local_transform parameters
+- `src/terrain_change_detection/utils/config.py`: Added `use_for_dod` to GPUConfig
+- `src/terrain_change_detection/detection/c2c.py`: Added local_transform handling
+- `src/terrain_change_detection/detection/m3c2.py`: Added local_transform handling
+
+---
+
 ## 2025-12-12 - M3C2/C2C Visualization Invalid Point Filtering
 
 ### Summary

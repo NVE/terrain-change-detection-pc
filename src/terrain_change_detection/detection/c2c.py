@@ -374,6 +374,7 @@ class C2CDetector:
         chunk_points: int = 1_000_000,
         transform_src: Optional[np.ndarray] = None,
         config: Optional[AppConfig] = None,
+        local_transform: Optional["LocalCoordinateTransform"] = None,
     ) -> C2CResult:
         """
         Out-of-core tiled Cloud-to-Cloud distances (nearest neighbor) between two epochs.
@@ -395,6 +396,7 @@ class C2CDetector:
             chunk_points: Points per streaming chunk
             transform_src: Optional transformation matrix for source points
             config: Optional configuration (for GPU settings)
+            local_transform: Optional local coordinate transform (for numerical precision)
         """
         if not files_src or not files_tgt:
             raise ValueError("compute_c2c_streaming_files_tiled requires non-empty file lists")
@@ -406,7 +408,19 @@ class C2CDetector:
         if config is not None and hasattr(config, 'gpu'):
             use_gpu = config.gpu.enabled and config.gpu.use_for_c2c
 
-        gb = union_bounds(files_src, files_tgt)
+        # Get global bounds from file headers
+        gb_global = union_bounds(files_src, files_tgt)
+        
+        # Transform bounds to local coordinates if transform is provided
+        if local_transform is not None:
+            gb = Bounds2D(
+                min_x=gb_global.min_x - local_transform.offset_x,
+                min_y=gb_global.min_y - local_transform.offset_y,
+                max_x=gb_global.max_x - local_transform.offset_x,
+                max_y=gb_global.max_y - local_transform.offset_y,
+            )
+        else:
+            gb = gb_global
 
         # Tile grid for core (source) and neighborhood (target)
         tx = max(1, int(np.ceil((gb.max_x - gb.min_x) / tile_size)))
@@ -427,6 +441,7 @@ class C2CDetector:
         from ..acceleration.tiling import LaspyStreamReader
 
         def _inner_outer(i: int, j: int) -> tuple[Bounds2D, Bounds2D]:
+            """Returns inner and outer bounds in LOCAL coordinates."""
             ox = gb.min_x + i * tile_size
             oy = gb.min_y + j * tile_size
             inner = Bounds2D(
@@ -464,15 +479,37 @@ class C2CDetector:
         t0 = __import__('time').time()
         for j in range(ty):
             for i in range(tx):
-                inner, outer = _inner_outer(i, j)
-                src_chunks = list(reader_src.stream_points(bbox=inner))
+                inner, outer = _inner_outer(i, j)  # Local coordinates
+                
+                # Convert tile bounds back to global for file bbox filtering
+                if local_transform is not None:
+                    inner_global = Bounds2D(
+                        min_x=inner.min_x + local_transform.offset_x,
+                        min_y=inner.min_y + local_transform.offset_y,
+                        max_x=inner.max_x + local_transform.offset_x,
+                        max_y=inner.max_y + local_transform.offset_y,
+                    )
+                    outer_global = Bounds2D(
+                        min_x=outer.min_x + local_transform.offset_x,
+                        min_y=outer.min_y + local_transform.offset_y,
+                        max_x=outer.max_x + local_transform.offset_x,
+                        max_y=outer.max_y + local_transform.offset_y,
+                    )
+                else:
+                    inner_global = inner
+                    outer_global = outer
+                
+                # Stream source points (use global bbox for filtering, transform to local)
+                src_chunks = list(reader_src.stream_points(bbox=inner_global, transform=local_transform))
                 if not src_chunks:
                     continue
                 src = np.vstack(src_chunks)
                 if transform_src is not None:
                     from ..acceleration.tile_workers import apply_transform
                     src = apply_transform(src, transform_src)
-                tgt_chunks = list(reader_tgt.stream_points(bbox=outer))
+                    
+                # Stream target points (use global bbox for filtering, transform to local)
+                tgt_chunks = list(reader_tgt.stream_points(bbox=outer_global, transform=local_transform))
                 if not tgt_chunks:
                     logger.debug(f"Tile ({i},{j}) has no target points, skipping")
                     all_dists.append(np.full(len(src), np.inf, dtype=float))

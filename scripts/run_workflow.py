@@ -134,30 +134,41 @@ def main():
     # Log GPU configuration status and check for GPU libraries
     try:
         from terrain_change_detection.acceleration.hardware_detection import detect_gpu
+        import platform
+        
         if getattr(cfg.gpu, 'enabled', False):
             # Check if GPU libraries are available
+            # cuML is Linux-only (RAPIDS), but CuPy works on Windows too
+            cupy_available = False
+            cuml_available = False
+            
             try:
                 import cupy as cp
+                cupy_available = True
+            except ImportError:
+                pass
+            
+            try:
                 import cuml
-                gpu_libraries_available = True
-            except ImportError as import_err:
-                gpu_libraries_available = False
-                missing_libs = []
-                try:
-                    import cupy
-                except ImportError:
-                    missing_libs.append("cupy")
-                try:
-                    import cuml
-                except ImportError:
-                    missing_libs.append("cuml")
-                
+                cuml_available = True
+            except ImportError:
+                pass
+            
+            is_windows = platform.system() == "Windows"
+            
+            # On Windows: CuPy is sufficient (cuML not available)
+            # On Linux: Prefer cuML but CuPy-only is still useful
+            if not cupy_available:
+                # No GPU library available at all
                 logger.error("=" * 80)
-                logger.error("ERROR: GPU is enabled in config but required libraries are not available!")
-                logger.error(f"Missing libraries: {', '.join(missing_libs)}")
+                logger.error("ERROR: GPU is enabled in config but CuPy is not available!")
                 logger.error("")
-                logger.error("To use GPU acceleration, you must activate the GPU environment:")
-                logger.error("  source activate_gpu.sh")
+                if is_windows:
+                    logger.error("On Windows, install CuPy for GPU acceleration:")
+                    logger.error("  uv add cupy-cuda12x  # or cupy-cuda11x depending on your CUDA version")
+                else:
+                    logger.error("To use GPU acceleration, you must activate the GPU environment:")
+                    logger.error("  source activate_gpu.sh")
                 logger.error("")
                 logger.error("Or disable GPU in your config file:")
                 logger.error("  gpu:")
@@ -166,13 +177,23 @@ def main():
                 logger.error("Exiting workflow. Please fix the configuration and try again.")
                 return
             
+            # Log GPU capability level
+            if cuml_available:
+                gpu_mode = "FULL (CuPy + cuML)"
+            else:
+                gpu_mode = "PARTIAL (CuPy only - cuML not available)"
+                if not is_windows:
+                    logger.warning("cuML not available. For full GPU acceleration on Linux, activate GPU environment:")
+                    logger.warning("  source activate_gpu.sh")
+            
             gpu_info = detect_gpu()
             if gpu_info.available:
-                logger.info(f"GPU Acceleration: ENABLED")
+                logger.info(f"GPU Acceleration: ENABLED - {gpu_mode}")
                 logger.info(f"  Device: {gpu_info.device_name}")
                 logger.info(f"  Memory: {gpu_info.memory_gb:.2f} GB")
                 logger.info(f"  C2C: {'ENABLED' if getattr(cfg.gpu, 'use_for_c2c', False) else 'DISABLED'}")
-                logger.info(f"  Preprocessing: {'ENABLED' if getattr(cfg.gpu, 'use_for_preprocessing', False) else 'DISABLED'}")
+                logger.info(f"  DoD: {'ENABLED' if getattr(cfg.gpu, 'use_for_dod', False) else 'DISABLED'}")
+                logger.info(f"  Alignment: {'ENABLED' if getattr(cfg.gpu, 'use_for_alignment', False) else 'DISABLED'}")
                 
                 # Check for GPU + parallel processing incompatibility
                 if getattr(cfg.parallel, 'enabled', False):
@@ -812,6 +833,7 @@ def main():
                             chunk_points=cfg.outofcore.chunk_points,
                             transform_src=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
                             config=cfg,  # Pass config for GPU acceleration
+                            local_transform=local_transform,
                         )
                     # 3D scatter not supported in streaming; fallback to histogram if plotly
                     try:
@@ -1148,6 +1170,7 @@ def main():
                                 classification_filter=cfg.preprocessing.classification_filter,
                                 chunk_points=cfg.outofcore.chunk_points,
                                 transform_t2=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
+                                local_transform=local_transform,
                             )
                         # Optionally compute in-memory M3C2 using the same core points and compare
                         if args.debug_m3c2_compare:

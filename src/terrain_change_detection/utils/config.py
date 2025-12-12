@@ -254,6 +254,7 @@ class AppConfig(BaseModel):
         gpu_memory_limit_gb: Optional[float] = Field(default=None, description="Max GPU memory to use in GB (None = auto-detect 80% of available)")
         fallback_to_cpu: bool = Field(default=True, description="Automatically fall back to CPU if GPU fails or unavailable")
         use_for_c2c: bool = Field(default=True, description="Use GPU for C2C nearest neighbor searches")
+        use_for_dod: bool = Field(default=True, description="Use GPU for DoD grid accumulation operations")
         use_for_preprocessing: bool = Field(default=True, description="Use GPU for data preprocessing (transformations, filtering)")
         use_for_alignment: bool = Field(default=False, description="Use GPU for ICP alignment when available")
         batch_size: Optional[int] = Field(default=None, description="GPU batch size for operations (None = auto-calculate based on memory)")
