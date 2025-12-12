@@ -1,5 +1,17 @@
 ﻿# Changelog and Implementation Notes
 
+## 2025-12-12 - M3C2/C2C Visualization Invalid Point Filtering
+
+### Summary
+Fixed visualization issue where points with NaN/invalid distances were rendered as dark brownish spots. The `visualize_m3c2_corepoints` function now filters out non-finite distance values before plotting.
+
+### Changes
+- Added `isfinite()` mask to filter out NaN/inf distances before visualization
+- Applies to both M3C2 and C2C visualizations (C2C reuses the same function)
+- Raises `ValueError` if no valid distances exist to visualize
+
+---
+
 ## 2025-12-12 - Streaming LocalCoordinateTransform Fix
 
 ### Summary
