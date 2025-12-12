@@ -669,10 +669,10 @@ def main():
                     # Use aligned files if they were created, otherwise fall back to original
                     if 'aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']:
                         files_t2 = pc2_data['aligned_file_paths']
-                        logger.info(f"Using transformed files for T2: {len(files_t2)} files")
+                        logger.info(f"Using pre-transformed files for T2: {len(files_t2)} files")
                     else:
                         files_t2 = pc2_data['file_paths']
-                        logger.warning("Transformed files not available, using original T2 files (misalignment may affect results)")
+                        logger.info("Using original T2 files with on-the-fly alignment transform")
 
                     mode = "parallel" if cfg.parallel.enabled else "sequential"
                     logger.info(f"Using streaming DoD ({mode}, tiled)...")
