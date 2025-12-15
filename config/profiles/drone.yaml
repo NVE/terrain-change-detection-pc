@@ -67,7 +67,7 @@ detection:
     # Export C2C as interpolated GeoTIFF raster
     export_raster: false
   m3c2:
-    enabled: false
+    enabled: true
     use_autotune: true
     # Percentage of reference ground points to use as M3C2 core points
     core_points_percent: 10.0
@@ -89,7 +89,7 @@ detection:
     export_raster: true
 
 visualization:
-  backend: pyvista
+  backend: plotly
   sample_size: 50000
 
 logging:

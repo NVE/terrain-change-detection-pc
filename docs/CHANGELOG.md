@@ -14,9 +14,10 @@ Comprehensive audit and fix of LocalCoordinateTransform integration across all m
 - Fixes issue where clipping returned 0 points with local coordinates
 
 **Visualization Fix** (`run_workflow.py`):
-- Both visualization calls now revert points to global UTM coordinates
+- All visualization calls now revert points/grids to global UTM coordinates
 - Users see correct geospatial coordinates matching maps and real-world locations
-- Applied to: original point clouds (line 475) and aligned point clouds (line 671)
+- Applied to: original point clouds, aligned point clouds, M3C2 core points, DoD grid
+- Enabled M3C2 distance histogram (shown before 3D visualization)
 
 **DoD Streaming Fixes** (`dod.py`):
 - Added `local_transform` parameter to `compute_dod_streaming_files_tiled()`
@@ -35,13 +36,13 @@ All modules now fully support local coordinate transformation:
 - ✅ Tile Workers (all 3)
 - ✅ Export (LAZ, GeoTIFF)
 - ✅ Clipping
-- ✅ Visualization
+- ✅ Visualization (point clouds, DoD, M3C2)
 
 ### Files Changed
 - `pyproject.toml`: GPU dep to cupy-cuda12x
 - `clipping.py`: Added transform_to_local() method
 - `dod.py`: Added local_transform to both streaming functions
-- `run_workflow.py`: Clipping transform, visualization global coords
+- `run_workflow.py`: Clipping transform, all visualization global coords, M3C2 histogram
 
 ---
 

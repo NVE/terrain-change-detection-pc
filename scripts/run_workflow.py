@@ -763,6 +763,10 @@ def main():
                         config=cfg,
                     )
                 # Visualize DoD
+                # Revert grid coordinates to global for visualization (users expect UTM coordinates)
+                if local_transform is not None:
+                    dod_res.grid_x = dod_res.grid_x + local_transform.offset_x
+                    dod_res.grid_y = dod_res.grid_y + local_transform.offset_y
                 visualizer.visualize_dod_heatmap(dod_res, title="DEM of Difference (m)")
                 
                 # Export DoD to GeoTIFF if enabled
@@ -1267,15 +1271,18 @@ def main():
                         cloud_t2=points2_full_aligned,
                         params=m3c2_params,
                     )
-                # Visualize M3C2 core points
+                # Visualize M3C2 distance histogram first
+                visualizer.visualize_distance_histogram(m3c2_res.distances, title="M3C2 distances (m)", bins=60)
+                
+                # Visualize M3C2 core points in 3D
+                # Revert to global coordinates for visualization (users expect UTM coordinates)
+                vis_core_points = local_transform.to_global(m3c2_res.core_points) if local_transform else m3c2_res.core_points
                 visualizer.visualize_m3c2_corepoints(
-                    m3c2_res.core_points,
+                    vis_core_points,
                     m3c2_res.distances,
                     sample_size=cfg.visualization.sample_size,
                     title="M3C2 distances (m)",
                 )
-                # Visualize M3C2 distance histogram
-                # visualizer.visualize_distance_histogram(m3c2_res.distances, title="M3C2 distances (m)", bins=60)
                 
                 # Export M3C2 results if enabled
                 export_m3c2_pc = getattr(cfg.detection.m3c2, 'export_pc', True)

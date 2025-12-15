@@ -83,7 +83,7 @@ detection:
       source: header
       target_neighbors: 20
       max_depth_factor: 0.6
-      min_radius: 2.0
+      min_radius: 0.0
       max_radius: 50.0
     # Fixed parameters (used only when use_autotune: false). Leave as null to accept defaults.
     fixed:
@@ -118,7 +118,7 @@ outofcore:
   # ENABLED for large dataset processing
   enabled: true
   # Inner tile size in meters (processing region per tile)
-  tile_size_m: 500.0
+  tile_size_m: 1000.0
   # Halo width in meters (buffer around each tile to avoid edge effects)
   halo_m: 30.0
   # Max points per streaming chunk (memory/performance trade-off)

@@ -32,9 +32,9 @@ alignment:
   # ICP/registration parameters
   max_iterations: 100
   tolerance: 1.0e-6
-  max_correspondence_distance: 2.0
+  max_correspondence_distance: 1.0
   # Number of points sampled per epoch for alignment (approx.)
-  subsample_size: 100000
+  subsample_size: 50000
   # Export aligned T2 point cloud as LAZ file
   export_aligned_pc: false
   coarse:
@@ -81,7 +81,7 @@ detection:
     autotune:
       source: header
       target_neighbors: 20
-      max_depth_factor: 0.6
+      max_depth_factor: 1.0
       min_radius: 2.0
       max_radius: 30.0
     # Fixed parameters (used only when use_autotune: false). Leave as null to accept defaults.
@@ -132,7 +132,7 @@ outofcore:
 
 parallel:
   # Master switch for CPU parallelization
-  enabled: false
+  enabled: true
   # Number of worker processes; null = auto-detect (cpu_count - 1)
   n_workers: null
   # Soft memory limit (GB) to guide worker count; null = no limit
@@ -141,7 +141,7 @@ parallel:
 gpu:
   # Master switch for GPU acceleration (graceful CPU fallback if unavailable)
   # WARNING: Cannot be used simultaneously with parallel.enabled due to CUDA fork limitations
-  enabled: true
+  enabled: false
   # Max GPU memory to use in GB; null = auto-detect (80% of available)
   gpu_memory_limit_gb: null
   # Automatically fall back to CPU if GPU initialization fails
