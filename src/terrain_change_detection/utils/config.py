@@ -111,6 +111,10 @@ class AlignmentMultiscaleConfig(BaseModel):
 
 
 class AlignmentICPConfig(BaseModel):
+    enabled: bool = Field(
+        default=True,
+        description="Enable ICP fine registration for spatial alignment"
+    )
     max_iterations: int = Field(default=100)
     tolerance: float = Field(default=1e-6)
     max_correspondence_distance: float = Field(default=1.0)

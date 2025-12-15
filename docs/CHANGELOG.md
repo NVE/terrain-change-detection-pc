@@ -1,5 +1,46 @@
 ﻿# Changelog and Implementation Notes
 
+## 2025-12-15 - ICP Alignment Toggle Feature
+
+### Summary
+Added the ability to enable or disable ICP fine registration for spatial alignment. This is useful for pre-aligned datasets where ICP alignment is not needed, saving processing time.
+
+### Key Changes
+
+**Configuration** (`config.py`):
+- Added `enabled` field to `AlignmentICPConfig` (default: `true` for backward compatibility)
+
+**YAML Configuration Files**:
+- Updated all 7 config files with `alignment.enabled` option:
+  - `config/default.yaml`
+  - `config/default_clipped.yaml`
+  - `config/profiles/drone.yaml`
+  - `config/profiles/large_scale.yaml`
+  - `config/profiles/large_synthetic.yaml`
+  - `config/profiles/large_synthetic_clipped.yaml`
+  - `config/profiles/synthetic.yaml`
+
+**Workflow Script** (`run_workflow.py`):
+- Step 2 (Spatial Alignment) now checks `alignment.enabled` before running ICP
+- When disabled, skips all alignment processing (coarse registration, multi-scale ICP, fine ICP)
+- Sets `transform_matrix` to identity and `points2_full_aligned` to original points
+- Logs "Spatial Alignment (SKIPPED)" when alignment is disabled
+
+### Usage
+
+```yaml
+# Disable alignment for pre-aligned datasets
+alignment:
+  enabled: false
+  # ... other alignment parameters (ignored when disabled)
+```
+
+### Migration Notes
+- **No breaking changes**: Default `enabled: true` maintains existing behavior
+- Existing configs without `enabled` field continue to work (defaults to `true`)
+
+---
+
 ## 2025-12-15 - Local Transform Integration Audit & Fixes
 
 ### Summary

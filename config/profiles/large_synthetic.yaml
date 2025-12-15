@@ -30,6 +30,8 @@ discovery:
   metadata_dir_name: metadata
 
 alignment:
+  # Enable ICP fine registration for spatial alignment (disable for pre-aligned data)
+  enabled: true
   # ICP/registration parameters
   max_iterations: 100
   tolerance: 1.0e-6

@@ -484,198 +484,209 @@ def main():
         # ============================================================
         # Step 2: Spatial Alignment
         # ============================================================
-        logger.info("=== STEP 2: Spatial Alignment ===")
-        step2_start = time.time()
+        # Check if alignment is enabled (default: True for backward compatibility)
+        alignment_enabled = getattr(cfg.alignment, 'enabled', True)
 
-        # Optional coarse registration to initialize ICP
-        initial_transform = None
-        try:
-            if getattr(cfg.alignment, "coarse", None) and cfg.alignment.coarse.enabled:
-                coarse = CoarseRegistration(
-                    method=cfg.alignment.coarse.method,
-                    voxel_size=cfg.alignment.coarse.voxel_size,
-                    phase_grid_cell=cfg.alignment.coarse.phase_grid_cell,
-                )
-                initial_transform = coarse.compute_initial_transform(points2, points1)
-                # Optional pre-ICP error report without mutating points2
-                try:
-                    points2_init = coarse.apply_transformation(points2, initial_transform)
-                    tmp_icp = ICPRegistration(
-                        max_iterations=1,
-                        tolerance=cfg.alignment.tolerance,
-                        max_correspondence_distance=cfg.alignment.max_correspondence_distance,
-                        use_gpu=(cfg.gpu.enabled and cfg.gpu.use_for_alignment),
-                        convergence_translation_epsilon=cfg.alignment.convergence_translation_epsilon,
-                        convergence_rotation_epsilon_deg=cfg.alignment.convergence_rotation_epsilon_deg,
+        if alignment_enabled:
+            logger.info("=== STEP 2: Spatial Alignment ===")
+            step2_start = time.time()
+
+            # Optional coarse registration to initialize ICP
+            initial_transform = None
+            try:
+                if getattr(cfg.alignment, "coarse", None) and cfg.alignment.coarse.enabled:
+                    coarse = CoarseRegistration(
+                        method=cfg.alignment.coarse.method,
+                        voxel_size=cfg.alignment.coarse.voxel_size,
+                        phase_grid_cell=cfg.alignment.coarse.phase_grid_cell,
                     )
-                    pre_err = tmp_icp.compute_registration_error(points2_init, points1)
-                    logger.info("Alignment validation (pre-ICP): RMSE=%.6f m", pre_err)
+                    initial_transform = coarse.compute_initial_transform(points2, points1)
+                    # Optional pre-ICP error report without mutating points2
+                    try:
+                        points2_init = coarse.apply_transformation(points2, initial_transform)
+                        tmp_icp = ICPRegistration(
+                            max_iterations=1,
+                            tolerance=cfg.alignment.tolerance,
+                            max_correspondence_distance=cfg.alignment.max_correspondence_distance,
+                            use_gpu=(cfg.gpu.enabled and cfg.gpu.use_for_alignment),
+                            convergence_translation_epsilon=cfg.alignment.convergence_translation_epsilon,
+                            convergence_rotation_epsilon_deg=cfg.alignment.convergence_rotation_epsilon_deg,
+                        )
+                        pre_err = tmp_icp.compute_registration_error(points2_init, points1)
+                        logger.info("Alignment validation (pre-ICP): RMSE=%.6f m", pre_err)
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.warning(f"Coarse registration failed: {e}")
+
+            # Optional multi-scale ICP: coarse refinement followed by fine ICP
+            transform_matrix = initial_transform if initial_transform is not None else np.eye(4)
+
+            if getattr(cfg.alignment, "multiscale", None) and cfg.alignment.multiscale.enabled:
+                logger.info("Running multi-scale ICP refinement...")
+
+                # Coarse subsampling
+                n_coarse = cfg.alignment.multiscale.coarse_subsample_size
+                n1c = min(len(points1), n_coarse)
+                n2c = min(len(points2), n_coarse)
+                idx1c = np.random.choice(len(points1), n1c, replace=False) if len(points1) > n1c else np.arange(len(points1))
+                idx2c = np.random.choice(len(points2), n2c, replace=False) if len(points2) > n2c else np.arange(len(points2))
+                points1_coarse = points1[idx1c]
+                points2_coarse = points2[idx2c]
+
+                coarse_max_corr = (
+                    cfg.alignment.multiscale.coarse_max_correspondence_distance
+                    if cfg.alignment.multiscale.coarse_max_correspondence_distance is not None
+                    else cfg.alignment.max_correspondence_distance
+                )
+
+                icp_coarse = ICPRegistration(
+                    max_iterations=cfg.alignment.multiscale.coarse_max_iterations,
+                    tolerance=cfg.alignment.tolerance,
+                    max_correspondence_distance=coarse_max_corr,
+                    convergence_translation_epsilon=cfg.alignment.convergence_translation_epsilon,
+                    convergence_rotation_epsilon_deg=cfg.alignment.convergence_rotation_epsilon_deg,
+                )
+
+                # Measure RMSE on the subsampled pair before the refinement pass so we can
+                # discard a multi-scale refinement step that makes things worse.
+                try:
+                    points2_coarse_init = icp_coarse.apply_transformation(points2_coarse, transform_matrix)
+                    pre_coarse_err = icp_coarse.compute_registration_error(
+                        source=points2_coarse_init,
+                        target=points1_coarse,
+                    )
                 except Exception:
-                    pass
-        except Exception as e:
-            logger.warning(f"Coarse registration failed: {e}")
+                    pre_coarse_err = None
 
-        # Optional multi-scale ICP: coarse refinement followed by fine ICP
-        transform_matrix = initial_transform if initial_transform is not None else np.eye(4)
+                _, T_coarse, coarse_err = icp_coarse.align_point_clouds(
+                    source=points2_coarse,
+                    target=points1_coarse,
+                    initial_transform=transform_matrix,
+                )
 
-        if getattr(cfg.alignment, "multiscale", None) and cfg.alignment.multiscale.enabled:
-            logger.info("Running multi-scale ICP refinement...")
+                if pre_coarse_err is not None and coarse_err > pre_coarse_err:
+                    logger.info(
+                        "Multi-scale refinement unchanged (no improvement): RMSE %.6f m → %.6f m",
+                        pre_coarse_err, coarse_err
+                    )
+                else:
+                    transform_matrix = T_coarse
+                    if pre_coarse_err is not None:
+                        logger.info("Multi-scale refinement improved: RMSE %.6f m → %.6f m", pre_coarse_err, coarse_err)
+                    else:
+                        logger.info("Multi-scale refinement completed: RMSE=%.6f m", coarse_err)
 
-            # Coarse subsampling
-            n_coarse = cfg.alignment.multiscale.coarse_subsample_size
-            n1c = min(len(points1), n_coarse)
-            n2c = min(len(points2), n_coarse)
-            idx1c = np.random.choice(len(points1), n1c, replace=False) if len(points1) > n1c else np.arange(len(points1))
-            idx2c = np.random.choice(len(points2), n2c, replace=False) if len(points2) > n2c else np.arange(len(points2))
-            points1_coarse = points1[idx1c]
-            points2_coarse = points2[idx2c]
-
-            coarse_max_corr = (
-                cfg.alignment.multiscale.coarse_max_correspondence_distance
-                if cfg.alignment.multiscale.coarse_max_correspondence_distance is not None
-                else cfg.alignment.max_correspondence_distance
-            )
-
-            icp_coarse = ICPRegistration(
-                max_iterations=cfg.alignment.multiscale.coarse_max_iterations,
+            # Fine ICP configuration
+            icp = ICPRegistration(
+                max_iterations=cfg.alignment.max_iterations,
                 tolerance=cfg.alignment.tolerance,
-                max_correspondence_distance=coarse_max_corr,
+                max_correspondence_distance=cfg.alignment.max_correspondence_distance,
+                use_gpu=(cfg.gpu.enabled and cfg.gpu.use_for_alignment),
                 convergence_translation_epsilon=cfg.alignment.convergence_translation_epsilon,
                 convergence_rotation_epsilon_deg=cfg.alignment.convergence_rotation_epsilon_deg,
             )
 
-            # Measure RMSE on the subsampled pair before the refinement pass so we can
-            # discard a multi-scale refinement step that makes things worse.
-            try:
-                points2_coarse_init = icp_coarse.apply_transformation(points2_coarse, transform_matrix)
-                pre_coarse_err = icp_coarse.compute_registration_error(
-                    source=points2_coarse_init,
-                    target=points1_coarse,
-                )
-            except Exception:
-                pre_coarse_err = None
+            # Subsample for fine alignment if datasets are large
+            if len(points1) > cfg.alignment.subsample_size:
+                n1 = min(len(points1), cfg.alignment.subsample_size)
+                indices1 = np.random.choice(len(points1), n1, replace=False)
+                points1_subsampled = points1[indices1]
+            else:
+                points1_subsampled = points1
 
-            _, T_coarse, coarse_err = icp_coarse.align_point_clouds(
-                source=points2_coarse,
-                target=points1_coarse,
+            if len(points2) > cfg.alignment.subsample_size:
+                n2 = min(len(points2), cfg.alignment.subsample_size)
+                indices2 = np.random.choice(len(points2), n2, replace=False)
+                points2_subsampled = points2[indices2]
+            else:
+                points2_subsampled = points2
+
+            # Perform ICP alignment
+            points2_subsampled_aligned, transform_matrix, final_error = icp.align_point_clouds(
+                source=points2_subsampled,
+                target=points1_subsampled,
                 initial_transform=transform_matrix,
             )
 
-            if pre_coarse_err is not None and coarse_err > pre_coarse_err:
-                logger.info(
-                    "Multi-scale refinement unchanged (no improvement): RMSE %.6f m → %.6f m",
-                    pre_coarse_err, coarse_err
-                )
+            # Apply the transformation to the original points2
+            if len(points2) > cfg.alignment.subsample_size:
+                points2_full_aligned = icp.apply_transformation(points2, transform_matrix)
             else:
-                transform_matrix = T_coarse
-                if pre_coarse_err is not None:
-                    logger.info("Multi-scale refinement improved: RMSE %.6f m → %.6f m", pre_coarse_err, coarse_err)
+                points2_full_aligned = points2_subsampled_aligned
+
+            # Compute the registration error (RMSE) on a potentially downsampled subset of full data
+            # This validates how well the alignment generalizes beyond the subsampled points used for ICP
+            src_err = points2_full_aligned
+            tgt_err = points1
+            max_err_points = 200_000
+            if len(src_err) > max_err_points:
+                idx_s_err = np.random.choice(len(src_err), max_err_points, replace=False)
+                src_err = src_err[idx_s_err]
+            if len(tgt_err) > max_err_points:
+                idx_t_err = np.random.choice(len(tgt_err), max_err_points, replace=False)
+                tgt_err = tgt_err[idx_t_err]
+
+            alignment_error = icp.compute_registration_error(
+                source=src_err,
+                target=tgt_err,
+            )
+
+            # Log validation error
+            logger.info("Alignment validation (post-ICP): RMSE=%.6f m", alignment_error)
+
+            # If streaming mode, optionally apply transform to original files
+            if use_streaming and cfg.outofcore.save_transformed_files:
+                logger.info("--- Applying transformation to full datasets (streaming) ---")
+                
+                # Determine output directory
+                if cfg.outofcore.output_dir:
+                    output_dir = Path(cfg.outofcore.output_dir) / selected_area.area_name / f"{t2}_aligned"
                 else:
-                    logger.info("Multi-scale refinement completed: RMSE=%.6f m", coarse_err)
-
-        # Fine ICP configuration
-        icp = ICPRegistration(
-            max_iterations=cfg.alignment.max_iterations,
-            tolerance=cfg.alignment.tolerance,
-            max_correspondence_distance=cfg.alignment.max_correspondence_distance,
-            use_gpu=(cfg.gpu.enabled and cfg.gpu.use_for_alignment),
-            convergence_translation_epsilon=cfg.alignment.convergence_translation_epsilon,
-            convergence_rotation_epsilon_deg=cfg.alignment.convergence_rotation_epsilon_deg,
-        )
-
-        # Subsample for fine alignment if datasets are large
-        if len(points1) > cfg.alignment.subsample_size:
-            n1 = min(len(points1), cfg.alignment.subsample_size)
-            indices1 = np.random.choice(len(points1), n1, replace=False)
-            points1_subsampled = points1[indices1]
-        else:
-            points1_subsampled = points1
-
-        if len(points2) > cfg.alignment.subsample_size:
-            n2 = min(len(points2), cfg.alignment.subsample_size)
-            indices2 = np.random.choice(len(points2), n2, replace=False)
-            points2_subsampled = points2[indices2]
-        else:
-            points2_subsampled = points2
-
-        # Perform ICP alignment
-        points2_subsampled_aligned, transform_matrix, final_error = icp.align_point_clouds(
-            source=points2_subsampled,
-            target=points1_subsampled,
-            initial_transform=transform_matrix,
-        )
-
-        # Apply the transformation to the original points2
-        if len(points2) > cfg.alignment.subsample_size:
-            points2_full_aligned = icp.apply_transformation(points2, transform_matrix)
-        else:
-            points2_full_aligned = points2_subsampled_aligned
-
-        # Compute the registration error (RMSE) on a potentially downsampled subset of full data
-        # This validates how well the alignment generalizes beyond the subsampled points used for ICP
-        src_err = points2_full_aligned
-        tgt_err = points1
-        max_err_points = 200_000
-        if len(src_err) > max_err_points:
-            idx_s_err = np.random.choice(len(src_err), max_err_points, replace=False)
-            src_err = src_err[idx_s_err]
-        if len(tgt_err) > max_err_points:
-            idx_t_err = np.random.choice(len(tgt_err), max_err_points, replace=False)
-            tgt_err = tgt_err[idx_t_err]
-
-        alignment_error = icp.compute_registration_error(
-            source=src_err,
-            target=tgt_err,
-        )
-
-        # Log validation error
-        logger.info("Alignment validation (post-ICP): RMSE=%.6f m", alignment_error)
-
-        # If streaming mode, optionally apply transform to original files
-        if use_streaming and cfg.outofcore.save_transformed_files:
-            logger.info("--- Applying transformation to full datasets (streaming) ---")
-            
-            # Determine output directory
-            if cfg.outofcore.output_dir:
-                output_dir = Path(cfg.outofcore.output_dir) / selected_area.area_name / f"{t2}_aligned"
-            else:
-                output_dir = Path(cfg.paths.base_dir).parent / "processed" / selected_area.area_name / f"{t2}_aligned"
-            
-            try:
-                aligned_files = apply_transform_to_files(
-                    input_files=pc2_data['file_paths'],
-                    output_dir=str(output_dir),
-                    transform=transform_matrix,
-                    ground_only=cfg.preprocessing.ground_only,
-                    classification_filter=cfg.preprocessing.classification_filter,
-                    chunk_points=cfg.outofcore.chunk_points,
-                )
-                # Store aligned file paths for later use
-                pc2_data['aligned_file_paths'] = aligned_files
+                    output_dir = Path(cfg.paths.base_dir).parent / "processed" / selected_area.area_name / f"{t2}_aligned"
                 
-                # Save transformation matrix for reference
-                transform_file = output_dir / "transformation_matrix.txt"
-                save_transform_matrix(transform_matrix, str(transform_file))
-                
-                logger.info(f"Transformed {len(aligned_files)} files saved to {output_dir}")
-            except Exception as e:
-                logger.error(f"Failed to apply transformation to files: {e}")
-                logger.info("Falling back to in-memory aligned points for DoD")
-                # Keep points2_full_aligned for DoD computation
+                try:
+                    aligned_files = apply_transform_to_files(
+                        input_files=pc2_data['file_paths'],
+                        output_dir=str(output_dir),
+                        transform=transform_matrix,
+                        ground_only=cfg.preprocessing.ground_only,
+                        classification_filter=cfg.preprocessing.classification_filter,
+                        chunk_points=cfg.outofcore.chunk_points,
+                    )
+                    # Store aligned file paths for later use
+                    pc2_data['aligned_file_paths'] = aligned_files
+                    
+                    # Save transformation matrix for reference
+                    transform_file = output_dir / "transformation_matrix.txt"
+                    save_transform_matrix(transform_matrix, str(transform_file))
+                    
+                    logger.info(f"Transformed {len(aligned_files)} files saved to {output_dir}")
+                except Exception as e:
+                    logger.error(f"Failed to apply transformation to files: {e}")
+                    logger.info("Falling back to in-memory aligned points for DoD")
+                    # Keep points2_full_aligned for DoD computation
 
-        step2_end = time.time()
-        logger.info("Spatial alignment completed in %.2f seconds", step2_end - step2_start)
+            step2_end = time.time()
+            logger.info("Spatial alignment completed in %.2f seconds", step2_end - step2_start)
 
-        # Visualize the aligned point clouds
-        # Revert to global coordinates for visualization (users expect UTM coordinates)
-        logger.info("--- Visualizing aligned point clouds ---")
-        vis_points1_aligned = local_transform.to_global(points1) if local_transform else points1
-        vis_points2_aligned = local_transform.to_global(points2_full_aligned) if local_transform else points2_full_aligned
-        visualizer.visualize_clouds(
-            point_clouds=[vis_points1_aligned, vis_points2_aligned],
-            names=[f"PC from {t1} (Target)", f"PC from {t2} (Aligned)"],
-            sample_size=cfg.visualization.sample_size  # Downsample for visualization
-        )
+            # Visualize the aligned point clouds
+            # Revert to global coordinates for visualization (users expect UTM coordinates)
+            logger.info("--- Visualizing aligned point clouds ---")
+            vis_points1_aligned = local_transform.to_global(points1) if local_transform else points1
+            vis_points2_aligned = local_transform.to_global(points2_full_aligned) if local_transform else points2_full_aligned
+            visualizer.visualize_clouds(
+                point_clouds=[vis_points1_aligned, vis_points2_aligned],
+                names=[f"PC from {t1} (Target)", f"PC from {t2} (Aligned)"],
+                sample_size=cfg.visualization.sample_size  # Downsample for visualization
+            )
+        else:
+            # Alignment disabled - skip ICP and use original point clouds
+            logger.info("=== STEP 2: Spatial Alignment (SKIPPED) ===")
+            logger.info("ICP alignment disabled in config; using original point clouds.")
+            transform_matrix = np.eye(4)
+            points2_full_aligned = points2
+            alignment_error = None
 
         # ============================================================
         # Step 3: Change Detection
