@@ -434,6 +434,11 @@ def main():
                     feature_name=clipping_cfg.feature_name
                 )
                 
+                # Transform clipper to local coordinates if local_transform is enabled
+                # Points are loaded in local coordinates, so the clipping polygon must also be in local coordinates
+                if local_transform is not None:
+                    clipper = clipper.transform_to_local(local_transform)
+                
                 # Store clip bounds for streaming processing (DoD, C2C)
                 clip_bounds = clipper.bounds
                 
@@ -466,9 +471,12 @@ def main():
         visualizer = PointCloudVisualizer(backend=VIS_BACKEND)
 
         # Visualize the original point clouds
+        # Revert to global coordinates for visualization (users expect UTM coordinates)
         logger.info("--- Visualizing original point clouds ---")
+        vis_points1 = local_transform.to_global(points1) if local_transform else points1
+        vis_points2 = local_transform.to_global(points2) if local_transform else points2
         visualizer.visualize_clouds(
-            point_clouds=[points1, points2],
+            point_clouds=[vis_points1, vis_points2],
             names=[f"PC from {t1}", f"PC from {t2}"],
             sample_size=cfg.visualization.sample_size  # Downsample for visualization
         )
@@ -659,9 +667,12 @@ def main():
         logger.info("Spatial alignment completed in %.2f seconds", step2_end - step2_start)
 
         # Visualize the aligned point clouds
+        # Revert to global coordinates for visualization (users expect UTM coordinates)
         logger.info("--- Visualizing aligned point clouds ---")
+        vis_points1_aligned = local_transform.to_global(points1) if local_transform else points1
+        vis_points2_aligned = local_transform.to_global(points2_full_aligned) if local_transform else points2_full_aligned
         visualizer.visualize_clouds(
-            point_clouds=[points1, points2_full_aligned],
+            point_clouds=[vis_points1_aligned, vis_points2_aligned],
             names=[f"PC from {t1} (Target)", f"PC from {t2} (Aligned)"],
             sample_size=cfg.visualization.sample_size  # Downsample for visualization
         )

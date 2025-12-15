@@ -1,5 +1,50 @@
 ﻿# Changelog and Implementation Notes
 
+## 2025-12-15 - Local Transform Integration Audit & Fixes
+
+### Summary
+Comprehensive audit and fix of LocalCoordinateTransform integration across all modules. Added local_transform support to remaining DoD streaming functions, fixed visualization to use global coordinates, and integrated clipping with local transform.
+
+### Key Changes
+
+**Area Clipping Integration** (`clipping.py`, `run_workflow.py`):
+- Added `transform_to_local()` method to AreaClipper class
+- Uses shapely's `translate()` to shift polygon coordinates by offset
+- Workflow now transforms clipper when local_transform is enabled
+- Fixes issue where clipping returned 0 points with local coordinates
+
+**Visualization Fix** (`run_workflow.py`):
+- Both visualization calls now revert points to global UTM coordinates
+- Users see correct geospatial coordinates matching maps and real-world locations
+- Applied to: original point clouds (line 475) and aligned point clouds (line 671)
+
+**DoD Streaming Fixes** (`dod.py`):
+- Added `local_transform` parameter to `compute_dod_streaming_files_tiled()`
+- Added `local_transform` parameter to `compute_dod_streaming_files()`
+- Both functions now transform bounds and pass transform to stream_points()
+
+**GPU Dependency Update** (`pyproject.toml`):
+- Changed from `cupy-cuda13x` to `cupy-cuda12x` to match CUDA 12.x toolkit
+
+### Integration Status
+
+All modules now fully support local coordinate transformation:
+- ✅ Data Loading (loader, stream reader, batch loader)
+- ✅ Detection Parallel (DoD, C2C, M3C2)
+- ✅ Detection Sequential (DoD, C2C, M3C2)
+- ✅ Tile Workers (all 3)
+- ✅ Export (LAZ, GeoTIFF)
+- ✅ Clipping
+- ✅ Visualization
+
+### Files Changed
+- `pyproject.toml`: GPU dep to cupy-cuda12x
+- `clipping.py`: Added transform_to_local() method
+- `dod.py`: Added local_transform to both streaming functions
+- `run_workflow.py`: Clipping transform, visualization global coords
+
+---
+
 ## 2025-12-12 - Cross-Platform GPU Support & Sequential Streaming Fixes
 
 ### Summary
@@ -27,6 +72,10 @@ Enabled GPU acceleration on Windows (CuPy-only mode) and fixed coordinate transf
 
 **Sequential M3C2 Streaming Fix** (`m3c2.py`, `run_workflow.py`):
 - Added `local_transform` parameter to `compute_m3c2_streaming_files_tiled()`
+- **Changed sequential M3C2 to use `compute_m3c2_streaming_pertile_parallel` with `n_workers=1`**
+- This enables per-tile core selection for sequential mode, making it truly out-of-core
+- Removed global core point selection via reservoir sampling for streaming mode
+- Both parallel and sequential now use per-tile core selection, supporting 100% core points without loading all data
 - Same fix as C2C: transforms bounds appropriately between coordinate spaces
 - Core points (in local coords) now correctly match file data (transformed to local)
 
