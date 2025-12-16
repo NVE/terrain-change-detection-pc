@@ -177,10 +177,6 @@ class DetectionM3C2AutotuneConfig(BaseModel):
     max_radius: float = Field(default=20.0)
 
 
-class DetectionM3C2EPConfig(BaseModel):
-    # If None, the workflow will pick OS-specific defaults
-    workers: Optional[int] = Field(default=None)
-
 
 class DetectionM3C2FixedConfig(BaseModel):
     # When use_autotune is False, use these fixed parameters
@@ -205,7 +201,7 @@ class DetectionM3C2Config(BaseModel):
     use_autotune: bool = Field(default=True)
     autotune: DetectionM3C2AutotuneConfig = Field(default_factory=DetectionM3C2AutotuneConfig)
     fixed: DetectionM3C2FixedConfig = Field(default_factory=DetectionM3C2FixedConfig)
-    ep: DetectionM3C2EPConfig = Field(default_factory=DetectionM3C2EPConfig)
+
     export_pc: bool = Field(
         default=True,
         description="Export M3C2 core points with distances as LAZ point cloud"

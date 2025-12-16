@@ -83,8 +83,6 @@ detection:
       radius: null
       normal_scale: null
       depth_factor: null
-    ep:
-      workers: null
     # Export M3C2 core points with distances as LAZ point cloud
     export_pc: true
     # Export M3C2 distances as interpolated GeoTIFF raster

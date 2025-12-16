@@ -91,9 +91,6 @@ detection:
       radius: null          # If set, projection_scale=cylinder_radius=radius
       normal_scale: null    # Defaults to radius when null
       depth_factor: null    # If null, falls back to autotune.max_depth_factor
-    ep:
-      # Number of worker processes/threads; null = OS default
-      workers: null
     # Export M3C2 core points with distances as LAZ point cloud
     export_pc: true
     # Export M3C2 distances as interpolated GeoTIFF raster
