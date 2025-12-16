@@ -1,172 +1,360 @@
-# Configuration Guide for Out-of-Core Processing
+# Configuration Guide
 
-This guide explains how the configuration system coordinates with the streaming/out-of-core processing features.
+This guide documents all configuration parameters for the terrain change detection toolkit. Configuration files use YAML format and reside in the `config/` directory.
 
-## Configuration Files
+## Running with Configuration Profiles
 
-### 1. **Default Configuration** (`config/default.yaml`)
-Standard configuration with out-of-core processing **disabled**. Use for datasets that fit in memory.
+```bash
+# Default configuration (in-memory processing)
+uv run scripts/run_workflow.py
+
+# Specific configuration profile
+uv run scripts/run_workflow.py --config config/profiles/large_scale.yaml
+```
+
+## Available Configuration Profiles
+
+| Profile | Description |
+| :--- | :--- |
+| `default.yaml` | Base configuration with sensible defaults for all parameters |
+| `default_clipped.yaml` | Default configuration with area clipping enabled |
+| `profiles/large_scale.yaml` | Optimized for national-scale datasets with streaming |
+| `profiles/large_synthetic.yaml` | Large synthetic data with streaming enabled |
+| `profiles/drone.yaml` | Tuned for high-density drone-captured point clouds |
+| `profiles/synthetic.yaml` | Settings for validation with generated test data |
+
+---
+
+## 1. Paths and Discovery
+
+These settings define where input data is located and where results are stored.
+
+```yaml
+paths:
+  base_dir: "data/raw"
+  output_dir: null
+  output_crs: "EPSG:25833"
+
+discovery:
+  source_type: "hoydedata"
+  data_dir_name: "data"
+  metadata_dir_name: "metadata"
+```
+
+| Section | Parameter | Default | Description |
+| :--- | :--- | :--- | :--- |
+| **paths** | `base_dir` | `data/raw` | Root directory containing the dataset area folders. |
+| | `output_dir` | `null` | Destination for results. If `null`, defaults to `base_dir/output`. |
+| | `output_crs` | `EPSG:25833` | Coordinate Reference System for exported files. |
+| **discovery** | `source_type` | `hoydedata` | Directory layout: `hoydedata` (nested `data/` folder) or `drone` (flat structure). |
+| | `data_dir_name` | `data` | Subfolder name for point clouds (used with `hoydedata` source). |
+| | `metadata_dir_name` | `metadata` | Subfolder name for metadata files. |
+
+---
+
+## 2. Preprocessing and Clipping
+
+Controls how point clouds are filtered and spatially subset before analysis.
+
+```yaml
+preprocessing:
+  ground_only: true
+  classification_filter: [2]
+
+clipping:
+  enabled: false
+  boundary_file: "area_boundary.geojson"
+  feature_name: null
+  save_clipped_files: false
+  output_dir: null
+```
+
+| Section | Parameter | Default | Description |
+| :--- | :--- | :--- | :--- |
+| **preprocessing** | `ground_only` | `true` | If true, retains only LAS Class 2 (Ground) points. |
+| | `classification_filter` | `[2]` | Specific LAS classes to keep (overrides `ground_only`). |
+| **clipping** | `enabled` | `false` | If true, clips point clouds to the polygon defined in `boundary_file`. |
+| | `boundary_file` | `null` | Path to a GeoJSON or Shapefile polygon. |
+| | `feature_name` | `null` | Name of the specific feature to use if the file contains multiple. |
+| | `save_clipped_files` | `false` | If true, saves the clipped LAZ files to disk to speed up future runs. |
+| | `output_dir` | `null` | Specific directory for clipped files (auto-generated if null). |
+
+**Local Coordinate Transformation**: By default, the toolkit automatically transforms point clouds to a local coordinate system before processing to avoid floating-point precision issues with large UTM coordinates. This is controlled by the `coordinates` section:
+- `use_local_coordinates` (default: `true`) — Enables/disables the feature
+- `origin_method` (`min_bounds`, `centroid`, or `first_point`) — Determines how the local origin is computed
+- `include_z_offset` (default: `false`) — Optionally shifts Z values as well
+
+---
+
+## 3. Alignment (ICP)
+
+Settings for registering (aligning) point clouds from different time periods using ICP (Iterative Closest Point).
+
+```yaml
+alignment:
+  enabled: true
+  max_iterations: 100
+  tolerance: 1.0e-6
+  max_correspondence_distance: 1.0
+  subsample_size: 50000
+  export_aligned_pc: false
+  
+  coarse:
+    enabled: false
+    method: "centroid"
+```
+
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| `enabled` | `true` | Enable/disable ICP alignment step. |
+| `max_iterations` | `100` | Maximum number of iterations for the ICP algorithm. |
+| `tolerance` | `1e-6` | Convergence threshold based on MSE change. |
+| `max_correspondence_distance` | `1.0` | Max distance (meters) to search for matching points. |
+| `subsample_size` | `50000` | Number of points to sample for calculating alignment. |
+| `export_aligned_pc` | `false` | If true, saves the aligned T2 point cloud as a new LAZ file. |
+| `convergence_translation_epsilon` | `1e-4` | Translation threshold for early stopping. |
+| `convergence_rotation_epsilon_deg` | `0.1` | Rotation threshold (degrees) for early stopping. |
+| **coarse.enabled** | `false` | Enables pre-alignment. Use only if datasets are significantly misaligned (>1m). |
+| **coarse.method** | `centroid` | Alignment method: `centroid`, `pca`, `phase`, or `open3d_fpfh`. |
+| **coarse.voxel_size** | `2.0` | Voxel size (m) for downsampling during coarse registration. |
+
+---
+
+## 4. Detection Methods
+
+Configuration for the three available change detection algorithms.
+
+### 4.1 M3C2 (Multiscale Model to Model Cloud Comparison)
+
+The recommended method for accurate 3D change detection.
+
+```yaml
+detection:
+  m3c2:
+    enabled: true
+    use_autotune: true
+    core_points_percent: 10.0
+    export_pc: true
+    export_raster: true
+    
+    autotune:
+      source: header
+      target_neighbors: 16
+      max_depth_factor: 1.0
+      min_radius: 1.0
+      max_radius: 20.0
+    
+    fixed:
+      radius: null
+      normal_scale: null
+      depth_factor: null
+```
+
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| `enabled` | `true` | Activates M3C2 processing. |
+| `use_autotune` | `true` | Automatically estimates cylinder radius from point density. |
+| `core_points_percent` | `10.0` | Percentage of T1 points to use as "core points". |
+| `export_pc` | `true` | Saves results as a point cloud (.laz) with distance attributes. |
+| `export_raster` | `true` | Interpolates results to a GeoTIFF raster. |
+| **autotune.source** | `header` | Density source: `header` (fast) or `sample` (accurate). |
+| **autotune.target_neighbors** | `16` | Desired number of neighbors to define the cylinder radius. |
+| **autotune.max_depth_factor** | `1.0` | Cylinder depth relative to radius. |
+| **autotune.min_radius** | `1.0` | Minimum allowed cylinder radius (meters). |
+| **autotune.max_radius** | `20.0` | Maximum allowed cylinder radius (meters). |
+| **fixed.radius** | `null` | Manual cylinder radius (used if `use_autotune: false`). |
+| **fixed.normal_scale** | `null` | Manual scale for normal estimation. |
+| **fixed.depth_factor** | `null` | Manual depth factor (max_depth = radius × depth_factor). |
+
+### 4.2 DoD (DEM of Difference)
+
+Fast, grid-based vertical change detection.
+
+```yaml
+detection:
+  dod:
+    enabled: false
+    cell_size: 1.0
+    aggregator: "mean"
+    export_raster: false
+```
+
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| `enabled` | `false` | Activates DoD processing. |
+| `cell_size` | `1.0` | Grid resolution in meters. |
+| `aggregator` | `mean` | Statistic for cell value: `mean`, `median`, `p95`, `p5`. |
+| `export_raster` | `false` | Saves result as GeoTIFF. |
+
+### 4.3 C2C (Cloud to Cloud)
+
+Simple absolute distance measurement.
+
+```yaml
+detection:
+  c2c:
+    enabled: false
+    mode: "euclidean"
+    max_distance: 10.0
+    export_pc: false
+    export_raster: false
+```
+
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| `enabled` | `false` | Activates C2C processing. |
+| `mode` | `euclidean` | `euclidean` (3D distance) or `vertical_plane` (local reference). |
+| `max_distance` | `10.0` | Maximum search radius for nearest neighbor. |
+| `max_points` | `1000000` | Limit before switching to tiled processing. |
+| `export_pc` | `false` | Saves results as LAZ point cloud. |
+| `export_raster` | `false` | Interpolates results to GeoTIFF. |
+
+---
+
+## 5. Execution Modes
+
+These sections control performance, scalability, and hardware acceleration.
+
+### 5.1 Out-of-Core Processing
+
+For datasets that exceed available system memory.
 
 ```yaml
 outofcore:
   enabled: false
-  streaming_mode: true  # Ready when you enable it
   tile_size_m: 500.0
   halo_m: 20.0
   chunk_points: 1000000
-  save_transformed_files: false  # Opt-in to writing transformed files
+  streaming_mode: true
+  save_transformed_files: false
+  output_dir: null
+  memmap_dir: null
 ```
 
-### 2. **Synthetic Profile** (`config/profiles/synthetic.yaml`)
-Optimized for smaller synthetic test datasets.
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| `enabled` | `false` | Master switch for out-of-core processing. |
+| `tile_size_m` | `500.0` | Size of each square tile in meters. |
+| `halo_m` | `20.0` | Overlay buffer to prevent edge artifacts. |
+| `chunk_points` | `1000000` | Number of points to read at once during streaming. |
+| `streaming_mode` | `true` | Use streaming preprocessing. |
+| `save_transformed_files` | `false` | Save intermediate transformed LAZ files. |
+| `output_dir` | `null` | Directory for transformed files. |
+| `memmap_dir` | `null` | Directory for memory-mapped arrays. |
+
+### 5.2 Parallel Processing
+
+Multi-core CPU processing for tile-based workloads.
 
 ```yaml
-outofcore:
+parallel:
   enabled: false
-  tile_size_m: 300.0  # Smaller tiles
-  save_transformed_files: false  # No need for file transforms
+  n_workers: null
+  memory_limit_gb: null
 ```
 
-### 3. **Large Scale Profile** (`config/profiles/large_scale.yaml`) ⭐
-**Fully coordinated out-of-core configuration** for large datasets that don't fit in memory.
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| `enabled` | `false` | Process multiple tiles simultaneously. |
+| `n_workers` | `null` | Number of CPU cores (null = all available - 1). |
+| `memory_limit_gb` | `null` | Soft memory limit per worker. |
+
+### 5.3 GPU Acceleration
+
+CUDA-based acceleration for NVIDIA GPUs.
 
 ```yaml
-outofcore:
-  enabled: true  # Enables streaming throughout workflow
-  tile_size_m: 500.0  # Tile size in meters for large areas
-  halo_m: 30.0  # Buffer for edge effects
-  chunk_points: 2000000  # 2M points per chunk
-  streaming_mode: true  # Use streaming preprocessing
-  save_transformed_files: false  # Enable explicitly when you want files
-  output_dir: null  # Auto-generate when saving transformed files
+gpu:
+  enabled: false
+  gpu_memory_limit_gb: null
+  fallback_to_cpu: true
+  use_for_c2c: true
+  use_for_preprocessing: true
+  use_for_alignment: false
 ```
 
-## Configuration Parameters
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| `enabled` | `false` | Enable CUDA acceleration (NVIDIA only). |
+| `gpu_memory_limit_gb` | `null` | Max GPU memory (null = 80%). |
+| `fallback_to_cpu` | `true` | Fall back to CPU if GPU init fails. |
+| `use_for_c2c` | `true` | Use GPU for nearest neighbor search. |
+| `use_for_preprocessing` | `true` | Use GPU for coordinates/filtering. |
+| `use_for_alignment` | `false` | Use GPU for ICP (experimental). |
 
-### Out-of-Core Settings
+> **Note**: GPU mode and Parallel mode are mutually exclusive due to CUDA constraints.
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `enabled` | bool | false | Master switch for out-of-core processing |
-| `streaming_mode` | bool | true | Use streaming in preprocessing (when enabled) |
-| `save_transformed_files` | bool | false | Save transformed LAZ files during alignment |
-| `tile_size_m` | float | 500.0 | Tile size in meters for tiled processing |
-| `halo_m` | float | 20.0 | Buffer width around tiles in meters |
-| `chunk_points` | int | 1000000 | Points per chunk for streaming reads |
-| `output_dir` | str | null | Output directory (auto-generated if null) |
+---
 
-## How Configuration Coordinates the Workflow
+## 6. Visualization and Logging
 
-### 1. **Preprocessing Stage**
+```yaml
+visualization:
+  backend: "plotly"
+  sample_size: 100000
 
-```python
-# Config determines streaming mode
-if cfg.outofcore.enabled and cfg.outofcore.streaming_mode:
-    # Returns file paths + metadata (no data loading)
-    batch_loader = BatchLoader(streaming_mode=True)
-    data = batch_loader.load_dataset(dataset_info, streaming=True)
-else:
-    # Traditional in-memory loading
-    batch_loader = BatchLoader(streaming_mode=False)
-    data = batch_loader.load_dataset(dataset_info)
+logging:
+  level: "INFO"
+  file: null
+
+performance:
+  numpy_threads: "auto"
 ```
 
-**Config Impact:**
-- `outofcore.enabled` + `outofcore.streaming_mode` → File paths returned
-- Otherwise → Full data loaded into memory
+| Section | Parameter | Default | Description |
+| :--- | :--- | :--- | :--- |
+| **visualization** | `backend` | `plotly` | Interactive viewer: `plotly` (web) or `pyvista` (desktop). |
+| | `sample_size` | `100000` | Max points to render for responsiveness. |
+| **logging** | `level` | `INFO` | Verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
+| | `file` | `null` | Optional path to write logs to a file. |
+| **performance** | `numpy_threads` | `auto` | Limits BLAS/NumPy threads to prevent contention. |
 
-### 2. **Alignment Stage**
+---
 
-```python
-# Config determines if transforms are saved to files
-if cfg.outofcore.enabled and cfg.outofcore.save_transformed_files:
-    # Apply transformation in streaming fashion
-    output_dir = cfg.outofcore.output_dir or auto_generate_dir()
-    aligned_files = apply_transform_to_files(
-        input_files=file_paths,
-        output_dir=output_dir,
-        transform=transform_matrix,
-        chunk_points=cfg.outofcore.chunk_points,
-    )
-```
+## Example: Custom Profile
 
-**Config Impact:**
-- `save_transformed_files=true` → Transformed LAZ files saved
-- `save_transformed_files=false` → Only in-memory transformation
-- `output_dir` → Controls where files are saved
-- `chunk_points` → Controls streaming chunk size
-
-### 3. **Change Detection Stage**
-
-```python
-# Config determines tiling parameters
-if cfg.outofcore.enabled:
-    dod_result = ChangeDetector.compute_dod_streaming_files_tiled(
-        files_t1=file_paths_t1,
-        files_t2=file_paths_t2,
-        cell_size=cfg.detection.dod.cell_size,
-        tile_size=cfg.outofcore.tile_size_m,
-        halo=cfg.outofcore.halo_m,
-        chunk_points=cfg.outofcore.chunk_points,
-        # Advanced: optionally back mosaic arrays on disk to reduce RAM
-        # memmap_dir=".mosaic_tmp",
-    )
-```
-
-**Config Impact:**
-- `tile_size_m` → Size of processing tiles
-- `halo_m` → Overlap between tiles
-- `chunk_points` → Points per streaming chunk
-- `detection.dod.cell_size` → Grid resolution
-
-For algorithm-specific guidance (DoD, C2C, and M3C2) and how tiling/halo settings differ, see docs/ALGORITHMS.md.
-
-## Usage Examples
-
-### Running with Default Config (In-Memory)
-```bash
-python scripts/run_workflow.py
-```
-
-### Running with Large-Scale Profile (Out-of-Core)
-```bash
-python scripts/run_workflow.py --config config/profiles/large_scale.yaml
-```
-
-### Creating Custom Profile
 ```yaml
 # config/profiles/my_dataset.yaml
 paths:
   base_dir: data/my_large_dataset
 
-outofcore:
+preprocessing:
+  ground_only: true
+  classification_filter: [2]
+
+clipping:
   enabled: true
-  streaming_mode: true
-  save_transformed_files: true
-  tile_size_m: 2000.0  # 2km tiles
-  halo_m: 100.0  # 100m overlap
-  chunk_points: 5000000  # 5M points per chunk
-  output_dir: /path/to/fast/storage
+  boundary_file: data/boundary.geojson
 
 alignment:
-  subsample_size: 200000  # More samples for large dataset
+  enabled: true
+  subsample_size: 100000
 
 detection:
-  dod:
-    cell_size: 5.0  # Coarser for regional analysis
+  m3c2:
+    enabled: true
+    use_autotune: false
+    core_points_percent: 100.0
+    fixed:
+      radius: 1.0
+      normal_scale: 1.0
+      depth_factor: 2.0
+
+outofcore:
+  enabled: true
+  tile_size_m: 500.0
+  halo_m: 30.0
+
+parallel:
+  enabled: true
+  n_workers: 8
 ```
 
-## Coordination Benefits
-
-✅ **Single Source of Truth** - All modules read from same config  
-✅ **Consistent Behavior** - Same settings throughout workflow  
-✅ **Easy Switching** - Toggle between in-memory and streaming modes  
-✅ **Profile-Based** - Different configs for different dataset sizes  
-✅ **Validated** - Pydantic ensures type safety and defaults  
+---
 
 ## Configuration Validation
 
-The configuration system uses Pydantic for validation:
+The configuration system uses Pydantic for validation, ensuring type safety and sensible defaults:
 
 ```python
 from terrain_change_detection.utils.config import load_config
@@ -176,66 +364,7 @@ cfg = load_config("config/profiles/large_scale.yaml")
 
 # Type-safe access
 assert isinstance(cfg.outofcore.enabled, bool)
-assert isinstance(cfg.outofcore.tile_size_m, float)
+assert isinstance(cfg.detection.m3c2.fixed.radius, float | None)
 ```
 
 All configuration values are validated at load time, preventing runtime errors from misconfiguration.
-
-## Advanced: On-Disk Mosaic (Memmap)
-
-For very large output grids, you can reduce memory by enabling on-disk mosaicking in the tiled streaming DoD call:
-
-```python
-ChangeDetector.compute_dod_streaming_files_tiled(
-    ..., memmap_dir="/fast/scratch/mosaic"
-)
-```
-
-This backs the internal `sum`/`cnt` arrays with `numpy.memmap` files in the provided directory. It lowers RAM usage at the cost of extra disk I/O. Grid `X/Y` arrays are still returned as in-memory arrays.
-
-## M3C2: Streaming + Tiling
-
-For large datasets, you can run M3C2 without loading whole epochs into memory by tiling core points and streaming points per tile:
-
-```python
-from terrain_change_detection.detection import ChangeDetector
-
-m3c2_res = ChangeDetector.compute_m3c2_streaming_files_tiled(
-    core_points=core_src,           # Nx3, e.g., subsample of T1
-    files_t1=files_t1,              # LAZ/LAS epoch 1
-    files_t2=files_t2_aligned,      # LAZ/LAS epoch 2 (aligned to T1)
-    params=m3c2_params,             # from autotune_m3c2_params()
-    tile_size=cfg.outofcore.tile_size_m,
-    halo=None,                      # default halo = max(cyl_radius, projection_scale)
-    ground_only=cfg.preprocessing.ground_only,
-    classification_filter=cfg.preprocessing.classification_filter,
-    chunk_points=cfg.outofcore.chunk_points,
-)
-```
-
-- Halo rule of thumb: use at least `max(cylinder_radius, projection_scale)` to ensure neighborhoods are contained within each tile’s outer bbox.
-- If some tiles have zero points in an epoch, distances for their core points return as NaN and are logged.
-
-## C2C: Streaming + Tiling
-
-Cloud‑to‑Cloud (nearest neighbor) can also run out‑of‑core by tiling the XY domain and streaming per tile. This requires a finite radius to bound neighborhoods.
-
-```python
-from terrain_change_detection.detection import ChangeDetector
-
-c2c_res = ChangeDetector.compute_c2c_streaming_files_tiled(
-    files_src=files_t2_aligned,          # LAZ/LAS epoch 2 (aligned), source cloud
-    files_tgt=files_t1,                  # LAZ/LAS epoch 1, target cloud
-    tile_size=cfg.outofcore.tile_size_m,
-    max_distance=float(cfg.detection.c2c.max_distance),  # required radius (meters)
-    ground_only=cfg.preprocessing.ground_only,
-    classification_filter=cfg.preprocessing.classification_filter,
-    chunk_points=cfg.outofcore.chunk_points,
-)
-```
-
-- Set `detection.c2c.max_distance` to enable streaming C2C; the tile halo uses this radius.
-- Indices are not tracked in streaming mode (set to `-1`); distances and summary stats are returned.
-- If a tile has no target points in its halo, distances for that tile’s sources are set to `inf` and logged.
-
-See docs/ALGORITHMS.md for algorithm-specific guidance on C2C tiling, halos, and classification.

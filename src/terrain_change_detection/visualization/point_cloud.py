@@ -85,7 +85,7 @@ class PointCloudVisualizer:
             pass
         plotter.show()
 
-    def visualize_distance_histogram(self, distances: np.ndarray, title: str, bins: int = 60):
+    def visualize_distance_histogram(self, distances: np.ndarray, title: str, bins: int = 256):
         if self.backend != 'plotly':
             raise ValueError("Histogram is only implemented for 'plotly' backend")
         distances = np.asarray(distances)
@@ -112,10 +112,16 @@ class PointCloudVisualizer:
             d = d[idx]
         vmax = float(np.nanmax(np.abs(d))) if np.isfinite(d).any() else 1.0
         if self.backend == 'plotly':
+            # Custom colorscale: Red (erosion) -> Very Pale Green (stable) -> Blue (deposition)
+            custom_scale = [
+                [0.0, 'red'],         # Original red (erosion/negative)
+                [0.5, '#D4EDDA'],     # Very pale green (stable/zero) - much more muted
+                [1.0, 'blue']         # Original blue (deposition/positive)
+            ]
             fig = go.Figure(data=go.Scatter3d(
                 x=pts[:, 0], y=pts[:, 1], z=pts[:, 2],
                 mode='markers',
-                marker=dict(size=2, color=d, colorscale='RdBu', cmin=-vmax, cmax=vmax, colorbar=dict(title='m'))
+                marker=dict(size=2, color=d, colorscale=custom_scale, cmin=-vmax, cmax=vmax, colorbar=dict(title='m'))
             ))
             fig.update_layout(
                 title=title,

@@ -83,19 +83,23 @@ detection:
     export_raster: false
   m3c2:
     enabled: true
-    use_autotune: true
+    # Use automatic parameter tuning (true) or fixed parameters below (false)
+    use_autotune: false
     # Percentage of reference ground points to use as M3C2 core points
-    core_points_percent: 10.0
+    core_points_percent: 100.0
+    # (Optional) Absolute number of core points - overrides percentage if set
+    # core_points: null
     autotune:
       source: header
       target_neighbors: 16
       max_depth_factor: 1.0
       min_radius: 1.0
       max_radius: 20.0
+    # Fixed parameters (used only when use_autotune: false). Leave as null to accept defaults.
     fixed:
-      radius: null
-      normal_scale: null
-      depth_factor: null
+      radius: 1.0          # If set, projection_scale=cylinder_radius=radius
+      normal_scale: 1.0    # Defaults to radius when null
+      depth_factor: 2.0    # If null, falls back to autotune.max_depth_factor
     ep:
       workers: null
     # Export M3C2 core points with distances as LAZ point cloud
@@ -105,6 +109,7 @@ detection:
 
 visualization:
   backend: plotly
+  # Max points to draw for interactive views
   sample_size: 100000
 
 logging:

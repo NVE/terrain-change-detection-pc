@@ -78,7 +78,7 @@ detection:
     # Use automatic parameter tuning (true) or fixed parameters below (false)
     use_autotune: true
     # Percentage of reference ground points for M3C2 core points
-    core_points_percent: 10.0
+    core_points_percent: 100.0
     autotune:
       source: header
       target_neighbors: 16
