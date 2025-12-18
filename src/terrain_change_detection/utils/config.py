@@ -35,6 +35,22 @@ class PreprocessingConfig(BaseModel):
     classification_filter: List[int] = Field(default_factory=lambda: [2])
 
 
+class CoordinateConfig(BaseModel):
+    """Configuration for local coordinate transformation."""
+    use_local_coordinates: bool = Field(
+        default=True,
+        description="Transform to local coordinates for numerical stability during processing"
+    )
+    origin_method: Literal["min_bounds", "centroid", "first_point"] = Field(
+        default="min_bounds",
+        description="Method for determining local origin: 'min_bounds' guarantees positive coords"
+    )
+    include_z_offset: bool = Field(
+        default=False,
+        description="Also offset Z coordinates (usually not needed for terrain data)"
+    )
+
+
 class DiscoveryConfig(BaseModel):
     source_type: Literal["hoydedata", "drone"] = Field(
         default="hoydedata",
@@ -69,8 +85,8 @@ class ClippingConfig(BaseModel):
 
 
 class CoarseRegistrationConfig(BaseModel):
-    enabled: bool = Field(default=True)
-    method: Literal["centroid", "pca", "phase", "open3d_fpfh", "none"] = Field(default="pca")
+    enabled: bool = Field(default=False)
+    method: Literal["centroid", "pca", "phase", "open3d_fpfh", "none"] = Field(default="centroid")
     voxel_size: float = Field(default=2.0, description="Voxel size for downsampling (if applicable)")
     phase_grid_cell: float = Field(default=2.0, description="Grid cell size for phase correlation (meters)")
 
@@ -95,6 +111,10 @@ class AlignmentMultiscaleConfig(BaseModel):
 
 
 class AlignmentICPConfig(BaseModel):
+    enabled: bool = Field(
+        default=True,
+        description="Enable ICP fine registration for spatial alignment"
+    )
     max_iterations: int = Field(default=100)
     tolerance: float = Field(default=1e-6)
     max_correspondence_distance: float = Field(default=1.0)
@@ -116,7 +136,7 @@ class AlignmentICPConfig(BaseModel):
 
 
 class DetectionDoDConfig(BaseModel):
-    enabled: bool = Field(default=True)
+    enabled: bool = Field(default=False)
     cell_size: float = Field(default=1.0)
     aggregator: Literal["mean", "median", "p95", "p5"] = Field(default="mean")
     export_raster: bool = Field(
@@ -126,13 +146,13 @@ class DetectionDoDConfig(BaseModel):
 
 
 class DetectionC2CConfig(BaseModel):
-    enabled: bool = Field(default=True)
+    enabled: bool = Field(default=False)
     # Algorithm mode: 'euclidean' uses nearest-neighbor 3D distances;
     # 'vertical_plane' fits a local plane in the target and measures vertical offset.
     mode: Literal["euclidean", "vertical_plane"] = Field(default="euclidean")
-    max_points: int = Field(default=10000)
+    max_points: int = Field(default=1_000_000)
     # For streaming C2C, a finite max_distance is required
-    max_distance: Optional[float] = Field(default=None)
+    max_distance: Optional[float] = Field(default=10.0)
     # Local modeling parameters (used when mode='vertical_plane')
     radius: Optional[float] = Field(default=None, description="Search radius (m) for local plane fit")
     k_neighbors: int = Field(default=20, description="If radius is None, use k-NN for local plane fit")
@@ -152,14 +172,10 @@ class DetectionM3C2AutotuneConfig(BaseModel):
     # extent; 'sample' uses array points provided to the workflow.
     source: Literal["header", "sample"] = Field(default="header")
     target_neighbors: int = Field(default=16)
-    max_depth_factor: float = Field(default=0.6)
+    max_depth_factor: float = Field(default=1.0)
     min_radius: float = Field(default=1.0)
     max_radius: float = Field(default=20.0)
 
-
-class DetectionM3C2EPConfig(BaseModel):
-    # If None, the workflow will pick OS-specific defaults
-    workers: Optional[int] = Field(default=None)
 
 
 class DetectionM3C2FixedConfig(BaseModel):
@@ -185,7 +201,7 @@ class DetectionM3C2Config(BaseModel):
     use_autotune: bool = Field(default=True)
     autotune: DetectionM3C2AutotuneConfig = Field(default_factory=DetectionM3C2AutotuneConfig)
     fixed: DetectionM3C2FixedConfig = Field(default_factory=DetectionM3C2FixedConfig)
-    ep: DetectionM3C2EPConfig = Field(default_factory=DetectionM3C2EPConfig)
+
     export_pc: bool = Field(
         default=True,
         description="Export M3C2 core points with distances as LAZ point cloud"
@@ -204,7 +220,7 @@ class DetectionConfig(BaseModel):
 
 class VisualizationConfig(BaseModel):
     backend: Literal["plotly", "pyvista", "pyvistaqt"] = Field(default="plotly")
-    sample_size: int = Field(default=50000)
+    sample_size: int = Field(default=100000)
 
 
 class LoggingConfig(BaseModel):
@@ -228,22 +244,24 @@ class AppConfig(BaseModel):
         memmap_dir: Optional[str] = Field(default=None, description="Directory for memory-mapped arrays in mosaicking (auto if None)")
 
     class ParallelConfig(BaseModel):
-        enabled: bool = Field(default=True, description="Enable CPU parallelization for tile processing")
+        enabled: bool = Field(default=False, description="Enable CPU parallelization for tile processing")
         n_workers: Optional[int] = Field(default=None, description="Number of worker processes (None = auto-detect: cpu_count - 1)")
         memory_limit_gb: Optional[float] = Field(default=None, description="Soft memory limit in GB to guide concurrency")
         threads_per_worker: Optional[int] = Field(default=1, description="BLAS/NumPy threads per worker process (mitigate oversubscription)")
 
     class GPUConfig(BaseModel):
-        enabled: bool = Field(default=True, description="Enable GPU acceleration if available (graceful CPU fallback)")
+        enabled: bool = Field(default=False, description="Enable GPU acceleration if available (graceful CPU fallback)")
         gpu_memory_limit_gb: Optional[float] = Field(default=None, description="Max GPU memory to use in GB (None = auto-detect 80% of available)")
         fallback_to_cpu: bool = Field(default=True, description="Automatically fall back to CPU if GPU fails or unavailable")
         use_for_c2c: bool = Field(default=True, description="Use GPU for C2C nearest neighbor searches")
+        use_for_dod: bool = Field(default=True, description="Use GPU for DoD grid accumulation operations")
         use_for_preprocessing: bool = Field(default=True, description="Use GPU for data preprocessing (transformations, filtering)")
         use_for_alignment: bool = Field(default=False, description="Use GPU for ICP alignment when available")
         batch_size: Optional[int] = Field(default=None, description="GPU batch size for operations (None = auto-calculate based on memory)")
 
     paths: PathsConfig = Field(default_factory=PathsConfig)
     preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
+    coordinates: CoordinateConfig = Field(default_factory=CoordinateConfig)
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
     clipping: ClippingConfig = Field(default_factory=ClippingConfig)
     alignment: AlignmentICPConfig = Field(default_factory=AlignmentICPConfig)

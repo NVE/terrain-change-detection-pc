@@ -29,13 +29,12 @@ open3d = ["open3d>=0.18.0; python_version < '3.13'"]
 # Shapefile support for area clipping (requires fiona)
 shapefile = ["fiona>=1.9.0"]
 
-# GPU acceleration (Phase 2)
+# GPU acceleration
 # Requires NVIDIA GPU with CUDA support (compute capability 6.0+)
 # NOTE: cuML is Linux-only. On Windows, we use CuPy + sklearn (CPU NN with GPU arrays)
 # Install with: uv sync --extra gpu
-# Using cupy-cuda13x to match installed CUDA Toolkit 13.0
 gpu = [
-    "cupy-cuda13x>=13.0.0", # NumPy-compatible GPU arrays (CUDA 13.x)
+    "cupy-cuda12x>=12.0.0", # NumPy-compatible GPU arrays (CUDA 12.x)
     "numba>=0.59.0", # JIT compilation with CUDA support
     "cuml-cu12>=24.0.0; sys_platform == 'linux'", # GPU ML (Linux only)
 ]

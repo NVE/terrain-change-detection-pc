@@ -45,6 +45,8 @@ clipping:
   output_dir: null
 
 alignment:
+  # Enable ICP fine registration for spatial alignment (disable for pre-aligned data)
+  enabled: true
   # ICP/registration parameters
   max_iterations: 100
   tolerance: 1.0e-6
@@ -93,9 +95,9 @@ detection:
   m3c2:
     enabled: true
     # Use automatic parameter tuning (true) or fixed parameters below (false)
-    use_autotune: true
+    use_autotune: false
     # Percentage of reference ground points to use as M3C2 core points
-    core_points_percent: 10.0
+    core_points_percent: 100.0
     # (Optional) Absolute number of core points - overrides percentage if set
     # core_points: null
     autotune:
@@ -104,18 +106,15 @@ detection:
       # Target neighbor count for choosing scales
       target_neighbors: 16
       # Half-depth along normal as a fraction of cylinder radius
-      max_depth_factor: 20.0
+      max_depth_factor: 1.0
       # Min/max search radii (m) for scale selection
       min_radius: 1.0
       max_radius: 20.0
     # Fixed parameters (used only when use_autotune: false). Leave as null to accept defaults.
     fixed:
-      radius: null          # If set, projection_scale=cylinder_radius=radius
-      normal_scale: null    # Defaults to radius when null
-      depth_factor: null    # If null, falls back to autotune.max_depth_factor
-    ep:
-      # Number of worker processes/threads; null = OS default
-      workers: null
+      radius: 1.0          # If set, projection_scale=cylinder_radius=radius
+      normal_scale: 1.0    # Defaults to radius when null
+      depth_factor: 2.0    # If null, falls back to autotune.max_depth_factor
     # Export M3C2 core points with distances as LAZ point cloud
     export_pc: true
     # Export M3C2 distances as interpolated GeoTIFF raster
@@ -123,9 +122,9 @@ detection:
 
 visualization:
   # plotly | pyvista | pyvistaqt
-  backend: pyvista
+  backend: plotly
   # Max points to draw for interactive views
-  sample_size: 5000000
+  sample_size: 100000
 
 logging:
   level: INFO

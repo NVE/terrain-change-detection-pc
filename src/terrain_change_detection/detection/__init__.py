@@ -43,8 +43,8 @@ class ChangeDetector:
     compute_m3c2_original = staticmethod(M3C2Detector.compute_m3c2_original)
     compute_m3c2_streaming_files_tiled = staticmethod(M3C2Detector.compute_m3c2_streaming_files_tiled)
     compute_m3c2_streaming_files_tiled_parallel = staticmethod(M3C2Detector.compute_m3c2_streaming_files_tiled_parallel)
+    compute_m3c2_streaming_pertile_parallel = staticmethod(M3C2Detector.compute_m3c2_streaming_pertile_parallel)
     compute_m3c2_plane_based = staticmethod(M3C2Detector.compute_m3c2_plane_based)
-    compute_m3c2_error_propagation = staticmethod(M3C2Detector.compute_m3c2_error_propagation)
 
 
 # Re-export convenience functions

@@ -30,6 +30,7 @@ from terrain_change_detection.detection import (
 )
 from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
 from terrain_change_detection.utils.config import load_config, AppConfig
+from terrain_change_detection.utils.coordinate_transform import LocalCoordinateTransform
 from terrain_change_detection.acceleration import LaspyStreamReader
 
 # Hardware optimizations
@@ -133,30 +134,41 @@ def main():
     # Log GPU configuration status and check for GPU libraries
     try:
         from terrain_change_detection.acceleration.hardware_detection import detect_gpu
+        import platform
+        
         if getattr(cfg.gpu, 'enabled', False):
             # Check if GPU libraries are available
+            # cuML is Linux-only (RAPIDS), but CuPy works on Windows too
+            cupy_available = False
+            cuml_available = False
+            
             try:
                 import cupy as cp
+                cupy_available = True
+            except ImportError:
+                pass
+            
+            try:
                 import cuml
-                gpu_libraries_available = True
-            except ImportError as import_err:
-                gpu_libraries_available = False
-                missing_libs = []
-                try:
-                    import cupy
-                except ImportError:
-                    missing_libs.append("cupy")
-                try:
-                    import cuml
-                except ImportError:
-                    missing_libs.append("cuml")
-                
+                cuml_available = True
+            except ImportError:
+                pass
+            
+            is_windows = platform.system() == "Windows"
+            
+            # On Windows: CuPy is sufficient (cuML not available)
+            # On Linux: Prefer cuML but CuPy-only is still useful
+            if not cupy_available:
+                # No GPU library available at all
                 logger.error("=" * 80)
-                logger.error("ERROR: GPU is enabled in config but required libraries are not available!")
-                logger.error(f"Missing libraries: {', '.join(missing_libs)}")
+                logger.error("ERROR: GPU is enabled in config but CuPy is not available!")
                 logger.error("")
-                logger.error("To use GPU acceleration, you must activate the GPU environment:")
-                logger.error("  source activate_gpu.sh")
+                if is_windows:
+                    logger.error("On Windows, install CuPy for GPU acceleration:")
+                    logger.error("  uv add cupy-cuda12x  # or cupy-cuda11x depending on your CUDA version")
+                else:
+                    logger.error("To use GPU acceleration, you must activate the GPU environment:")
+                    logger.error("  source activate_gpu.sh")
                 logger.error("")
                 logger.error("Or disable GPU in your config file:")
                 logger.error("  gpu:")
@@ -165,13 +177,23 @@ def main():
                 logger.error("Exiting workflow. Please fix the configuration and try again.")
                 return
             
+            # Log GPU capability level
+            if cuml_available:
+                gpu_mode = "FULL (CuPy + cuML)"
+            else:
+                gpu_mode = "PARTIAL (CuPy only - cuML not available)"
+                if not is_windows:
+                    logger.warning("cuML not available. For full GPU acceleration on Linux, activate GPU environment:")
+                    logger.warning("  source activate_gpu.sh")
+            
             gpu_info = detect_gpu()
             if gpu_info.available:
-                logger.info(f"GPU Acceleration: ENABLED")
+                logger.info(f"GPU Acceleration: ENABLED - {gpu_mode}")
                 logger.info(f"  Device: {gpu_info.device_name}")
                 logger.info(f"  Memory: {gpu_info.memory_gb:.2f} GB")
                 logger.info(f"  C2C: {'ENABLED' if getattr(cfg.gpu, 'use_for_c2c', False) else 'DISABLED'}")
-                logger.info(f"  Preprocessing: {'ENABLED' if getattr(cfg.gpu, 'use_for_preprocessing', False) else 'DISABLED'}")
+                logger.info(f"  DoD: {'ENABLED' if getattr(cfg.gpu, 'use_for_dod', False) else 'DISABLED'}")
+                logger.info(f"  Alignment: {'ENABLED' if getattr(cfg.gpu, 'use_for_alignment', False) else 'DISABLED'}")
                 
                 # Check for GPU + parallel processing incompatibility
                 if getattr(cfg.parallel, 'enabled', False):
@@ -260,6 +282,45 @@ def main():
         and len(ds2.laz_files) > 0
     )
 
+    # ============================================================
+    # Local Coordinate Transform Setup (if enabled)
+    # ============================================================
+    # Compute local coordinate transform from T1 bounds to handle large UTM coordinates
+    local_transform = None
+    coord_cfg = getattr(cfg, 'coordinates', None)
+    use_local_coords = coord_cfg is not None and getattr(coord_cfg, 'use_local_coordinates', True)
+    
+    if use_local_coords and ds1.bounds:
+        # Compute transform from T1 (reference) bounds
+        origin_method = getattr(coord_cfg, 'origin_method', 'min_bounds')
+        include_z = getattr(coord_cfg, 'include_z_offset', False)
+        
+        if origin_method == 'min_bounds':
+            offset_z = ds1.bounds.get('min_z', 0.0) if include_z else 0.0
+            local_transform = LocalCoordinateTransform.from_bounds(
+                min_x=ds1.bounds['min_x'],
+                min_y=ds1.bounds['min_y'],
+                min_z=offset_z,
+            )
+        elif origin_method == 'centroid':
+            # Compute centroid from bounds
+            cx = (ds1.bounds['min_x'] + ds1.bounds['max_x']) / 2
+            cy = (ds1.bounds['min_y'] + ds1.bounds['max_y']) / 2
+            cz = ((ds1.bounds['min_z'] + ds1.bounds['max_z']) / 2) if include_z else 0.0
+            local_transform = LocalCoordinateTransform(offset_x=cx, offset_y=cy, offset_z=cz)
+        else:
+            # first_point not practical here, fall back to min_bounds
+            offset_z = ds1.bounds.get('min_z', 0.0) if include_z else 0.0
+            local_transform = LocalCoordinateTransform.from_bounds(
+                min_x=ds1.bounds['min_x'],
+                min_y=ds1.bounds['min_y'],
+                min_z=offset_z,
+            )
+        
+        logger.info("Local coordinate transform: offset=(%.2f, %.2f, %.2f) using %s origin",
+                    local_transform.offset_x, local_transform.offset_y, local_transform.offset_z,
+                    origin_method)
+
     try:
         # No pooled executor reuse; each phase manages its own pool
         # Step 1: Load Data (or prepare for streaming)
@@ -294,45 +355,25 @@ def main():
             # Load samples for alignment (streaming-based reservoir sampling)
             logger.info("Loading subsampled data for alignment (subsample_size=%d)...", cfg.alignment.subsample_size)
 
-            def stream_sample(files: list[str], n: int) -> np.ndarray:
-                reader = LaspyStreamReader(
-                    files,
-                    ground_only=cfg.preprocessing.ground_only,
-                    classification_filter=cfg.preprocessing.classification_filter,
-                    chunk_points=cfg.outofcore.chunk_points,
-                )
-                reservoir = None
-                filled = 0
-                seen = 0
-                for chunk in reader.stream_points():
-                    if chunk.size == 0:
-                        continue
-                    m = len(chunk)
-                    if reservoir is None:
-                        reservoir = np.empty((n, 3), dtype=np.float64)
-                    # Fill reservoir first
-                    take = min(n - filled, m)
-                    if take > 0:
-                        reservoir[filled:filled + take] = chunk[:take]
-                        filled += take
-                        seen += take
-                        start = take
-                    else:
-                        start = 0
-                    # Replacement
-                    for k in range(start, m):
-                        j = seen + (k - start)
-                        r = np.random.randint(0, j + 1)
-                        if r < n:
-                            reservoir[r] = chunk[k]
-                    seen += (m - start)
-                if reservoir is None:
-                    return np.empty((0, 3), dtype=np.float64)
-                return reservoir
-
             n_per_dataset = cfg.alignment.subsample_size
-            points1 = stream_sample([str(p) for p in ds1.laz_files], n_per_dataset)
-            points2 = stream_sample([str(p) for p in ds2.laz_files], n_per_dataset)
+            
+            # T1 alignment subsample
+            reader1 = LaspyStreamReader(
+                [str(p) for p in ds1.laz_files],
+                ground_only=cfg.preprocessing.ground_only,
+                classification_filter=cfg.preprocessing.classification_filter,
+                chunk_points=cfg.outofcore.chunk_points,
+            )
+            points1 = reader1.reservoir_sample(n_per_dataset, transform=local_transform)
+            
+            # T2 alignment subsample
+            reader2 = LaspyStreamReader(
+                [str(p) for p in ds2.laz_files],
+                ground_only=cfg.preprocessing.ground_only,
+                classification_filter=cfg.preprocessing.classification_filter,
+                chunk_points=cfg.outofcore.chunk_points,
+            )
+            points2 = reader2.reservoir_sample(n_per_dataset, transform=local_transform)
             
             logger.info(f"Loaded {len(points1)} sample points from T1 for alignment")
             logger.info(f"Loaded {len(points2)} sample points from T2 for alignment")
@@ -341,17 +382,17 @@ def main():
             batch_loader = BatchLoader(loader=loader)
             if len(ds1.laz_files) > 1:
                 logger.info(f"Batch loading {len(ds1.laz_files)} files for time period {t1}...")
-                pc1_data = batch_loader.load_dataset(ds1)
+                pc1_data = batch_loader.load_dataset(ds1, transform=local_transform)
             else:
                 logger.info(f"Loading single file for time period {t1}...")
-                pc1_data = batch_loader.loader.load(str(ds1.laz_files[0]))
+                pc1_data = batch_loader.loader.load(str(ds1.laz_files[0]), transform=local_transform)
 
             if len(ds2.laz_files) > 1:
                 logger.info(f"Batch loading {len(ds2.laz_files)} files for time period {t2}...")
-                pc2_data = batch_loader.load_dataset(ds2)
+                pc2_data = batch_loader.load_dataset(ds2, transform=local_transform)
             else:
                 logger.info(f"Loading single file for time period {t2}...")
-                pc2_data = batch_loader.loader.load(str(ds2.laz_files[0]))
+                pc2_data = batch_loader.loader.load(str(ds2.laz_files[0]), transform=local_transform)
 
             logger.info(f"Dataset 1 ({t1}): {pc1_data['points'].shape[0]} points")
             logger.info(f"Dataset 2 ({t2}): {pc2_data['points'].shape[0]} points")
@@ -393,6 +434,11 @@ def main():
                     feature_name=clipping_cfg.feature_name
                 )
                 
+                # Transform clipper to local coordinates if local_transform is enabled
+                # Points are loaded in local coordinates, so the clipping polygon must also be in local coordinates
+                if local_transform is not None:
+                    clipper = clipper.transform_to_local(local_transform)
+                
                 # Store clip bounds for streaming processing (DoD, C2C)
                 clip_bounds = clipper.bounds
                 
@@ -425,9 +471,12 @@ def main():
         visualizer = PointCloudVisualizer(backend=VIS_BACKEND)
 
         # Visualize the original point clouds
+        # Revert to global coordinates for visualization (users expect UTM coordinates)
         logger.info("--- Visualizing original point clouds ---")
+        vis_points1 = local_transform.to_global(points1) if local_transform else points1
+        vis_points2 = local_transform.to_global(points2) if local_transform else points2
         visualizer.visualize_clouds(
-            point_clouds=[points1, points2],
+            point_clouds=[vis_points1, vis_points2],
             names=[f"PC from {t1}", f"PC from {t2}"],
             sample_size=cfg.visualization.sample_size  # Downsample for visualization
         )
@@ -435,195 +484,209 @@ def main():
         # ============================================================
         # Step 2: Spatial Alignment
         # ============================================================
-        logger.info("=== STEP 2: Spatial Alignment ===")
-        step2_start = time.time()
+        # Check if alignment is enabled (default: True for backward compatibility)
+        alignment_enabled = getattr(cfg.alignment, 'enabled', True)
 
-        # Optional coarse registration to initialize ICP
-        initial_transform = None
-        try:
-            if getattr(cfg.alignment, "coarse", None) and cfg.alignment.coarse.enabled:
-                coarse = CoarseRegistration(
-                    method=cfg.alignment.coarse.method,
-                    voxel_size=cfg.alignment.coarse.voxel_size,
-                    phase_grid_cell=cfg.alignment.coarse.phase_grid_cell,
-                )
-                initial_transform = coarse.compute_initial_transform(points2, points1)
-                # Optional pre-ICP error report without mutating points2
-                try:
-                    points2_init = coarse.apply_transformation(points2, initial_transform)
-                    tmp_icp = ICPRegistration(
-                        max_iterations=1,
-                        tolerance=cfg.alignment.tolerance,
-                        max_correspondence_distance=cfg.alignment.max_correspondence_distance,
-                        use_gpu=(cfg.gpu.enabled and cfg.gpu.use_for_alignment),
-                        convergence_translation_epsilon=cfg.alignment.convergence_translation_epsilon,
-                        convergence_rotation_epsilon_deg=cfg.alignment.convergence_rotation_epsilon_deg,
+        if alignment_enabled:
+            logger.info("=== STEP 2: Spatial Alignment ===")
+            step2_start = time.time()
+
+            # Optional coarse registration to initialize ICP
+            initial_transform = None
+            try:
+                if getattr(cfg.alignment, "coarse", None) and cfg.alignment.coarse.enabled:
+                    coarse = CoarseRegistration(
+                        method=cfg.alignment.coarse.method,
+                        voxel_size=cfg.alignment.coarse.voxel_size,
+                        phase_grid_cell=cfg.alignment.coarse.phase_grid_cell,
                     )
-                    pre_err = tmp_icp.compute_registration_error(points2_init, points1)
-                    logger.info("Alignment validation (pre-ICP): RMSE=%.6f m", pre_err)
+                    initial_transform = coarse.compute_initial_transform(points2, points1)
+                    # Optional pre-ICP error report without mutating points2
+                    try:
+                        points2_init = coarse.apply_transformation(points2, initial_transform)
+                        tmp_icp = ICPRegistration(
+                            max_iterations=1,
+                            tolerance=cfg.alignment.tolerance,
+                            max_correspondence_distance=cfg.alignment.max_correspondence_distance,
+                            use_gpu=(cfg.gpu.enabled and cfg.gpu.use_for_alignment),
+                            convergence_translation_epsilon=cfg.alignment.convergence_translation_epsilon,
+                            convergence_rotation_epsilon_deg=cfg.alignment.convergence_rotation_epsilon_deg,
+                        )
+                        pre_err = tmp_icp.compute_registration_error(points2_init, points1)
+                        logger.info("Alignment validation (pre-ICP): RMSE=%.6f m", pre_err)
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.warning(f"Coarse registration failed: {e}")
+
+            # Optional multi-scale ICP: coarse refinement followed by fine ICP
+            transform_matrix = initial_transform if initial_transform is not None else np.eye(4)
+
+            if getattr(cfg.alignment, "multiscale", None) and cfg.alignment.multiscale.enabled:
+                logger.info("Running multi-scale ICP refinement...")
+
+                # Coarse subsampling
+                n_coarse = cfg.alignment.multiscale.coarse_subsample_size
+                n1c = min(len(points1), n_coarse)
+                n2c = min(len(points2), n_coarse)
+                idx1c = np.random.choice(len(points1), n1c, replace=False) if len(points1) > n1c else np.arange(len(points1))
+                idx2c = np.random.choice(len(points2), n2c, replace=False) if len(points2) > n2c else np.arange(len(points2))
+                points1_coarse = points1[idx1c]
+                points2_coarse = points2[idx2c]
+
+                coarse_max_corr = (
+                    cfg.alignment.multiscale.coarse_max_correspondence_distance
+                    if cfg.alignment.multiscale.coarse_max_correspondence_distance is not None
+                    else cfg.alignment.max_correspondence_distance
+                )
+
+                icp_coarse = ICPRegistration(
+                    max_iterations=cfg.alignment.multiscale.coarse_max_iterations,
+                    tolerance=cfg.alignment.tolerance,
+                    max_correspondence_distance=coarse_max_corr,
+                    convergence_translation_epsilon=cfg.alignment.convergence_translation_epsilon,
+                    convergence_rotation_epsilon_deg=cfg.alignment.convergence_rotation_epsilon_deg,
+                )
+
+                # Measure RMSE on the subsampled pair before the refinement pass so we can
+                # discard a multi-scale refinement step that makes things worse.
+                try:
+                    points2_coarse_init = icp_coarse.apply_transformation(points2_coarse, transform_matrix)
+                    pre_coarse_err = icp_coarse.compute_registration_error(
+                        source=points2_coarse_init,
+                        target=points1_coarse,
+                    )
                 except Exception:
-                    pass
-        except Exception as e:
-            logger.warning(f"Coarse registration failed: {e}")
+                    pre_coarse_err = None
 
-        # Optional multi-scale ICP: coarse refinement followed by fine ICP
-        transform_matrix = initial_transform if initial_transform is not None else np.eye(4)
+                _, T_coarse, coarse_err = icp_coarse.align_point_clouds(
+                    source=points2_coarse,
+                    target=points1_coarse,
+                    initial_transform=transform_matrix,
+                )
 
-        if getattr(cfg.alignment, "multiscale", None) and cfg.alignment.multiscale.enabled:
-            logger.info("Running multi-scale ICP refinement...")
+                if pre_coarse_err is not None and coarse_err > pre_coarse_err:
+                    logger.info(
+                        "Multi-scale refinement unchanged (no improvement): RMSE %.6f m → %.6f m",
+                        pre_coarse_err, coarse_err
+                    )
+                else:
+                    transform_matrix = T_coarse
+                    if pre_coarse_err is not None:
+                        logger.info("Multi-scale refinement improved: RMSE %.6f m → %.6f m", pre_coarse_err, coarse_err)
+                    else:
+                        logger.info("Multi-scale refinement completed: RMSE=%.6f m", coarse_err)
 
-            # Coarse subsampling
-            n_coarse = cfg.alignment.multiscale.coarse_subsample_size
-            n1c = min(len(points1), n_coarse)
-            n2c = min(len(points2), n_coarse)
-            idx1c = np.random.choice(len(points1), n1c, replace=False) if len(points1) > n1c else np.arange(len(points1))
-            idx2c = np.random.choice(len(points2), n2c, replace=False) if len(points2) > n2c else np.arange(len(points2))
-            points1_coarse = points1[idx1c]
-            points2_coarse = points2[idx2c]
-
-            coarse_max_corr = (
-                cfg.alignment.multiscale.coarse_max_correspondence_distance
-                if cfg.alignment.multiscale.coarse_max_correspondence_distance is not None
-                else cfg.alignment.max_correspondence_distance
-            )
-
-            icp_coarse = ICPRegistration(
-                max_iterations=cfg.alignment.multiscale.coarse_max_iterations,
+            # Fine ICP configuration
+            icp = ICPRegistration(
+                max_iterations=cfg.alignment.max_iterations,
                 tolerance=cfg.alignment.tolerance,
-                max_correspondence_distance=coarse_max_corr,
+                max_correspondence_distance=cfg.alignment.max_correspondence_distance,
+                use_gpu=(cfg.gpu.enabled and cfg.gpu.use_for_alignment),
                 convergence_translation_epsilon=cfg.alignment.convergence_translation_epsilon,
                 convergence_rotation_epsilon_deg=cfg.alignment.convergence_rotation_epsilon_deg,
             )
 
-            # Measure RMSE on the subsampled pair before the refinement pass so we can
-            # discard a multi-scale refinement step that makes things worse.
-            try:
-                points2_coarse_init = icp_coarse.apply_transformation(points2_coarse, transform_matrix)
-                pre_coarse_err = icp_coarse.compute_registration_error(
-                    source=points2_coarse_init,
-                    target=points1_coarse,
-                )
-            except Exception:
-                pre_coarse_err = None
+            # Subsample for fine alignment if datasets are large
+            if len(points1) > cfg.alignment.subsample_size:
+                n1 = min(len(points1), cfg.alignment.subsample_size)
+                indices1 = np.random.choice(len(points1), n1, replace=False)
+                points1_subsampled = points1[indices1]
+            else:
+                points1_subsampled = points1
 
-            _, T_coarse, coarse_err = icp_coarse.align_point_clouds(
-                source=points2_coarse,
-                target=points1_coarse,
+            if len(points2) > cfg.alignment.subsample_size:
+                n2 = min(len(points2), cfg.alignment.subsample_size)
+                indices2 = np.random.choice(len(points2), n2, replace=False)
+                points2_subsampled = points2[indices2]
+            else:
+                points2_subsampled = points2
+
+            # Perform ICP alignment
+            points2_subsampled_aligned, transform_matrix, final_error = icp.align_point_clouds(
+                source=points2_subsampled,
+                target=points1_subsampled,
                 initial_transform=transform_matrix,
             )
 
-            if pre_coarse_err is not None and coarse_err > pre_coarse_err:
-                logger.info(
-                    "Multi-scale refinement unchanged (no improvement): RMSE %.6f m → %.6f m",
-                    pre_coarse_err, coarse_err
-                )
+            # Apply the transformation to the original points2
+            if len(points2) > cfg.alignment.subsample_size:
+                points2_full_aligned = icp.apply_transformation(points2, transform_matrix)
             else:
-                transform_matrix = T_coarse
-                if pre_coarse_err is not None:
-                    logger.info("Multi-scale refinement improved: RMSE %.6f m → %.6f m", pre_coarse_err, coarse_err)
+                points2_full_aligned = points2_subsampled_aligned
+
+            # Compute the registration error (RMSE) on a potentially downsampled subset of full data
+            # This validates how well the alignment generalizes beyond the subsampled points used for ICP
+            src_err = points2_full_aligned
+            tgt_err = points1
+            max_err_points = 200_000
+            if len(src_err) > max_err_points:
+                idx_s_err = np.random.choice(len(src_err), max_err_points, replace=False)
+                src_err = src_err[idx_s_err]
+            if len(tgt_err) > max_err_points:
+                idx_t_err = np.random.choice(len(tgt_err), max_err_points, replace=False)
+                tgt_err = tgt_err[idx_t_err]
+
+            alignment_error = icp.compute_registration_error(
+                source=src_err,
+                target=tgt_err,
+            )
+
+            # Log validation error
+            logger.info("Alignment validation (post-ICP): RMSE=%.6f m", alignment_error)
+
+            # If streaming mode, optionally apply transform to original files
+            if use_streaming and cfg.outofcore.save_transformed_files:
+                logger.info("--- Applying transformation to full datasets (streaming) ---")
+                
+                # Determine output directory
+                if cfg.outofcore.output_dir:
+                    output_dir = Path(cfg.outofcore.output_dir) / selected_area.area_name / f"{t2}_aligned"
                 else:
-                    logger.info("Multi-scale refinement completed: RMSE=%.6f m", coarse_err)
-
-        # Fine ICP configuration
-        icp = ICPRegistration(
-            max_iterations=cfg.alignment.max_iterations,
-            tolerance=cfg.alignment.tolerance,
-            max_correspondence_distance=cfg.alignment.max_correspondence_distance,
-            use_gpu=(cfg.gpu.enabled and cfg.gpu.use_for_alignment),
-            convergence_translation_epsilon=cfg.alignment.convergence_translation_epsilon,
-            convergence_rotation_epsilon_deg=cfg.alignment.convergence_rotation_epsilon_deg,
-        )
-
-        # Subsample for fine alignment if datasets are large
-        if len(points1) > cfg.alignment.subsample_size:
-            n1 = min(len(points1), cfg.alignment.subsample_size)
-            indices1 = np.random.choice(len(points1), n1, replace=False)
-            points1_subsampled = points1[indices1]
-        else:
-            points1_subsampled = points1
-
-        if len(points2) > cfg.alignment.subsample_size:
-            n2 = min(len(points2), cfg.alignment.subsample_size)
-            indices2 = np.random.choice(len(points2), n2, replace=False)
-            points2_subsampled = points2[indices2]
-        else:
-            points2_subsampled = points2
-
-        # Perform ICP alignment
-        points2_subsampled_aligned, transform_matrix, final_error = icp.align_point_clouds(
-            source=points2_subsampled,
-            target=points1_subsampled,
-            initial_transform=transform_matrix,
-        )
-
-        # Apply the transformation to the original points2
-        if len(points2) > cfg.alignment.subsample_size:
-            points2_full_aligned = icp.apply_transformation(points2, transform_matrix)
-        else:
-            points2_full_aligned = points2_subsampled_aligned
-
-        # Compute the registration error (RMSE) on a potentially downsampled subset of full data
-        # This validates how well the alignment generalizes beyond the subsampled points used for ICP
-        src_err = points2_full_aligned
-        tgt_err = points1
-        max_err_points = 200_000
-        if len(src_err) > max_err_points:
-            idx_s_err = np.random.choice(len(src_err), max_err_points, replace=False)
-            src_err = src_err[idx_s_err]
-        if len(tgt_err) > max_err_points:
-            idx_t_err = np.random.choice(len(tgt_err), max_err_points, replace=False)
-            tgt_err = tgt_err[idx_t_err]
-
-        alignment_error = icp.compute_registration_error(
-            source=src_err,
-            target=tgt_err,
-        )
-
-        # Log validation error
-        logger.info("Alignment validation (post-ICP): RMSE=%.6f m", alignment_error)
-
-        # If streaming mode, optionally apply transform to original files
-        if use_streaming and cfg.outofcore.save_transformed_files:
-            logger.info("--- Applying transformation to full datasets (streaming) ---")
-            
-            # Determine output directory
-            if cfg.outofcore.output_dir:
-                output_dir = Path(cfg.outofcore.output_dir) / selected_area.area_name / f"{t2}_aligned"
-            else:
-                output_dir = Path(cfg.paths.base_dir).parent / "processed" / selected_area.area_name / f"{t2}_aligned"
-            
-            try:
-                aligned_files = apply_transform_to_files(
-                    input_files=pc2_data['file_paths'],
-                    output_dir=str(output_dir),
-                    transform=transform_matrix,
-                    ground_only=cfg.preprocessing.ground_only,
-                    classification_filter=cfg.preprocessing.classification_filter,
-                    chunk_points=cfg.outofcore.chunk_points,
-                )
-                # Store aligned file paths for later use
-                pc2_data['aligned_file_paths'] = aligned_files
+                    output_dir = Path(cfg.paths.base_dir).parent / "processed" / selected_area.area_name / f"{t2}_aligned"
                 
-                # Save transformation matrix for reference
-                transform_file = output_dir / "transformation_matrix.txt"
-                save_transform_matrix(transform_matrix, str(transform_file))
-                
-                logger.info(f"Transformed {len(aligned_files)} files saved to {output_dir}")
-            except Exception as e:
-                logger.error(f"Failed to apply transformation to files: {e}")
-                logger.info("Falling back to in-memory aligned points for DoD")
-                # Keep points2_full_aligned for DoD computation
+                try:
+                    aligned_files = apply_transform_to_files(
+                        input_files=pc2_data['file_paths'],
+                        output_dir=str(output_dir),
+                        transform=transform_matrix,
+                        ground_only=cfg.preprocessing.ground_only,
+                        classification_filter=cfg.preprocessing.classification_filter,
+                        chunk_points=cfg.outofcore.chunk_points,
+                    )
+                    # Store aligned file paths for later use
+                    pc2_data['aligned_file_paths'] = aligned_files
+                    
+                    # Save transformation matrix for reference
+                    transform_file = output_dir / "transformation_matrix.txt"
+                    save_transform_matrix(transform_matrix, str(transform_file))
+                    
+                    logger.info(f"Transformed {len(aligned_files)} files saved to {output_dir}")
+                except Exception as e:
+                    logger.error(f"Failed to apply transformation to files: {e}")
+                    logger.info("Falling back to in-memory aligned points for DoD")
+                    # Keep points2_full_aligned for DoD computation
 
-        step2_end = time.time()
-        logger.info("Spatial alignment completed in %.2f seconds", step2_end - step2_start)
+            step2_end = time.time()
+            logger.info("Spatial alignment completed in %.2f seconds", step2_end - step2_start)
 
-        # Visualize the aligned point clouds
-        logger.info("--- Visualizing aligned point clouds ---")
-        visualizer.visualize_clouds(
-            point_clouds=[points1, points2_full_aligned],
-            names=[f"PC from {t1} (Target)", f"PC from {t2} (Aligned)"],
-            sample_size=cfg.visualization.sample_size  # Downsample for visualization
-        )
+            # Visualize the aligned point clouds
+            # Revert to global coordinates for visualization (users expect UTM coordinates)
+            logger.info("--- Visualizing aligned point clouds ---")
+            vis_points1_aligned = local_transform.to_global(points1) if local_transform else points1
+            vis_points2_aligned = local_transform.to_global(points2_full_aligned) if local_transform else points2_full_aligned
+            visualizer.visualize_clouds(
+                point_clouds=[vis_points1_aligned, vis_points2_aligned],
+                names=[f"PC from {t1} (Target)", f"PC from {t2} (Aligned)"],
+                sample_size=cfg.visualization.sample_size  # Downsample for visualization
+            )
+        else:
+            # Alignment disabled - skip ICP and use original point clouds
+            logger.info("=== STEP 2: Spatial Alignment (SKIPPED) ===")
+            logger.info("ICP alignment disabled in config; using original point clouds.")
+            transform_matrix = np.eye(4)
+            points2_full_aligned = points2
+            alignment_error = None
 
         # ============================================================
         # Step 3: Change Detection
@@ -649,10 +712,10 @@ def main():
                     # Use aligned files if they were created, otherwise fall back to original
                     if 'aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']:
                         files_t2 = pc2_data['aligned_file_paths']
-                        logger.info(f"Using transformed files for T2: {len(files_t2)} files")
+                        logger.info(f"Using pre-transformed files for T2: {len(files_t2)} files")
                     else:
                         files_t2 = pc2_data['file_paths']
-                        logger.warning("Transformed files not available, using original T2 files (misalignment may affect results)")
+                        logger.info("Using original T2 files with on-the-fly alignment transform")
 
                     mode = "parallel" if cfg.parallel.enabled else "sequential"
                     logger.info(f"Using streaming DoD ({mode}, tiled)...")
@@ -674,6 +737,7 @@ def main():
                                 threads_per_worker=getattr(cfg.parallel, 'threads_per_worker', 1),
                                 config=cfg,
                                 clip_bounds=clip_bounds,
+                                local_transform=local_transform,
                             )
                         else:
                             dod_res = ChangeDetector.compute_dod_streaming_files_tiled(
@@ -710,6 +774,10 @@ def main():
                         config=cfg,
                     )
                 # Visualize DoD
+                # Revert grid coordinates to global for visualization (users expect UTM coordinates)
+                if local_transform is not None:
+                    dod_res.grid_x = dod_res.grid_x + local_transform.offset_x
+                    dod_res.grid_y = dod_res.grid_y + local_transform.offset_y
                 visualizer.visualize_dod_heatmap(dod_res, title="DEM of Difference (m)")
                 
                 # Export DoD to GeoTIFF if enabled
@@ -776,6 +844,7 @@ def main():
                             threads_per_worker=getattr(cfg.parallel, 'threads_per_worker', 1),
                             config=cfg,  # Pass config for GPU acceleration
                             clip_bounds=clip_bounds,
+                            local_transform=local_transform,
                         )
                     else:
                         if getattr(cfg.detection.c2c, 'mode', 'euclidean') != 'euclidean':
@@ -790,6 +859,7 @@ def main():
                             chunk_points=cfg.outofcore.chunk_points,
                             transform_src=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
                             config=cfg,  # Pass config for GPU acceleration
+                            local_transform=local_transform,
                         )
                     # 3D scatter not supported in streaming; fallback to histogram if plotly
                     try:
@@ -867,7 +937,8 @@ def main():
                                 c2c_laz = export_dir / f"c2c_{area_prefix}_{t1}_{t2}.laz"
                                 export_points_to_laz(
                                     src, c2c_res.distances, str(c2c_laz),
-                                    crs=crs, source_laz_path=str(ds1.laz_files[0])
+                                    crs=crs, source_laz_path=str(ds1.laz_files[0]),
+                                    local_transform=local_transform
                                 )
                                 logger.info(f"Exported C2C point cloud: {c2c_laz}")
                             
@@ -875,7 +946,8 @@ def main():
                                 c2c_tif = export_dir / f"c2c_{area_prefix}_{t1}_{t2}.tif"
                                 export_distances_to_geotiff(
                                     src, c2c_res.distances, str(c2c_tif),
-                                    cell_size=cfg.detection.dod.cell_size, crs=crs
+                                    cell_size=cfg.detection.dod.cell_size, crs=crs,
+                                    local_transform=local_transform
                                 )
                                 logger.info(f"Exported C2C raster: {c2c_tif}")
                         except Exception as export_err:
@@ -892,19 +964,24 @@ def main():
 
                 # Core points selection or load from file for reproducibility across runs
                 # Determine the total number of reference ground points for percentage calculation
-                if use_streaming and 'file_paths' in pc1_data:
-                    # Streaming mode: use header-based point counts from T1 files
-                    try:
-                        total_ref_points = sum(
-                            LaspyStreamReader(f).las_header.point_count
-                            for f in pc1_data['file_paths']
-                        )
-                        logger.debug(f"Header-based T1 point count: {total_ref_points:,}")
-                    except Exception as _e:
-                        logger.warning(f"Header-based count failed ({_e}); using in-memory array length")
-                        total_ref_points = len(points1)
+                if use_streaming and 'metadata' in pc1_data:
+                    # Streaming mode: use metadata ground point count collected during discovery
+                    m1 = pc1_data['metadata']
+                    total_ref_points = m1.get('total_points_ground')
+                    if total_ref_points is None or total_ref_points == 0:
+                        # Fallback to total_points_all if ground count not available
+                        total_ref_points = m1.get('total_points_all', 0)
+                        if total_ref_points > 0:
+                            logger.warning(
+                                f"No ground point count in metadata; using total points ({total_ref_points:,}). "
+                                "M3C2 core point percentage may be inaccurate."
+                            )
+                    if total_ref_points == 0:
+                        logger.error("Cannot determine reference point count for M3C2 core points percentage.")
+                        raise ValueError("No reference point count available for M3C2")
+                    logger.debug(f"Metadata-based T1 ground point count: {total_ref_points:,}")
                 else:
-                    # In-memory mode: use loaded array length
+                    # In-memory mode: use loaded array length (already filtered to ground)
                     total_ref_points = len(points1)
 
                 # Determine number of core points (percentage-based or absolute override)
@@ -936,12 +1013,40 @@ def main():
                         logger.warning(f"Failed to load cores from {cores_path}: {e}; falling back to selection")
                         core_src = None
                 if core_src is None:
-                    # Uniform subsample of T1 to 'max_core'
-                    if len(points1) > max_core:
-                        idx = np.random.choice(len(points1), max_core, replace=False)
-                        core_src = points1[idx]
+                    # Select core points using appropriate method
+                    # Check if we'll use per-tile M3C2 (parallel + streaming)
+                    use_parallel_streaming = (
+                        use_streaming and 'file_paths' in pc1_data and
+                        getattr(cfg.parallel, 'enabled', False)
+                    )
+                    
+                    if use_parallel_streaming:
+                        # Skip global core selection - per-tile M3C2 handles it internally
+                        logger.info(
+                            f"Per-tile M3C2 will select {cfg.detection.m3c2.core_points_percent or 10.0:.1f}% "
+                            "core points per tile (no global core selection needed)"
+                        )
+                        core_src = None  # Will be handled per-tile
+                    elif use_streaming and 'file_paths' in pc1_data:
+                        # Sequential streaming mode: still needs global core selection
+                        logger.info(f"Selecting {max_core:,} core points via streaming from T1 files...")
+                        
+                        core_reader = LaspyStreamReader(
+                            [str(p) for p in pc1_data['file_paths']],
+                            ground_only=cfg.preprocessing.ground_only,
+                            classification_filter=cfg.preprocessing.classification_filter,
+                            chunk_points=cfg.outofcore.chunk_points,
+                        )
+                        core_src = core_reader.reservoir_sample(max_core, transform=local_transform)
+                        logger.info(f"Selected {len(core_src):,} core points from T1 via streaming")
                     else:
-                        core_src = points1
+                        # In-memory mode: subsample from loaded points1
+                        if len(points1) > max_core:
+                            idx = np.random.choice(len(points1), max_core, replace=False)
+                            core_src = points1[idx]
+                        else:
+                            core_src = points1
+                    
                     # Save if a path was provided but did not exist
                     if cores_path is not None:
                         try:
@@ -1063,11 +1168,12 @@ def main():
                     
                     try:
                         if use_parallel:
-                            m3c2_res_stream = ChangeDetector.compute_m3c2_streaming_files_tiled_parallel(
-                                core_points=core_src,
+                            # Use per-tile core selection for truly out-of-core processing
+                            m3c2_res_stream = ChangeDetector.compute_m3c2_streaming_pertile_parallel(
                                 files_t1=files_t1,
                                 files_t2=files_t2,
                                 params=m3c2_params,
+                                core_points_percent=cfg.detection.m3c2.core_points_percent or 10.0,
                                 tile_size=cfg.outofcore.tile_size_m,
                                 halo=None,
                                 ground_only=cfg.preprocessing.ground_only,
@@ -1076,6 +1182,7 @@ def main():
                                 transform_t2=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
                                 n_workers=None,  # auto-detect
                                 threads_per_worker=getattr(cfg.parallel, 'threads_per_worker', 1),
+                                local_transform=local_transform,
                             )
                         else:
                             m3c2_res_stream = ChangeDetector.compute_m3c2_streaming_files_tiled(
@@ -1089,6 +1196,7 @@ def main():
                                 classification_filter=cfg.preprocessing.classification_filter,
                                 chunk_points=cfg.outofcore.chunk_points,
                                 transform_t2=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
+                                local_transform=local_transform,
                             )
                         # Optionally compute in-memory M3C2 using the same core points and compare
                         if args.debug_m3c2_compare:
@@ -1174,15 +1282,18 @@ def main():
                         cloud_t2=points2_full_aligned,
                         params=m3c2_params,
                     )
-                # Visualize M3C2 core points
+                # Visualize M3C2 distance histogram first
+                visualizer.visualize_distance_histogram(m3c2_res.distances, title="M3C2 distances (m)", bins=60)
+                
+                # Visualize M3C2 core points in 3D
+                # Revert to global coordinates for visualization (users expect UTM coordinates)
+                vis_core_points = local_transform.to_global(m3c2_res.core_points) if local_transform else m3c2_res.core_points
                 visualizer.visualize_m3c2_corepoints(
-                    m3c2_res.core_points,
+                    vis_core_points,
                     m3c2_res.distances,
                     sample_size=cfg.visualization.sample_size,
                     title="M3C2 distances (m)",
                 )
-                # Visualize M3C2 distance histogram
-                # visualizer.visualize_distance_histogram(m3c2_res.distances, title="M3C2 distances (m)", bins=60)
                 
                 # Export M3C2 results if enabled
                 export_m3c2_pc = getattr(cfg.detection.m3c2, 'export_pc', True)
@@ -1223,7 +1334,8 @@ def main():
                             export_points_to_laz(
                                 m3c2_res.core_points, m3c2_res.distances, str(m3c2_laz),
                                 crs=crs, extra_dims=extra_dims if extra_dims else None,
-                                source_laz_path=str(ds1.laz_files[0])
+                                source_laz_path=str(ds1.laz_files[0]),
+                                local_transform=local_transform
                             )
                             logger.info(f"Exported M3C2 point cloud: {m3c2_laz}")
                         
@@ -1231,7 +1343,8 @@ def main():
                             m3c2_tif = export_dir / f"m3c2_{area_prefix}_{t1}_{t2}.tif"
                             export_distances_to_geotiff(
                                 m3c2_res.core_points, m3c2_res.distances, str(m3c2_tif),
-                                cell_size=cfg.detection.dod.cell_size, crs=crs
+                                cell_size=cfg.detection.dod.cell_size, crs=crs,
+                                local_transform=local_transform
                             )
                             logger.info(f"Exported M3C2 raster: {m3c2_tif}")
                     except Exception as export_err:

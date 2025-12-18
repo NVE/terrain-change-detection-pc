@@ -16,6 +16,7 @@ from .logging import setup_logger
 
 if TYPE_CHECKING:
     from ..detection.dod import DoDResult
+    from .coordinate_transform import LocalCoordinateTransform
 
 logger = setup_logger(__name__)
 
@@ -87,6 +88,7 @@ def export_points_to_laz(
     crs: Optional[str] = None,
     extra_dims: Optional[Dict[str, np.ndarray]] = None,
     source_laz_path: Optional[str] = None,
+    local_transform: Optional["LocalCoordinateTransform"] = None,
 ) -> str:
     """
     Export points with distance values to a LAZ/LAS file.
@@ -95,12 +97,13 @@ def export_points_to_laz(
     Additional extra dimensions can be provided (e.g., uncertainty, significance).
 
     Args:
-        points: (N, 3) array of point coordinates
+        points: (N, 3) array of point coordinates (in local or global system)
         distances: (N,) array of distance values
         output_path: Path for output file (extension determines format)
         crs: CRS string (e.g., "EPSG:25833"). If None, attempts auto-detection.
         extra_dims: Optional dict of additional arrays to store as extra dimensions
         source_laz_path: Optional path to source LAZ for CRS auto-detection
+        local_transform: If provided, reverts points from local to global coordinates
 
     Returns:
         Path to created file
@@ -117,6 +120,11 @@ def export_points_to_laz(
         raise ValueError(f"points must be (N, 3), got {points.shape}")
     if distances.ndim != 1 or len(distances) != len(points):
         raise ValueError(f"distances must be (N,), got {distances.shape}")
+
+    # Revert to global coordinates if transform was used
+    if local_transform is not None:
+        points = local_transform.to_global(points)
+        logger.info(f"Reverting {len(points):,} points from local to global coordinates for export")
 
     # Try to auto-detect CRS if not provided
     detected_crs = None
@@ -271,6 +279,7 @@ def export_distances_to_geotiff(
     crs: str = "EPSG:25833",
     nodata: float = -9999.0,
     bounds: Optional[tuple] = None,
+    local_transform: Optional["LocalCoordinateTransform"] = None,
 ) -> str:
     """
     Export point distances to a GeoTIFF raster using nearest-neighbor interpolation.
@@ -279,13 +288,14 @@ def export_distances_to_geotiff(
     the distance value of the closest point.
 
     Args:
-        points: (N, 3) array of point coordinates
+        points: (N, 3) array of point coordinates (in local or global system)
         distances: (N,) array of distance values
         output_path: Path for output GeoTIFF file
         cell_size: Raster cell size in meters
         crs: Coordinate reference system
         nodata: NoData value for cells with no nearby points
         bounds: Optional (min_x, min_y, max_x, max_y); computed from points if None
+        local_transform: If provided, reverts points from local to global coordinates
 
     Returns:
         Path to created file
@@ -302,6 +312,11 @@ def export_distances_to_geotiff(
 
     if points.ndim != 2 or points.shape[1] < 2:
         raise ValueError(f"points must be (N, 2+), got {points.shape}")
+
+    # Revert to global coordinates if transform was used
+    if local_transform is not None:
+        points = local_transform.to_global(points)
+        logger.info(f"Reverting {len(points):,} points from local to global coordinates for raster export")
 
     # Use XY coordinates only for gridding
     xy = points[:, :2]

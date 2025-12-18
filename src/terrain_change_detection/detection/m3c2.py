@@ -11,8 +11,11 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Optional, Tuple, Dict, List
+from typing import Optional, Tuple, Dict, List, TYPE_CHECKING
 import numpy as np
+
+if TYPE_CHECKING:
+    from ..utils.coordinate_transform import LocalCoordinateTransform
 
 from ..utils.logging import (
     setup_logger,
@@ -334,6 +337,7 @@ class M3C2Detector:
         classification_filter: Optional[list[int]] = None,
         chunk_points: int = 1_000_000,
         transform_t2: Optional[np.ndarray] = None,
+        local_transform: Optional["LocalCoordinateTransform"] = None,
     ) -> M3C2Result:
         """
         Out-of-core tiled M3C2 over streaming LAS/LAZ files using py4dgeo.
@@ -343,7 +347,7 @@ class M3C2Detector:
         py4dgeo M3C2 over the tile core points, and stitch the results.
 
         Args:
-            core_points: Core points where distances are evaluated (N x 3)
+            core_points: Core points where distances are evaluated (N x 3), in local coords if local_transform provided
             files_t1: LAS/LAZ file paths for epoch T1
             files_t2: LAS/LAZ file paths for epoch T2 (aligned to T1)
             params: M3C2 parameters (uses cylinder_radius, projection_scale, max_depth, ...)
@@ -352,6 +356,8 @@ class M3C2Detector:
             ground_only: Apply ground/classification filter during streaming
             classification_filter: Optional classification filter list
             chunk_points: Points per streaming chunk
+            transform_t2: Optional transformation for T2 points (ICP alignment)
+            local_transform: Optional local coordinate transform (for numerical precision)
 
         Returns:
             M3C2Result with distances for all input core points
@@ -363,7 +369,18 @@ class M3C2Detector:
 
         # Determine processing bounds from the union of LAS headers, not only core extents.
         # Using core-point bounds can clip halos at the dataset edge and alter neighborhoods.
-        gb = union_bounds(files_t1, files_t2)
+        gb_global = union_bounds(files_t1, files_t2)
+        
+        # Transform bounds to local coordinates if transform is provided
+        if local_transform is not None:
+            gb = Bounds2D(
+                min_x=gb_global.min_x - local_transform.offset_x,
+                min_y=gb_global.min_y - local_transform.offset_y,
+                max_x=gb_global.max_x - local_transform.offset_x,
+                max_y=gb_global.max_y - local_transform.offset_y,
+            )
+        else:
+            gb = gb_global
 
         # Determine halo
         normal_r = float(params.normal_scale) if getattr(params, "normal_scale", None) is not None else float(params.projection_scale)
@@ -384,7 +401,7 @@ class M3C2Detector:
             len(core_points), tx, ty, tile_size, used_halo, chunk_points,
         )
 
-        # Assign core points to tiles
+        # Assign core points to tiles (core points are in local coords)
         ix = np.floor((core_points[:, 0] - gb.min_x) / tile_size).astype(int)
         iy = np.floor((core_points[:, 1] - gb.min_y) / tile_size).astype(int)
         ix = np.clip(ix, 0, max(0, tx - 1))
@@ -401,6 +418,7 @@ class M3C2Detector:
         from ..acceleration.tiling import LaspyStreamReader
 
         def _tile_bounds(i: int, j: int) -> tuple[Bounds2D, Bounds2D]:
+            """Returns inner and outer bounds in LOCAL coordinates."""
             ox = gb.min_x + i * tile_size
             oy = gb.min_y + j * tile_size
             inner = Bounds2D(ox, oy, min(ox + tile_size, gb.max_x), min(oy + tile_size, gb.max_y))
@@ -416,9 +434,20 @@ class M3C2Detector:
         t0 = __import__('time').time()
         for rec in uniq_tiles:
             i, j = int(rec['i']), int(rec['j'])
-            inner, outer = _tile_bounds(i, j)
+            inner, outer = _tile_bounds(i, j)  # Local coordinates
             tile_mask = (ix == i) & (iy == j)
             tile_cores = core_points[tile_mask]
+            
+            # Convert tile bounds back to global for file bbox filtering
+            if local_transform is not None:
+                outer_global = Bounds2D(
+                    min_x=outer.min_x + local_transform.offset_x,
+                    min_y=outer.min_y + local_transform.offset_y,
+                    max_x=outer.max_x + local_transform.offset_x,
+                    max_y=outer.max_y + local_transform.offset_y,
+                )
+            else:
+                outer_global = outer
             
             # Stream epoch 1 points for this tile (outer bounds)
             reader1 = LaspyStreamReader(
@@ -427,7 +456,7 @@ class M3C2Detector:
                 classification_filter=classification_filter,
                 chunk_points=chunk_points,
             )
-            chunks_t1 = list(reader1.stream_points(bbox=outer))
+            chunks_t1 = list(reader1.stream_points(bbox=outer_global, transform=local_transform))
             if not chunks_t1:
                 logger.debug(f"Tile ({i},{j}) has no T1 points, skipping")
                 continue
@@ -440,7 +469,7 @@ class M3C2Detector:
                 classification_filter=classification_filter,
                 chunk_points=chunk_points,
             )
-            chunks_t2 = list(reader2.stream_points(bbox=outer))
+            chunks_t2 = list(reader2.stream_points(bbox=outer_global, transform=local_transform))
             if not chunks_t2:
                 logger.debug(f"Tile ({i},{j}) has no T2 points, skipping")
                 continue
@@ -722,6 +751,215 @@ class M3C2Detector:
         )
 
     @staticmethod
+    def compute_m3c2_streaming_pertile_parallel(
+        files_t1: list[str],
+        files_t2: list[str],
+        params: M3C2Params,
+        core_points_percent: float,
+        *,
+        tile_size: float,
+        halo: Optional[float] = None,
+        ground_only: bool = True,
+        classification_filter: Optional[list[int]] = None,
+        chunk_points: int = 1_000_000,
+        transform_t2: Optional[np.ndarray] = None,
+        n_workers: Optional[int] = None,
+        threads_per_worker: Optional[int] = 1,
+        local_transform: Optional["LocalCoordinateTransform"] = None,
+    ) -> M3C2Result:
+        """
+        Parallel out-of-core tiled M3C2 with per-tile core point selection.
+        
+        This variant is truly out-of-core: each tile selects its own core points
+        from the T1 data within that tile using reservoir sampling. No global
+        core point array is needed, making it suitable for arbitrarily large
+        datasets even with 100% core points.
+        
+        Args:
+            files_t1: Epoch 1 file paths
+            files_t2: Epoch 2 file paths
+            params: M3C2 parameters
+            core_points_percent: Percentage of T1 points to use as core points (per tile)
+            tile_size: Tile size in meters
+            halo: Optional XY halo (default: max(cylinder_radius, projection_scale))
+            ground_only: Filter ground points only
+            classification_filter: Optional classification codes
+            chunk_points: Points per streaming chunk
+            transform_t2: Optional transformation for epoch 2
+            n_workers: Number of parallel workers (None = auto-detect)
+            threads_per_worker: Threads per worker for nested parallelism
+        
+        Returns:
+            M3C2Result with distances for all core points selected across tiles
+        """
+        from ..acceleration import TileParallelExecutor, process_m3c2_tile
+        from pathlib import Path
+        
+        if not files_t1 or not files_t2:
+            raise ValueError("files_t1 and files_t2 must be non-empty")
+        
+        # Determine processing bounds from the union of LAS headers
+        gb_global = union_bounds(files_t1, files_t2)
+        
+        # Transform bounds to local coordinates if transform is provided
+        if local_transform is not None:
+            gb = Bounds2D(
+                min_x=gb_global.min_x - local_transform.offset_x,
+                min_y=gb_global.min_y - local_transform.offset_y,
+                max_x=gb_global.max_x - local_transform.offset_x,
+                max_y=gb_global.max_y - local_transform.offset_y,
+            )
+        else:
+            gb = gb_global
+        
+        # Determine halo (must cover M3C2 neighborhoods)
+        normal_r = float(params.normal_scale) if getattr(params, "normal_scale", None) is not None else float(params.projection_scale)
+        default_halo = max(float(params.cylinder_radius), float(params.projection_scale), normal_r)
+        used_halo = float(default_halo if halo is None else max(halo, default_halo))
+        
+        # Log extent info
+        dx = float(gb.max_x - gb.min_x)
+        dy = float(gb.max_y - gb.min_y)
+        logger.info(
+            "Per-tile M3C2 extent: dX=%.1fm (%.3f km), dY=%.1fm (%.3f km)",
+            dx, dx / 1000.0, dy, dy / 1000.0,
+        )
+        
+        # Compute tile grid
+        tx = max(1, int(np.ceil((gb.max_x - gb.min_x) / tile_size)))
+        ty = max(1, int(np.ceil((gb.max_y - gb.min_y) / tile_size)))
+        
+        logger.info(
+            "Per-tile M3C2: core_pct=%.1f%%, tiles=%dx%d (%d total), tile=%.1fm, halo=%.1fm",
+            core_points_percent, tx, ty, tx * ty, tile_size, used_halo,
+        )
+        
+        # Create tiler
+        tiler = Tiler(gb, cell_size=1.0, tile_size=tile_size, halo=used_halo)
+        all_tiles = list(tiler.tiles())
+        
+        # Create parallel executor
+        executor = TileParallelExecutor(n_workers=n_workers, threads_per_worker=threads_per_worker)
+        
+        # Log worker info
+        from ..acceleration import estimate_speedup_factor
+        eff_workers = min(executor.n_workers, len(all_tiles))
+        expected_speedup = estimate_speedup_factor(eff_workers, len(all_tiles))
+        logger.info(
+            f"Using {eff_workers} workers for {len(all_tiles)} tiles "
+            f"(expected speedup: {expected_speedup:.1f}x)"
+        )
+        
+        # Pre-filter files per tile using LAS/LAZ header bounds
+        from ..acceleration import scan_las_bounds, bounds_intersect
+        t1_bounds = scan_las_bounds(files_t1)
+        t2_bounds = scan_las_bounds(files_t2)
+
+        per_tile_kwargs = []
+        for tile in all_tiles:
+            # Convert tile bounds back to global coords for file intersection check
+            # (file header bounds are in global coords, tile bounds are in local coords)
+            if local_transform is not None:
+                tile_outer_global = Bounds2D(
+                    min_x=tile.outer.min_x + local_transform.offset_x,
+                    min_y=tile.outer.min_y + local_transform.offset_y,
+                    max_x=tile.outer.max_x + local_transform.offset_x,
+                    max_y=tile.outer.max_y + local_transform.offset_y,
+                )
+            else:
+                tile_outer_global = tile.outer
+            
+            files_t1_tile = [str(f) for f, b in t1_bounds if bounds_intersect(tile_outer_global, b)]
+            files_t2_tile = [str(f) for f, b in t2_bounds if bounds_intersect(tile_outer_global, b)]
+            per_tile_kwargs.append({
+                'files_t1': [Path(f) for f in files_t1_tile],
+                'files_t2': [Path(f) for f in files_t2_tile],
+            })
+
+        # Process tiles in parallel (worker will select core points per-tile)
+        worker_kwargs = {
+            'params': params,
+            'chunk_points': chunk_points,
+            'ground_only': ground_only,
+            'classification_filter': classification_filter,
+            'transform_matrix': transform_t2,
+            'core_points_percent': core_points_percent,  # Per-tile selection
+            'local_transform': local_transform,
+        }
+
+        t0 = time.time()
+        results = executor.map_tiles(
+            tiles=all_tiles,
+            worker_fn=process_m3c2_tile,
+            worker_kwargs=worker_kwargs,
+            per_tile_kwargs=per_tile_kwargs,
+        )
+        t1 = time.time()
+        
+        logger.info(
+            "Per-tile M3C2 processing complete: %d tiles in %.2fs (%.2f tiles/s)",
+            len(all_tiles), t1 - t0, len(all_tiles) / max(1e-6, t1 - t0)
+        )
+        
+        # Assemble results - concatenate core points and distances from all tiles
+        all_core_points = []
+        all_distances = []
+        all_uncertainties = []
+        
+        for tile, tile_result in results:
+            if tile_result.core_points.size > 0:
+                all_core_points.append(tile_result.core_points)
+                all_distances.append(tile_result.distances)
+                if tile_result.uncertainty is not None:
+                    all_uncertainties.append(tile_result.uncertainty)
+        
+        if not all_core_points:
+            logger.warning("No core points found across all tiles")
+            return M3C2Result(
+                core_points=np.empty((0, 3)),
+                distances=np.array([]),
+                uncertainty=None,
+                metadata={"n_valid": 0, "streaming": True, "tiled": True, "parallel": True, "per_tile": True},
+            )
+        
+        core_points_out = np.vstack(all_core_points)
+        distances_out = np.concatenate(all_distances)
+        unc_out = np.concatenate(all_uncertainties) if all_uncertainties else None
+        
+        # Compute statistics
+        valid = np.isfinite(distances_out)
+        n_valid = int(np.count_nonzero(valid))
+        if n_valid > 0:
+            rmse = float(np.sqrt(np.mean(np.square(distances_out[valid]))))
+            mean = float(np.mean(distances_out[valid]))
+            median = float(np.median(distances_out[valid]))
+            std_v = float(np.std(distances_out[valid]))
+        else:
+            rmse = float("inf")
+            mean = float("nan")
+            median = float("nan")
+            std_v = float("nan")
+        
+        logger.info(
+            "Per-tile M3C2 complete: cores=%d, valid=%d, RMSE=%.4fm",
+            len(core_points_out), n_valid, rmse
+        )
+        
+        logger.info(
+            "M3C2 completed: n=%d (valid=%d), mean=%.4f m, median=%.4f m, std=%.4f m",
+            len(core_points_out), n_valid, mean, median, std_v
+        )
+        
+        return M3C2Result(
+            core_points=core_points_out,
+            distances=distances_out,
+            uncertainty=unc_out,
+            metadata={"rmse": rmse, "mean": mean, "median": median, "n_valid": n_valid, 
+                      "streaming": True, "tiled": True, "parallel": True, "per_tile": True,
+                      "core_points_percent": core_points_percent},
+        )
+
+    @staticmethod
     def compute_m3c2_plane_based(
         core_points: np.ndarray,
         cloud_t1: np.ndarray,
@@ -735,159 +973,3 @@ class M3C2Detector:
             Implemented in a subsequent phase. This is a typed interface placeholder.
         """
         raise NotImplementedError("M3C2 (plane-based) will be implemented in the next phase.")
-
-    @staticmethod
-    def compute_m3c2_error_propagation(
-        core_points: np.ndarray,
-        cloud_t1: np.ndarray,
-        cloud_t2: np.ndarray,
-        params: M3C2Params,
-        *,
-        workers: int = 4,
-    ) -> M3C2Result:
-        """
-        Compute M3C2 with error propagation (M3C2-EP) and significance assessment.
-
-        Uses py4dgeo's M3C2 to obtain structured uncertainties and applies a
-        level-of-detection (LoD) threshold to flag significant changes.
-        """
-        # Use dedicated M3C2EP implementation from py4dgeo
-        try:
-            from py4dgeo import Epoch, m3c2ep
-        except Exception as e:
-            logger.error("py4dgeo not available: %s", e)
-            raise ImportError("py4dgeo is required for M3C2-EP computation") from e
-
-        # Build Epochs and ensure scan position metadata is present and valid
-        epoch1 = Epoch(cloud_t1)
-        epoch2 = Epoch(cloud_t2)
-
-        # Helper to enforce 1-based scanpos_id and complete scanpos_info
-        def _ensure_scanpos(epoch, points: np.ndarray) -> None:
-            # Scan positions are used by M3C2-EP for error propagation; set placeholder if missing
-            # Note: For real scan data, scan positions should be extracted from LAS metadata
-            if not hasattr(epoch, 'scanpos_id') or epoch.scanpos_id is None:
-                # Placeholder: single synthetic scan position at dataset centroid
-                centroid = points.mean(axis=0)
-                epoch.scanpos_id = np.ones(len(points), dtype=np.int32)
-                epoch.scanpos_info = np.array([centroid], dtype=np.float64)
-                logger.debug(
-                    "M3C2-EP: Synthetic single scan position at (%.2f, %.2f, %.2f) used for epoch",
-                    centroid[0], centroid[1], centroid[2]
-                )
-            else:
-                # Ensure 1-based scan positions (py4dgeo requirement)
-                if epoch.scanpos_id.min() == 0:
-                    epoch.scanpos_id = epoch.scanpos_id + 1
-                    logger.debug("M3C2-EP: Adjusted scanpos_id to 1-based indexing")
-                # Ensure scanpos_info is present
-                if not hasattr(epoch, 'scanpos_info') or epoch.scanpos_info is None:
-                    # Use placeholder scan position if missing
-                    centroid = points.mean(axis=0)
-                    epoch.scanpos_info = np.array([centroid], dtype=np.float64)
-                    logger.debug(
-                        "M3C2-EP: Missing scanpos_info, using centroid (%.2f, %.2f, %.2f)",
-                        centroid[0], centroid[1], centroid[2]
-                    )
-
-        # Apply to both epochs
-        _ensure_scanpos(epoch1, cloud_t1)
-        _ensure_scanpos(epoch2, cloud_t2)
-
-        # Defaults for transformation and alignment covariance
-        tfM = np.array([[1, 0, 0, 0],
-                        [0, 1, 0, 0],
-                        [0, 0, 1, 0]], dtype=float)
-        Cxx = np.zeros((12, 12), dtype=float)
-        refPointMov = np.array([0.0, 0.0, 0.0], dtype=float)
-
-        normal_scale = params.normal_scale if params.normal_scale is not None else params.projection_scale
-        # Optionally run in single-process mode (Windows spawn safety)
-        serial_mode = max(1, int(workers)) == 1
-        if serial_mode:
-            # Run M3C2EP serially without multiprocessing to avoid spawn issues
-            # Use internal _run_single_process method if available
-            try:
-                algo = m3c2ep.M3C2EP(
-                    tfM=tfM,
-                    Cxx=Cxx,
-                    refPointMov=refPointMov,
-                    perform_trans=True,
-                    epochs=(epoch1, epoch2),
-                    corepoints=core_points,
-                    cyl_radius=float(params.cylinder_radius),
-                    max_distance=float(params.max_depth),
-                    registration_error=0.0,
-                    robust_aggr=False,
-                    normal_radii=[float(normal_scale)],
-                )
-                # Attempt to run single-process if available
-                if hasattr(algo, '_run_single_process'):
-                    logger.debug("M3C2-EP: Running in serial mode (single process)")
-                    with capture_c_streams_to_logger(logger, level=logging.DEBUG, include_patterns=["Building KDTree"]), \
-                         redirect_stdout_stderr_to_logger(logger, level=logging.DEBUG, pattern="Building KDTree"):
-                        distances, uncertainties = algo._run_single_process()
-                else:
-                    # Fallback to normal run (may spawn workers)
-                    logger.debug("M3C2-EP: Single-process method not available, using standard run")
-                    with capture_c_streams_to_logger(logger, level=logging.DEBUG, include_patterns=["Building KDTree"]), \
-                         redirect_stdout_stderr_to_logger(logger, level=logging.DEBUG, pattern="Building KDTree"):
-                        distances, uncertainties = algo.run()
-            except Exception as e:
-                logger.error("M3C2-EP execution failed: %s", e)
-                raise
-        else:
-            # Standard multiprocessing path
-            algo = m3c2ep.M3C2EP(
-                tfM=tfM,
-                Cxx=Cxx,
-                refPointMov=refPointMov,
-                perform_trans=True,
-                epochs=(epoch1, epoch2),
-                corepoints=core_points,
-                cyl_radius=float(params.cylinder_radius),
-                max_distance=float(params.max_depth),
-                registration_error=0.0,
-                robust_aggr=False,
-                normal_radii=[float(normal_scale)],
-            )
-
-            # Capture verbose stdout from py4dgeo internals (both Python and C streams)
-            with capture_c_streams_to_logger(logger, level=logging.DEBUG, include_patterns=["Building KDTree"]), \
-                 redirect_stdout_stderr_to_logger(logger, level=logging.DEBUG, pattern="Building KDTree"):
-                distances, uncertainties = algo.run()
-
-        d = np.asarray(distances, dtype=float).reshape(-1)
-        sig_mask: Optional[np.ndarray] = None
-        ep_meta: Dict[str, float] = {}
-        if uncertainties is not None:
-            # Extract lodetection as level of detection (LoD)
-            lod = uncertainties['lodetection'].astype(float)
-            # Mark significant changes where |distance| > LoD
-            sig_mask = np.abs(d) > lod
-            ep_meta["significant_count"] = int(np.sum(sig_mask))
-
-        result = M3C2Result(
-            core_points=core_points,
-            distances=d,
-            uncertainty=None,  # We use LoD for significance rather than storing uncertainties
-            significant=sig_mask,
-            metadata={
-                "variant": "m3c2_ep",
-                "normal_radii": [float(normal_scale)],
-                "cylinder_radius": float(params.cylinder_radius),
-                "max_depth": float(params.max_depth),
-                **ep_meta,
-            },
-        )
-
-        logger.info(
-            "M3C2-EP finished: n=%d, mean=%.4f m, median=%.4f m, std=%.4f m, sig=%d",
-            result.distances.size,
-            float(np.nanmean(result.distances)),
-            float(np.nanmedian(result.distances)),
-            float(np.nanstd(result.distances)),
-            int(np.sum(result.significant)) if result.significant is not None else 0,
-        )
-
-        return result

@@ -29,16 +29,18 @@ discovery:
   metadata_dir_name: metadata
 
 alignment:
+  # Enable ICP fine registration for spatial alignment (disable for pre-aligned data)
+  enabled: true
   # ICP/registration parameters
   max_iterations: 100
   tolerance: 1.0e-6
-  max_correspondence_distance: 2.0
+  max_correspondence_distance: 1.0
   # Number of points sampled per epoch for alignment (approx.)
-  subsample_size: 100000
+  subsample_size: 50000
   # Export aligned T2 point cloud as LAZ file
   export_aligned_pc: false
   coarse:
-    enabled: true
+    enabled: false
     # Coarse alignment method: centroid | pca | phase | open3d_fpfh | none
     method: phase
     # Voxel size (m) for coarse features/downsampling
@@ -56,7 +58,7 @@ detection:
     # Export DoD as GeoTIFF raster
     export_raster: true
   c2c:
-    enabled: false
+    enabled: true
     # Algorithm: euclidean | vertical_plane
     mode: euclidean
     # Upper bound used by some example flows for sampling/limits
@@ -72,7 +74,7 @@ detection:
     # Export C2C as interpolated GeoTIFF raster
     export_raster: false
   m3c2:
-    enabled: false
+    enabled: true
     # Use automatic parameter tuning (true) or fixed parameters below (false)
     use_autotune: true
     # Percentage of reference ground points for M3C2 core points
@@ -81,7 +83,7 @@ detection:
     autotune:
       source: header
       target_neighbors: 20
-      max_depth_factor: 0.6
+      max_depth_factor: 1.0
       min_radius: 2.0
       max_radius: 30.0
     # Fixed parameters (used only when use_autotune: false). Leave as null to accept defaults.
@@ -89,9 +91,6 @@ detection:
       radius: null          # If set, projection_scale=cylinder_radius=radius
       normal_scale: null    # Defaults to radius when null
       depth_factor: null    # If null, falls back to autotune.max_depth_factor
-    ep:
-      # Number of worker processes/threads; null = OS default
-      workers: null
     # Export M3C2 core points with distances as LAZ point cloud
     export_pc: true
     # Export M3C2 distances as interpolated GeoTIFF raster
@@ -151,6 +150,6 @@ gpu:
   # Use GPU for data preprocessing (transformations, filtering)
   use_for_preprocessing: true
   # Use GPU for ICP spatial alignment (experimental; not recommended - see GPU_SETUP_GUIDE.md)
-  use_for_alignment: false
+  use_for_alignment: true
   # GPU batch size for operations; null = auto-calculate based on memory
   batch_size: null

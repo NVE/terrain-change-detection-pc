@@ -29,6 +29,8 @@ visualization:
   sample_size: 20000
 
 alignment:
+  # Enable ICP fine registration for spatial alignment (disable for pre-aligned data)
+  enabled: true
   # ICP/registration parameters
   max_iterations: 80
   tolerance: 1.0e-6
@@ -76,7 +78,7 @@ detection:
     # Use automatic parameter tuning (true) or fixed parameters below (false)
     use_autotune: true
     # Percentage of reference ground points for M3C2 core points
-    core_points_percent: 10.0
+    core_points_percent: 100.0
     autotune:
       source: header
       target_neighbors: 16
@@ -88,9 +90,6 @@ detection:
       radius: null          # If set, projection_scale=cylinder_radius=radius
       normal_scale: null    # Defaults to radius when null
       depth_factor: null    # If null, falls back to autotune.max_depth_factor
-    ep:
-      # Number of worker processes/threads; null = OS default
-      workers: null
     # Export M3C2 core points with distances as LAZ point cloud
     export_pc: true
     # Export M3C2 distances as interpolated GeoTIFF raster
