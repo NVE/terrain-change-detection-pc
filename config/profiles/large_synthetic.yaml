@@ -30,6 +30,8 @@ discovery:
   metadata_dir_name: metadata
 
 alignment:
+  # Enable ICP fine registration for spatial alignment (disable for pre-aligned data)
+  enabled: true
   # ICP/registration parameters
   max_iterations: 100
   tolerance: 1.0e-6
@@ -83,16 +85,13 @@ detection:
       source: header
       target_neighbors: 20
       max_depth_factor: 0.6
-      min_radius: 2.0
+      min_radius: 0.0
       max_radius: 50.0
     # Fixed parameters (used only when use_autotune: false). Leave as null to accept defaults.
     fixed:
       radius: null          # If set, projection_scale=cylinder_radius=radius
       normal_scale: null    # Defaults to radius when null
       depth_factor: null    # If null, falls back to autotune.max_depth_factor
-    ep:
-      # Number of worker processes/threads; null = OS default
-      workers: null
     # Export M3C2 core points with distances as LAZ point cloud
     export_pc: true
     # Export M3C2 distances as interpolated GeoTIFF raster
@@ -118,7 +117,7 @@ outofcore:
   # ENABLED for large dataset processing
   enabled: true
   # Inner tile size in meters (processing region per tile)
-  tile_size_m: 500.0
+  tile_size_m: 1000.0
   # Halo width in meters (buffer around each tile to avoid edge effects)
   halo_m: 30.0
   # Max points per streaming chunk (memory/performance trade-off)

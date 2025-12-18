@@ -1,0 +1,30 @@
+<PAMDataset>
+  <SRS>COMPD_CS["unknown",PROJCS["ETRS_1989_UTM_Zone_32N",GEOGCS["GCS_ETRS_1989",DATUM["European_Terrestrial_Reference_System_1989",SPHEROID["GRS_1980",6378137.0,298.257222101,AUTHORITY["EPSG","7019"]],AUTHORITY["EPSG","6258"]],PRIMEM["Greenwich",0.0,AUTHORITY["EPSG","8901"]],UNIT["Degree",0.0174532925199433,AUTHORITY["EPSG","9102"]],AUTHORITY["EPSG","4258"]],PROJECTION["Transverse_Mercator",AUTHORITY["Esri","43006"]],PARAMETER["False_Easting",500000.0,AUTHORITY["Esri","100001"]],PARAMETER["False_Northing",0.0,AUTHORITY["Esri","100002"]],PARAMETER["Central_Meridian",9.0,AUTHORITY["Esri","100010"]],PARAMETER["Scale_Factor",0.9996,AUTHORITY["Esri","100003"]],PARAMETER["Latitude_Of_Origin",0.0,AUTHORITY["Esri","100021"]],UNIT["Meter",1.0,AUTHORITY["EPSG","9001"]],AUTHORITY["EPSG","25832"]],VERTCS["NN2000_height",VDATUM["Norway_Normal_Null_2000",AUTHORITY["EPSG","1096"]],PARAMETER["Vertical_Shift",0.0,AUTHORITY["Esri","100006"]],PARAMETER["Direction",1.0,AUTHORITY["Esri","100007"]],UNIT["Meter",1.0,AUTHORITY["EPSG","9001"]],AUTHORITY["EPSG","5941"]]]</SRS>
+  <Metadata>
+    <MDI key="DataType">Generic</MDI>
+  </Metadata>
+  <PAMRasterBand band="1">
+    <NoDataValue>-1.79769300000000E+308</NoDataValue>
+    <Histograms>
+      <HistItem>
+        <HistMin>-0.5</HistMin>
+        <HistMax>61.5</HistMax>
+        <BucketCount>62</BucketCount>
+        <IncludeOutOfRange>1</IncludeOutOfRange>
+        <Approximate>0</Approximate>
+        <HistCounts>4664920|14214|149499|1182095|1891125|1049818|630989|1038243|882677|603520|436628|297512|183780|117101|83549|55756|37183|29652|21690|16193|12185|8471|6313|4686|2911|1816|1191|987|901|612|432|284|227|158|118|95|61|38|35|21|13|8|13|9|6|4|3|4|2|2|1|1|1|3|0|1|0|0|0|0|0|1</HistCounts>
+      </HistItem>
+    </Histograms>
+    <Metadata>
+      <MDI key="SourceBandIndex">0</MDI>
+      <MDI key="STATISTICS_COVARIANCES">16.2079591470876</MDI>
+      <MDI key="STATISTICS_EXCLUDEDVALUES"></MDI>
+      <MDI key="STATISTICS_MAXIMUM">61</MDI>
+      <MDI key="STATISTICS_MEAN">4.1946050114995</MDI>
+      <MDI key="STATISTICS_MINIMUM">0</MDI>
+      <MDI key="STATISTICS_SKIPFACTORX">1</MDI>
+      <MDI key="STATISTICS_SKIPFACTORY">1</MDI>
+      <MDI key="STATISTICS_STDDEV">4.0259109710831</MDI>
+    </Metadata>
+  </PAMRasterBand>
+</PAMDataset>

@@ -524,6 +524,40 @@ class AreaClipper:
             json.dump(geojson, f, indent=2)
         
         logger.info(f"Saved clipping boundary to {file_path}")
+    
+    def transform_to_local(self, local_transform: "LocalCoordinateTransform") -> "AreaClipper":
+        """
+        Transform the clipping polygon to local coordinates.
+        
+        Creates a new AreaClipper with the polygon shifted by the local transform offset.
+        This is needed when points are loaded in local coordinates but the clipping
+        polygon is defined in global coordinates (e.g., from a GeoJSON file).
+        
+        Args:
+            local_transform: LocalCoordinateTransform containing offset_x and offset_y.
+        
+        Returns:
+            New AreaClipper instance with transformed geometry.
+        
+        Example:
+            clipper = AreaClipper.from_file("global_boundary.geojson")
+            local_clipper = clipper.transform_to_local(local_transform)
+            clipped_points = local_clipper.clip(points_in_local_coords)
+        """
+        from shapely.affinity import translate
+        
+        # Shift the geometry by the negative of the offset (global to local)
+        transformed_geometry = translate(
+            self.geometry, 
+            xoff=-local_transform.offset_x, 
+            yoff=-local_transform.offset_y
+        )
+        
+        logger.info(
+            f"Transformed clipper to local coordinates: offset=({local_transform.offset_x:.2f}, {local_transform.offset_y:.2f})"
+        )
+        
+        return AreaClipper(transformed_geometry)
 
 
 def clip_point_cloud_files(

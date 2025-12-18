@@ -32,6 +32,8 @@ discovery:
   metadata_dir_name: metadata
 
 alignment:
+  # Enable ICP fine registration for spatial alignment (disable for pre-aligned data)
+  enabled: true
   # ICP/registration parameters - may need adjustment for drone data
   max_iterations: 100
   tolerance: 1.0e-6
@@ -67,7 +69,7 @@ detection:
     # Export C2C as interpolated GeoTIFF raster
     export_raster: false
   m3c2:
-    enabled: false
+    enabled: true
     use_autotune: true
     # Percentage of reference ground points to use as M3C2 core points
     core_points_percent: 10.0
@@ -81,15 +83,13 @@ detection:
       radius: null
       normal_scale: null
       depth_factor: null
-    ep:
-      workers: null
     # Export M3C2 core points with distances as LAZ point cloud
     export_pc: true
     # Export M3C2 distances as interpolated GeoTIFF raster
     export_raster: true
 
 visualization:
-  backend: pyvista
+  backend: plotly
   sample_size: 50000
 
 logging:

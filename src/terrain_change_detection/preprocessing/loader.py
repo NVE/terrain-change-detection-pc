@@ -7,9 +7,12 @@ This module handles loading and initial validation of point cloud datasets.
 import laspy
 import numpy as np
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 from ..utils.logging import setup_logger
 from ..utils.point_cloud_filters import create_classification_mask, get_filter_statistics
+
+if TYPE_CHECKING:
+    from ..utils.coordinate_transform import LocalCoordinateTransform
 
 logger = setup_logger(__name__)
 
@@ -35,15 +38,24 @@ class PointCloudLoader:
         self.ground_only = ground_only
         self.classification_filter = classification_filter
 
-    def load(self, file_path: str) -> dict:
+    def load(
+        self,
+        file_path: str,
+        *,
+        transform: Optional["LocalCoordinateTransform"] = None,
+    ) -> dict:
         """
         Load a point cloud file and return its data and metadata.
 
         Args:
             file_path: Path to the LAS/LAZ file
+            transform: Optional LocalCoordinateTransform to apply to coordinates.
+                       If provided, points will be in local coordinates and
+                       the transform is stored in metadata for later restoration.
 
         Returns:
-            dict: A dictionary containing point cloud data and metadata
+            dict: A dictionary containing point cloud data and metadata.
+                  If transform was provided, metadata includes 'local_transform'.
 
         Raises:
             FileNotFoundError: If the file does not exist
@@ -96,6 +108,11 @@ class PointCloudLoader:
                 np.array(laz_file.z, dtype=np.float64)[ground_mask]
             ])
 
+            # Apply local coordinate transform if provided
+            if transform is not None:
+                points = transform.to_local(points)
+                logger.debug(f"Applied local coordinate transform (offset: {transform.offset_x:.2f}, {transform.offset_y:.2f})")
+
             # Extract useful attributes for selected points based on sample exploration
             attributes = {}
 
@@ -139,6 +156,10 @@ class PointCloudLoader:
             metadata = self.get_metadata(str(file_path))
             # Add file_path to metadata for consistency with original implementation
             metadata['file_path'] = str(file_path)
+            
+            # Include transform in metadata if provided
+            if transform is not None:
+                metadata['local_transform'] = transform
 
             return {
                 'points': points,

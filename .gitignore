@@ -1,7 +1,3 @@
-# Manually added files
-docs/cloudcompare_cloudcompy_assessment.md
-experiments/
-
 # Python-generated files
 __pycache__/
 *.py[oc]
@@ -61,12 +57,12 @@ docs/_build/
 .idea/
 .vscode/
 
-# Project specific - Large data files
-# Exclude the entire data directory but keep README files
-data/
-!data/README.md
-!data/*/
-!data/*/README.md
+# Project specific - Data directories
+# Include data/raw but exclude synthetic/generated data and outputs
+data/synthetic/
+data/large_synthetic/
+tests/sample_data/
+**/output/
 
 # Temporary files
 *.tmp
@@ -76,3 +72,6 @@ data/
 # OS specific
 .DS_Store
 Thumbs.db
+
+# Experiments
+experiments/

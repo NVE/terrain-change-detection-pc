@@ -54,6 +54,8 @@ clipping:
   output_dir: null
 
 alignment:
+  # Enable ICP fine registration for spatial alignment (disable for pre-aligned data)
+  enabled: true
   # ICP/registration parameters
   max_iterations: 100
   tolerance: 1.0e-6
@@ -113,8 +115,6 @@ detection:
       radius: null
       normal_scale: null
       depth_factor: null
-    ep:
-      workers: null
     # Export M3C2 core points with distances as LAZ point cloud
     export_pc: true
     # Export M3C2 distances as interpolated GeoTIFF raster

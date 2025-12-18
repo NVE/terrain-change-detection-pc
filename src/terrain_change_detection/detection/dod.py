@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Optional, Tuple, Dict, Literal, List
+from typing import Optional, Tuple, Dict, Literal, List, TYPE_CHECKING
 import numpy as np
+
+if TYPE_CHECKING:
+    from ..utils.coordinate_transform import LocalCoordinateTransform
 
 from ..utils.logging import setup_logger
 from ..acceleration import (
@@ -185,6 +188,7 @@ class DoDDetector:
         classification_filter: Optional[list[int]] = None,
         chunk_points: int = 1_000_000,
         config: Optional[AppConfig] = None,
+        local_transform: Optional["LocalCoordinateTransform"] = None,
     ) -> DoDResult:
         """
         Streaming DoD that reads LAS/LAZ files in chunks and computes mean-based DEMs.
@@ -198,6 +202,7 @@ class DoDDetector:
             classification_filter: Optional classification codes
             chunk_points: Points per streaming chunk
             config: Optional configuration (for GPU settings)
+            local_transform: Optional local coordinate transform (for numerical precision)
 
         Returns:
             DoDResult with DEMs and difference grid
@@ -223,11 +228,22 @@ class DoDDetector:
             )
 
         if bounds is None:
-            bounds2d = union_bounds(files_t1, files_t2)
+            bounds2d_global = union_bounds(files_t1, files_t2)
+            # Transform bounds to local coordinates if transform is provided
+            if local_transform is not None:
+                bounds2d = Bounds2D(
+                    min_x=bounds2d_global.min_x - local_transform.offset_x,
+                    min_y=bounds2d_global.min_y - local_transform.offset_y,
+                    max_x=bounds2d_global.max_x - local_transform.offset_x,
+                    max_y=bounds2d_global.max_y - local_transform.offset_y,
+                )
+            else:
+                bounds2d = bounds2d_global
             bounds_tuple = (bounds2d.min_x, bounds2d.min_y, bounds2d.max_x, bounds2d.max_y)
         else:
             min_x, min_y, max_x, max_y = bounds
             bounds2d = Bounds2D(min_x, min_y, max_x, max_y)
+            bounds2d_global = bounds2d  # Assume bounds are already in appropriate coords
             bounds_tuple = bounds
 
         acc1 = GridAccumulator(bounds2d, cell_size, use_gpu=use_gpu)
@@ -236,9 +252,10 @@ class DoDDetector:
         reader1 = LaspyStreamReader(files_t1, ground_only=ground_only, classification_filter=classification_filter, chunk_points=chunk_points)
         reader2 = LaspyStreamReader(files_t2, ground_only=ground_only, classification_filter=classification_filter, chunk_points=chunk_points)
 
-        for pts in reader1.stream_points(bounds2d):
+        # Use global bounds for file bbox filtering, apply local_transform to points
+        for pts in reader1.stream_points(bounds2d_global if local_transform else bounds2d, transform=local_transform):
             acc1.accumulate(pts)
-        for pts in reader2.stream_points(bounds2d):
+        for pts in reader2.stream_points(bounds2d_global if local_transform else bounds2d, transform=local_transform):
             acc2.accumulate(pts)
 
         dem1 = acc1.finalize()
@@ -291,6 +308,7 @@ class DoDDetector:
         memmap_dir: Optional[str] = None,
         transform_t2: Optional[np.ndarray] = None,
         config: Optional[AppConfig] = None,
+        local_transform: Optional["LocalCoordinateTransform"] = None,
     ) -> DoDResult:
         """
         Out-of-core tiled DoD by streaming LAS/LAZ files in spatial tiles.
@@ -314,7 +332,18 @@ class DoDDetector:
                 "DoD tiled streaming using CPU grid accumulation (GPU disabled or not available)"
             )
         
-        gb = union_bounds(files_t1, files_t2)
+        gb_global = union_bounds(files_t1, files_t2)
+        
+        # Transform bounds to local coordinates if transform is provided
+        if local_transform is not None:
+            gb = Bounds2D(
+                min_x=gb_global.min_x - local_transform.offset_x,
+                min_y=gb_global.min_y - local_transform.offset_y,
+                max_x=gb_global.max_x - local_transform.offset_x,
+                max_y=gb_global.max_y - local_transform.offset_y,
+            )
+        else:
+            gb = gb_global
 
         # Prepare global tiling parameters (grid-aligned with inner tiles)
         tx = int(np.ceil((gb.max_x - gb.min_x) / tile_size))
@@ -383,7 +412,17 @@ class DoDDetector:
                     acc = GridAccumulator(tile.inner, cell_size, use_gpu=use_gpu)
                     n_chunks = 0
                     n_pts = 0
-                    for chunk in reader.stream_points(bbox=tile.outer):
+                    # Convert tile bounds back to global for file bbox filtering
+                    if local_transform is not None:
+                        tile_outer_global = Bounds2D(
+                            min_x=tile.outer.min_x + local_transform.offset_x,
+                            min_y=tile.outer.min_y + local_transform.offset_y,
+                            max_x=tile.outer.max_x + local_transform.offset_x,
+                            max_y=tile.outer.max_y + local_transform.offset_y,
+                        )
+                    else:
+                        tile_outer_global = tile.outer
+                    for chunk in reader.stream_points(bbox=tile_outer_global, transform=local_transform):
                         if transform is not None:
                             chunk = apply_transform(chunk, transform)
                         acc.accumulate(chunk)
@@ -488,6 +527,7 @@ class DoDDetector:
         threads_per_worker: Optional[int] = 1,
         config: Optional[AppConfig] = None,
         clip_bounds: Optional[tuple[float, float, float, float]] = None,
+        local_transform: Optional["LocalCoordinateTransform"] = None,
     ) -> DoDResult:
         """
         Parallel version of out-of-core tiled DoD.
@@ -522,8 +562,19 @@ class DoDDetector:
         # Note: File header bounds are scanned below and filtered per tile.
         # Paths are passed per-tile to workers to avoid redundant I/O.
         
-        # Get global bounds
-        gb = union_bounds(files_t1, files_t2)
+        # Get global bounds from file headers
+        gb_global = union_bounds(files_t1, files_t2)
+        
+        # Transform bounds to local coordinates if transform is provided
+        if local_transform is not None:
+            gb = Bounds2D(
+                min_x=gb_global.min_x - local_transform.offset_x,
+                min_y=gb_global.min_y - local_transform.offset_y,
+                max_x=gb_global.max_x - local_transform.offset_x,
+                max_y=gb_global.max_y - local_transform.offset_y,
+            )
+        else:
+            gb = gb_global
         
         # Calculate tile grid
         tx = int(np.ceil((gb.max_x - gb.min_x) / tile_size))
@@ -614,8 +665,20 @@ class DoDDetector:
 
         per_tile_kwargs = []
         for tile in tiles:
-            files_t1_tile = [str(f) for f, b in t1_bounds if bounds_intersect(tile.outer, b)]
-            files_t2_tile = [str(f) for f, b in t2_bounds if bounds_intersect(tile.outer, b)]
+            # Convert tile bounds back to global coords for file intersection check
+            # (file header bounds are in global coords, tile bounds are in local coords)
+            if local_transform is not None:
+                tile_outer_global = Bounds2D(
+                    min_x=tile.outer.min_x + local_transform.offset_x,
+                    min_y=tile.outer.min_y + local_transform.offset_y,
+                    max_x=tile.outer.max_x + local_transform.offset_x,
+                    max_y=tile.outer.max_y + local_transform.offset_y,
+                )
+            else:
+                tile_outer_global = tile.outer
+            
+            files_t1_tile = [str(f) for f, b in t1_bounds if bounds_intersect(tile_outer_global, b)]
+            files_t2_tile = [str(f) for f, b in t2_bounds if bounds_intersect(tile_outer_global, b)]
             per_tile_kwargs.append({
                 'files_t1': [Path(f) for f in files_t1_tile],
                 'files_t2': [Path(f) for f in files_t2_tile],
@@ -629,6 +692,7 @@ class DoDDetector:
             'transform_matrix': transform_t2,
             'ground_only': ground_only,
             'use_gpu': use_gpu,
+            'local_transform': local_transform,
         }
 
         t0 = time.time()

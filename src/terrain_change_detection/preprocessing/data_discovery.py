@@ -22,10 +22,13 @@ data/raw/
 
 import numpy as np
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, field
 from ..utils.logging import setup_logger
 from .loader import PointCloudLoader
+
+if TYPE_CHECKING:
+    from ..utils.coordinate_transform import LocalCoordinateTransform
 
 logger = setup_logger(__name__)
 
@@ -275,9 +278,14 @@ class BatchLoader:
         self.loader = loader if loader is not None else PointCloudLoader()
         self.streaming_mode = streaming_mode
 
-    def load_dataset(self, dataset_info: DatasetInfo,
-                     max_points_per_file: Optional[int] = None,
-                     streaming: Optional[bool] = None) -> Dict:
+    def load_dataset(
+        self,
+        dataset_info: DatasetInfo,
+        max_points_per_file: Optional[int] = None,
+        streaming: Optional[bool] = None,
+        *,
+        transform: Optional["LocalCoordinateTransform"] = None,
+    ) -> Dict:
         """
         Load all files and combine into a single point cloud, or return metadata for streaming.
 
@@ -286,6 +294,8 @@ class BatchLoader:
             max_points_per_file: Optional maximum points to load from each file (in-memory mode only).
             streaming: If True, return file paths and metadata without loading data.
                       If None, uses self.streaming_mode.
+            transform: Optional LocalCoordinateTransform to apply to coordinates.
+                       If provided, points will be in local coordinates.
 
         Returns:
             Combined point cloud data (in-memory mode) or file metadata (streaming mode)
@@ -303,7 +313,7 @@ class BatchLoader:
         for laz_file in dataset_info.laz_files:
             try:
                 logger.info(f"Loading file: {laz_file}")
-                pc_data = self.loader.load(str(laz_file))
+                pc_data = self.loader.load(str(laz_file), transform=transform)
 
                 points = pc_data['points']
 
@@ -365,6 +375,10 @@ class BatchLoader:
             'bounds': self._compute_bounds(combined_points),
             'dataset_info': dataset_info
         }
+        
+        # Include transform in metadata if provided
+        if transform is not None:
+            combined_metadata['local_transform'] = transform
 
         logger.info(f"Combined dataset: {len(combined_points)} points from {len(all_points)} files")
 

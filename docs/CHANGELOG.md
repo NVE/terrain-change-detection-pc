@@ -1,5 +1,255 @@
 ﻿# Changelog and Implementation Notes
 
+## 2025-12-15 - ICP Alignment Toggle Feature
+
+### Summary
+Added the ability to enable or disable ICP fine registration for spatial alignment. This is useful for pre-aligned datasets where ICP alignment is not needed, saving processing time.
+
+### Key Changes
+
+**Configuration** (`config.py`):
+- Added `enabled` field to `AlignmentICPConfig` (default: `true` for backward compatibility)
+
+**YAML Configuration Files**:
+- Updated all 7 config files with `alignment.enabled` option:
+  - `config/default.yaml`
+  - `config/default_clipped.yaml`
+  - `config/profiles/drone.yaml`
+  - `config/profiles/large_scale.yaml`
+  - `config/profiles/large_synthetic.yaml`
+  - `config/profiles/large_synthetic_clipped.yaml`
+  - `config/profiles/synthetic.yaml`
+
+**Workflow Script** (`run_workflow.py`):
+- Step 2 (Spatial Alignment) now checks `alignment.enabled` before running ICP
+- When disabled, skips all alignment processing (coarse registration, multi-scale ICP, fine ICP)
+- Sets `transform_matrix` to identity and `points2_full_aligned` to original points
+- Logs "Spatial Alignment (SKIPPED)" when alignment is disabled
+
+### Usage
+
+```yaml
+# Disable alignment for pre-aligned datasets
+alignment:
+  enabled: false
+  # ... other alignment parameters (ignored when disabled)
+```
+
+### Migration Notes
+- **No breaking changes**: Default `enabled: true` maintains existing behavior
+- Existing configs without `enabled` field continue to work (defaults to `true`)
+
+---
+
+## 2025-12-15 - Local Transform Integration Audit & Fixes
+
+### Summary
+Comprehensive audit and fix of LocalCoordinateTransform integration across all modules. Added local_transform support to remaining DoD streaming functions, fixed visualization to use global coordinates, and integrated clipping with local transform.
+
+### Key Changes
+
+**Area Clipping Integration** (`clipping.py`, `run_workflow.py`):
+- Added `transform_to_local()` method to AreaClipper class
+- Uses shapely's `translate()` to shift polygon coordinates by offset
+- Workflow now transforms clipper when local_transform is enabled
+- Fixes issue where clipping returned 0 points with local coordinates
+
+**Visualization Fix** (`run_workflow.py`):
+- All visualization calls now revert points/grids to global UTM coordinates
+- Users see correct geospatial coordinates matching maps and real-world locations
+- Applied to: original point clouds, aligned point clouds, M3C2 core points, DoD grid
+- Enabled M3C2 distance histogram (shown before 3D visualization)
+
+**DoD Streaming Fixes** (`dod.py`):
+- Added `local_transform` parameter to `compute_dod_streaming_files_tiled()`
+- Added `local_transform` parameter to `compute_dod_streaming_files()`
+- Both functions now transform bounds and pass transform to stream_points()
+
+**GPU Dependency Update** (`pyproject.toml`):
+- Changed from `cupy-cuda13x` to `cupy-cuda12x` to match CUDA 12.x toolkit
+
+### Integration Status
+
+All modules now fully support local coordinate transformation:
+- ✅ Data Loading (loader, stream reader, batch loader)
+- ✅ Detection Parallel (DoD, C2C, M3C2)
+- ✅ Detection Sequential (DoD, C2C, M3C2)
+- ✅ Tile Workers (all 3)
+- ✅ Export (LAZ, GeoTIFF)
+- ✅ Clipping
+- ✅ Visualization (point clouds, DoD, M3C2)
+
+### Files Changed
+- `pyproject.toml`: GPU dep to cupy-cuda12x
+- `clipping.py`: Added transform_to_local() method
+- `dod.py`: Added local_transform to both streaming functions
+- `run_workflow.py`: Clipping transform, all visualization global coords, M3C2 histogram
+
+---
+
+## 2025-12-12 - Cross-Platform GPU Support & Sequential Streaming Fixes
+
+### Summary
+Enabled GPU acceleration on Windows (CuPy-only mode) and fixed coordinate transform handling in sequential streaming paths for C2C and M3C2. Previously, GPU acceleration required cuML which is Linux-only (RAPIDS). Now Windows users can use CuPy for partial GPU acceleration.
+
+### Key Changes
+
+**Cross-Platform GPU Library Check** (`run_workflow.py`):
+- Modified GPU library check to allow CuPy-only mode on Windows
+- cuML is Linux-only (RAPIDS); CuPy works on both platforms
+- Now shows GPU mode: **FULL** (CuPy + cuML on Linux) or **PARTIAL** (CuPy only on Windows)
+- Platform-aware error messages for missing libraries
+- Added `use_for_dod` and `use_for_alignment` status to GPU info log
+
+**GPUConfig** (`config.py`):
+- Added `use_for_dod: bool` field to control GPU acceleration for DoD grid accumulation
+- Default: `true` (enabled)
+
+**Sequential C2C Streaming Fix** (`c2c.py`, `run_workflow.py`):
+- Added `local_transform` parameter to `compute_c2c_streaming_files_tiled()`
+- Fixed coordinate mismatch: sequential path was reading files in global coordinates but tile bounds were in local coordinates
+- Transforms global file bounds to local for tile grid generation
+- Converts tile bounds back to global for file bbox filtering
+- Passes `local_transform` to `stream_points()` for coordinate transformation
+
+**Sequential M3C2 Streaming Fix** (`m3c2.py`, `run_workflow.py`):
+- Added `local_transform` parameter to `compute_m3c2_streaming_files_tiled()`
+- **Changed sequential M3C2 to use `compute_m3c2_streaming_pertile_parallel` with `n_workers=1`**
+- This enables per-tile core selection for sequential mode, making it truly out-of-core
+- Removed global core point selection via reservoir sampling for streaming mode
+- Both parallel and sequential now use per-tile core selection, supporting 100% core points without loading all data
+- Same fix as C2C: transforms bounds appropriately between coordinate spaces
+- Core points (in local coords) now correctly match file data (transformed to local)
+
+### Verification Results
+
+| Method | Before Fix | After Fix |
+|--------|-----------|-----------|
+| C2C (GPU, sequential) | valid=6,172 (0.07%) | valid=9,061,786 (100%) |
+| M3C2 (sequential) | valid=0 | Expected: all valid |
+
+### Known Issues
+
+**CuPy NVRTC DLL on Windows**:
+- DoD GPU may fail with `nvrtc64_130_0.dll` missing
+- This is a CuPy/CUDA installation issue, not a code bug
+- Solution: Install CUDA Toolkit or set `gpu.use_for_dod: false`
+- DoD falls back to CPU successfully
+
+### Files Changed
+- `scripts/run_workflow.py`: Cross-platform GPU check, local_transform parameters
+- `src/terrain_change_detection/utils/config.py`: Added `use_for_dod` to GPUConfig
+- `src/terrain_change_detection/detection/c2c.py`: Added local_transform handling
+- `src/terrain_change_detection/detection/m3c2.py`: Added local_transform handling
+
+---
+
+## 2025-12-12 - M3C2/C2C Visualization Invalid Point Filtering
+
+### Summary
+Fixed visualization issue where points with NaN/invalid distances were rendered as dark brownish spots. The `visualize_m3c2_corepoints` function now filters out non-finite distance values before plotting.
+
+### Changes
+- Added `isfinite()` mask to filter out NaN/inf distances before visualization
+- Applies to both M3C2 and C2C visualizations (C2C reuses the same function)
+- Raises `ValueError` if no valid distances exist to visualize
+
+---
+
+## 2025-12-12 - Streaming LocalCoordinateTransform Fix
+
+### Summary
+Fixed critical bug where streaming DoD, C2C, and M3C2 methods returned zero valid results when `LocalCoordinateTransform` was enabled. The issue was a coordinate space mismatch between ICP alignment (running in local coords) and streaming workers (processing files in global coords).
+
+### Root Cause
+- ICP alignment operated in local coordinates (0-2000m range)
+- Streaming workers processed file headers in global coordinates (280475m+ range)
+- `bounds_intersect()` comparing local tile bounds with global file bounds always returned `False`
+- Result: empty file lists for all tiles → no points processed → `n_cells=0`
+
+### Key Changes
+
+**Detection Modules** (`dod.py`, `c2c.py`, `m3c2.py`):
+- Added `local_transform` parameter to parallel streaming functions
+- Transform global bounds to local for tile grid generation
+- Convert tile bounds back to global for `bounds_intersect()` file filtering
+- Pass `local_transform` to worker kwargs
+
+**Tile Workers** (`tile_workers.py`):
+- Added `local_transform` parameter to `process_dod_tile`, `process_c2c_tile`, `process_m3c2_tile`
+- Convert tile bounds back to global for bbox filtering
+- Pass `local_transform` to `stream_points()` which applies `to_local()` to points
+
+**Workflow** (`run_workflow.py`):
+- Pass `local_transform` to all three streaming parallel functions
+
+### Verification Results
+
+| Method | Before Fix | After Fix |
+|--------|-----------|-----------|
+| DoD | n_cells=0, mean=nan | n_cells=481,146, mean=-0.017m |
+| C2C | valid=0, RMSE=inf | valid=9,061,786, RMSE=0.354m |
+| M3C2 | valid=0, RMSE=inf | 494,325 cells exported |
+
+### Testing
+- All 178 tests pass
+- Verified against main branch results (values match within expected variance)
+
+---
+
+## 2025-12-11 - Local Coordinate Transformation Infrastructure
+
+### Summary
+Implemented local coordinate transformation infrastructure to handle large UTM coordinates (e.g., Easting ~500,000m, Northing ~6,000,000m) and prevent floating-point precision issues during numerical computations, especially on GPUs with float32 limitations.
+
+### Key Changes
+
+**New Coordinate Transform Utility** (`src/terrain_change_detection/utils/coordinate_transform.py`):
+- `LocalCoordinateTransform` dataclass with offset storage
+- Creation methods: `from_bounds()`, `from_centroid()`, `from_first_point()`
+- Transform methods: `to_local()`, `to_global()`, `transform_bounds()`
+- Serialization: `to_dict()`, `from_dict()` for persistence
+- Exported via `__init__.py` for project-wide access
+
+**Configuration Updates** (`config.py`):
+- New `CoordinateConfig` class with:
+  - `use_local_coordinates`: Enable/disable feature (default: True)
+  - `origin_method`: "min_bounds" | "centroid" | "first_point" (default: min_bounds)
+  - `include_z_offset`: Whether to offset Z (default: False)
+
+**Data Loading Integration**:
+- `PointCloudLoader.load(transform=...)`: Apply transform during loading, store in metadata
+- `LaspyStreamReader.stream_points(transform=...)`: Apply transform to streamed chunks
+- `BatchLoader.load_dataset(transform=...)`: Pass transform through to file loading
+
+**Export Utilities Integration**:
+- `export_points_to_laz(local_transform=...)`: Reverts to global coords before writing LAZ
+- `export_distances_to_geotiff(local_transform=...)`: Reverts to global coords for raster
+- `apply_transform_to_files(local_transform=...)`: Reverts in streaming alignment export
+
+### New Files
+- `src/terrain_change_detection/utils/coordinate_transform.py`: Core transform utility
+- `tests/test_coordinate_transform.py`: 24 unit tests covering all functionality
+
+### Testing
+- 27 tests passing
+- Round-trip precision verified (to_local → to_global preserves coordinates)
+- Large UTM coordinate handling validated
+
+### Usage Notes
+
+The infrastructure is in place but not yet wired into the main workflow. To complete integration:
+1. Compute transform from T1 bounds in `run_workflow.py`
+2. Pass transform to all loading/streaming calls
+3. Pass transform to export calls
+
+### Migration Notes
+- No breaking changes - all new parameters are optional
+- Existing code continues to work without modification
+- Feature is opt-in via configuration
+
+---
+
 ## 2025-12-11 - Output File Export (LAZ Point Clouds & GeoTIFF Rasters)
 
 ### Summary

@@ -85,7 +85,7 @@ class PointCloudVisualizer:
             pass
         plotter.show()
 
-    def visualize_distance_histogram(self, distances: np.ndarray, title: str, bins: int = 60):
+    def visualize_distance_histogram(self, distances: np.ndarray, title: str, bins: int = 256):
         if self.backend != 'plotly':
             raise ValueError("Histogram is only implemented for 'plotly' backend")
         distances = np.asarray(distances)
@@ -98,16 +98,30 @@ class PointCloudVisualizer:
     def visualize_m3c2_corepoints(self, core_points: np.ndarray, distances: np.ndarray, sample_size: Optional[int] = None, title: str = "M3C2 distances"):
         pts = core_points
         d = np.asarray(distances, dtype=float)
+        
+        # Filter out points with invalid (NaN/inf) distances to avoid undefined colors
+        valid_mask = np.isfinite(d)
+        if not np.any(valid_mask):
+            raise ValueError("No valid (finite) distances to visualize")
+        pts = pts[valid_mask]
+        d = d[valid_mask]
+        
         if sample_size and len(pts) > sample_size:
             idx = np.random.choice(len(pts), sample_size, replace=False)
             pts = pts[idx]
             d = d[idx]
         vmax = float(np.nanmax(np.abs(d))) if np.isfinite(d).any() else 1.0
         if self.backend == 'plotly':
+            # Custom colorscale: Red (erosion) -> Very Pale Green (stable) -> Blue (deposition)
+            custom_scale = [
+                [0.0, 'red'],         # Original red (erosion/negative)
+                [0.5, '#D4EDDA'],     # Very pale green (stable/zero) - much more muted
+                [1.0, 'blue']         # Original blue (deposition/positive)
+            ]
             fig = go.Figure(data=go.Scatter3d(
                 x=pts[:, 0], y=pts[:, 1], z=pts[:, 2],
                 mode='markers',
-                marker=dict(size=2, color=d, colorscale='RdBu', cmin=-vmax, cmax=vmax, colorbar=dict(title='m'))
+                marker=dict(size=2, color=d, colorscale=custom_scale, cmin=-vmax, cmax=vmax, colorbar=dict(title='m'))
             ))
             fig.update_layout(
                 title=title,
