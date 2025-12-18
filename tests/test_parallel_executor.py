@@ -7,8 +7,6 @@ error handling, and performance characteristics.
 
 import numpy as np
 import pytest
-from pathlib import Path
-from unittest.mock import Mock, patch
 
 from terrain_change_detection.acceleration import (
     TileParallelExecutor,

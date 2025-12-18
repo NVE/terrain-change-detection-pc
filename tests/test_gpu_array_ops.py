@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 from terrain_change_detection.acceleration.gpu_array_ops import (
-    ArrayBackend,
     get_array_backend,
     reset_array_backend,
     ensure_cpu_array,

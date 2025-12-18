@@ -235,7 +235,7 @@ class TestPerformance:
         
         # Log performance info (informational only, no strict assertions)
         speedup = cpu_time / gpu_time if gpu_time > 0 else 0
-        print(f"\nC2C Performance (10K points):")
+        print("\nC2C Performance (10K points):")
         print(f"  CPU time: {cpu_time:.4f}s")
         print(f"  GPU time: {gpu_time:.4f}s")
         print(f"  Speedup: {speedup:.2f}x")

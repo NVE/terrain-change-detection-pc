@@ -16,7 +16,7 @@ from typing import Literal, Optional, Tuple
 import numpy as np
 from sklearn.neighbors import NearestNeighbors as SklearnNN
 
-from .gpu_array_ops import ArrayBackend, get_array_backend, ensure_cpu_array
+from .gpu_array_ops import ArrayBackend, get_array_backend
 from .hardware_detection import GPUInfo, get_gpu_info
 
 logger = logging.getLogger(__name__)

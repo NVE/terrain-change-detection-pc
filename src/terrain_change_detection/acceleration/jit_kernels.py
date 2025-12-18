@@ -7,7 +7,6 @@ acceleration path; the codebase falls back to NumPy when numba is unavailable.
 
 from __future__ import annotations
 
-from typing import Optional
 
 import numpy as np
 

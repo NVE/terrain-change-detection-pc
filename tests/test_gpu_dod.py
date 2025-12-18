@@ -173,8 +173,6 @@ class TestDoDTileWorkerGPU:
 
     def test_process_dod_tile_with_gpu(self):
         """Test that process_dod_tile accepts use_gpu parameter."""
-        from terrain_change_detection.acceleration import process_dod_tile, Tile
-        from pathlib import Path
 
         # This is a unit test for the API
         # Full integration test would require actual LAZ files

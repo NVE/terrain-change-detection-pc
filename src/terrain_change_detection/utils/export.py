@@ -9,7 +9,7 @@ These outputs are compatible with QGIS and similar GIS software.
 """
 
 from pathlib import Path
-from typing import Optional, Dict, Any, TYPE_CHECKING
+from typing import Optional, Dict, TYPE_CHECKING
 import numpy as np
 
 from .logging import setup_logger

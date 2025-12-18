@@ -291,7 +291,7 @@ def main():
     
     tile_size_m = tile_grid_nx * tile_spacing  # 1000m per tile
     
-    print(f"\nConfiguration:")
+    print("\nConfiguration:")
     print(f"  Grid: {tiles_x}x{tiles_y} tiles ({tiles_x * tiles_y} total)")
     print(f"  Tile size: {tile_size_m}m x {tile_size_m}m")
     print(f"  Grid resolution: {tile_grid_nx}x{tile_grid_ny} @ {tile_spacing}m spacing")
@@ -316,7 +316,7 @@ def main():
         print(f"  {i}. {ctype:10s} at ({cx:6.0f}, {cy:6.0f}), r={r:.0f}m, Δz={mag:.1f}m")
     
     # Generate tiles
-    print(f"\nGenerating tiles...")
+    print("\nGenerating tiles...")
     total_points_t1 = 0
     total_points_t2 = 0
     
@@ -365,16 +365,16 @@ def main():
     print("\n" + "=" * 70)
     print("Generation Complete!")
     print("=" * 70)
-    print(f"\nOutput directories:")
+    print("\nOutput directories:")
     print(f"  T1 (2015): {t1_dir}")
     print(f"  T2 (2020): {t2_dir}")
-    print(f"\nTotal points:")
+    print("\nTotal points:")
     print(f"  T1: {total_points_t1:,} points")
     print(f"  T2: {total_points_t2:,} points")
     print(f"  Combined: {total_points_t1 + total_points_t2:,} points")
     print(f"\nArea covered: {tiles_x * tile_size_m / 1000:.1f} km × {tiles_y * tile_size_m / 1000:.1f} km")
-    print(f"\nTo run workflow:")
-    print(f"  uv run scripts/run_workflow.py --config config/profiles/large_synthetic.yaml")
+    print("\nTo run workflow:")
+    print("  uv run scripts/run_workflow.py --config config/profiles/large_synthetic.yaml")
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass
-from typing import Optional, Tuple, Dict, List, TYPE_CHECKING
+from typing import Optional, Dict, TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
@@ -18,13 +18,10 @@ if TYPE_CHECKING:
 
 from ..utils.logging import setup_logger
 from ..acceleration import (
-    LaspyStreamReader,
     Bounds2D,
     union_bounds,
-    Tile,
     Tiler,
     create_gpu_neighbors,
-    get_array_backend,
     ensure_cpu_array,
 )
 from ..utils.config import AppConfig

@@ -16,7 +16,7 @@ This approach is standard in point cloud software like CloudCompare and PDAL.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Literal, TYPE_CHECKING
+from typing import Literal, TYPE_CHECKING
 
 import numpy as np
 

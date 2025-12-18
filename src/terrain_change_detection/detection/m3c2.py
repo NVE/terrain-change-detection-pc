@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Optional, Tuple, Dict, List, TYPE_CHECKING
+from typing import Optional, Dict, TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
@@ -23,13 +23,10 @@ from ..utils.logging import (
     capture_c_streams_to_logger,
 )
 from ..acceleration import (
-    LaspyStreamReader,
     Bounds2D,
     union_bounds,
-    Tile,
     Tiler,
 )
-from ..utils.config import AppConfig
 
 logger = setup_logger(__name__)
 

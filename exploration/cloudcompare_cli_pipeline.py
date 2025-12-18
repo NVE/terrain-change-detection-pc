@@ -186,7 +186,7 @@ def build_command_file(config: PipelineConfig) -> List[str]:
     commands: List[str] = []
     
     # Header comment (for debugging)
-    commands.append(f"# CloudCompare CLI Pipeline - Load -> ICP -> M3C2")
+    commands.append("# CloudCompare CLI Pipeline - Load -> ICP -> M3C2")
     commands.append(f"# Reference: {config.reference_path}")
     commands.append(f"# Moving: {config.moving_path}")
     commands.append(f"# Output: {config.output_path}")

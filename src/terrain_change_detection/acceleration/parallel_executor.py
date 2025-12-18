@@ -321,7 +321,6 @@ class TileParallelExecutor:
                     "process_c2c_tile": "C2C tiles",
                     "process_m3c2_tile": "M3C2 tiles",
                 }.get(raw_name, raw_name)
-                from contextlib import nullcontext
                 with Progress(
                     "{task.description}",
                     BarColumn(),

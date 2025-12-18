@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Optional, Tuple, Dict, Literal, List, TYPE_CHECKING
+from typing import Optional, Tuple, Dict, Literal, TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
@@ -314,7 +314,7 @@ class DoDDetector:
         Out-of-core tiled DoD by streaming LAS/LAZ files in spatial tiles.
         Out-of-core tiled DoD (mean). Tiles are grid-aligned; overlapping contributions are averaged.
         """
-        from ..acceleration.tiling import LaspyStreamReader, scan_las_bounds, bounds_intersect
+        from ..acceleration.tiling import LaspyStreamReader
 
         if not files_t1 or not files_t2:
             raise ValueError("compute_dod_streaming_files_tiled requires non-empty file lists")

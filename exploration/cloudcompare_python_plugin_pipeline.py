@@ -34,7 +34,6 @@ References
 
 from __future__ import annotations
 from pathlib import Path
-import math
 
 # ==============================================================================
 # IMPORT CLOUDCOMPARE MODULES
@@ -456,8 +455,8 @@ def run_pipeline():
     # Report available features
     log("Available features:")
     log(f"  - qM3C2 plugin: {'YES' if HAS_QM3C2 else 'NO'}")
-    log(f"  - CloudSamplingTools: YES")
-    log(f"  - ICPRegistrationTools: YES")
+    log("  - CloudSamplingTools: YES")
+    log("  - ICPRegistrationTools: YES")
     log("")
     
     # Clear database if requested

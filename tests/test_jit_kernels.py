@@ -6,7 +6,6 @@ fallback behavior when Numba is unavailable.
 """
 
 import numpy as np
-import pytest
 
 
 class TestApplyTransformJIT:
