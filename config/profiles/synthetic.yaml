@@ -140,7 +140,7 @@ gpu:
   use_for_c2c: true
   # Use GPU for data preprocessing (transformations, filtering)
   use_for_preprocessing: true
-  # Use GPU for ICP spatial alignment (experimental; not recommended - see GPU_SETUP_GUIDE.md)
+  # Use GPU for ICP spatial alignment (experimental)
   use_for_alignment: false
   # GPU batch size for operations; null = auto-calculate based on memory
   batch_size: null
