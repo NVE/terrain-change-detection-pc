@@ -39,26 +39,17 @@ terrain-change-detection-pc/
 
 Requires Python 3.13+. We recommend using `uv` for fast dependency management.
 
-Requires Python 3.13+. We recommend using `uv` for fast dependency management.
-
 ```bash
 # Clone the repository
 git clone https://github.com/yaredwb/terrain-change-detection-pc.git
 cd terrain-change-detection-pc
 
 # Install dependencies
-# Install dependencies
 uv sync
 ```
 
 ### Running the Workflow
-### Running the Workflow
 
-1.  **Generate Test Data** (Optional)
-    To verify installation, generate a synthetic dataset with known changes:
-    ```bash
-    uv run scripts/generate_synthetic_laz.py
-    ```
 1.  **Generate Test Data** (Optional)
     To verify installation, generate a synthetic dataset with known changes:
     ```bash
@@ -90,63 +81,18 @@ uv run scripts/run_workflow.py --config config/profiles/drone.yaml
 ```
 
 ### Data Organization
-2.  **Run Processing**
-    Execute the full pipeline (Discovery → Alignment → Detection → Visualization):
-    ```bash
-    uv run scripts/run_workflow.py --config config/profiles/synthetic.yaml
-    ```
 
-## Usage
-
-### Configuration Profiles
-
-The toolkit uses YAML configuration files in the `config/` directory.
-
-| Profile | Description |
-| :--- | :--- |
-| **`default.yaml`** | Standard profile for in-memory processing of small-to-medium areas. |
-| **`profiles/drone.yaml`** | Optimized for high-density drone LiDAR data. |
-| **`profiles/large_scale.yaml`** | Enables tiling and streaming for massive datasets. |
-| **`default_clipped.yaml`** | Example of polygon clipping to restrict analysis to a specific area. |
-
-Run with a specific profile:
-```bash
-uv run scripts/run_workflow.py --config config/profiles/drone.yaml
-```
-
-### Data Organization
-
-The toolkit expects data organized by "Area" and "Time Period".
-
-**Standard Structure (hoydedata.no):**
 The toolkit expects data organized by "Area" and "Time Period".
 
 **Standard Structure (hoydedata.no):**
 ```
 data/raw/
-└── my_area_name/
-    ├── 2015/
 └── my_area_name/
     ├── 2015/
     │   └── data/
     │       └── file1.laz
     └── 2020/
-    │       └── file1.laz
-    └── 2020/
         └── data/
-            └── file2.laz
-```
-
-**Drone Structure:**
-Set `discovery.source_type: drone` in config.
-```
-data/raw/
-└── my_drone_site/
-    ├── 2023-05-01/
-    │   └── flight_line.laz
-    └── 2023-09-15/
-        └── flight_line.laz
-```
             └── file2.laz
 ```
 
@@ -167,14 +113,6 @@ data/raw/
 *   [**Known Issues**](docs/KNOWN_ISSUES.md): Current limitations and workarounds.
 *   [**Changelog**](docs/CHANGELOG.md): History of changes and updates.
 
-
-*   [**Configuration Guide**](docs/CONFIGURATION_GUIDE.md): Detailed reference for all YAML parameters.
-*   [**Known Issues**](docs/KNOWN_ISSUES.md): Current limitations and workarounds.
-*   [**Changelog**](docs/CHANGELOG.md): History of changes and updates.
-
-
-
 ## License
 
-[Add License Information Here]
 [Add License Information Here]
