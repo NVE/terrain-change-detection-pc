@@ -41,7 +41,7 @@ Requires Python 3.13+. We recommend using `uv` for fast dependency management.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yaredwb/terrain-change-detection-pc.git
+git clone https://github.com/NVE/terrain-change-detection-pc.git
 cd terrain-change-detection-pc
 
 # Install dependencies
