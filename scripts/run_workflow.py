@@ -4,34 +4,44 @@ Example script for complete terrain change detection workflow
 This script demonstrates the full workflow from data discovery to change detection.
 """
 
-import sys
 import argparse
 import logging
 import os
+import sys
 import time
-import numpy as np
 from pathlib import Path
+
+import numpy as np
 
 # Add the src to the path to import modules
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 
-from terrain_change_detection.preprocessing.loader import PointCloudLoader
-from terrain_change_detection.preprocessing.data_discovery import DataDiscovery, BatchLoader
-from terrain_change_detection.preprocessing.clipping import AreaClipper, check_shapely_available
-from terrain_change_detection.alignment.fine_registration import ICPRegistration
+from terrain_change_detection.acceleration import LaspyStreamReader
+from terrain_change_detection.alignment import (
+    apply_transform_to_files,
+    save_transform_matrix,
+)
 from terrain_change_detection.alignment.coarse_registration import CoarseRegistration
-from terrain_change_detection.alignment import apply_transform_to_files, save_transform_matrix
-from terrain_change_detection.utils.logging import setup_logger
+from terrain_change_detection.alignment.fine_registration import ICPRegistration
 from terrain_change_detection.detection import (
     ChangeDetector,
+    M3C2Params,
     autotune_m3c2_params,
     autotune_m3c2_params_from_headers,
-    M3C2Params,
 )
-from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
-from terrain_change_detection.utils.config import load_config, AppConfig
+from terrain_change_detection.preprocessing.clipping import (
+    AreaClipper,
+    check_shapely_available,
+)
+from terrain_change_detection.preprocessing.data_discovery import (
+    BatchLoader,
+    DataDiscovery,
+)
+from terrain_change_detection.preprocessing.loader import PointCloudLoader
+from terrain_change_detection.utils.config import AppConfig, load_config
 from terrain_change_detection.utils.coordinate_transform import LocalCoordinateTransform
-from terrain_change_detection.acceleration import LaspyStreamReader
+from terrain_change_detection.utils.logging import setup_logger
+from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
 
 # Hardware optimizations
 # TO DO: Implement hardware optimizations for large datasets
@@ -96,7 +106,24 @@ def main():
         action="store_true",
         help="Run both streaming and in-memory M3C2 on the same core points and print sign/correlation diagnostics.",
     )
+
+    parser.add_argument(
+        "--area-name",
+        type=str,
+        default=None,
+        help="Specify the area name to process.",
+    )
+
+    parser.add_argument(
+        "--show-plots",
+        type=bool,
+        default=False,
+        help="If True, show plots interactively instead of saving to files.",
+    )
+
     args, unknown = parser.parse_known_args()
+
+    show_plots: bool = args.show_plots
 
     # Load configuration
     cfg: AppConfig = load_config(args.config)
@@ -133,8 +160,9 @@ def main():
     
     # Log GPU configuration status and check for GPU libraries
     try:
-        from terrain_change_detection.acceleration.hardware_detection import detect_gpu
         import platform
+
+        from terrain_change_detection.acceleration.hardware_detection import detect_gpu
         
         if getattr(cfg.gpu, 'enabled', False):
             # Check if GPU libraries are available
@@ -246,12 +274,21 @@ def main():
             logger.error("If your data has a 'data' subdirectory, set source_type: hoydedata in config")
         return
 
-    # Find the first area with at least two time periods
-    selected_area = None
-    for area_name, area_info in areas.items():
-        if len(area_info.time_periods) >= 2:
-            selected_area = area_info
-            break
+    if args.area_name:
+        # Select specified area if it exists
+        if args.area_name in areas:
+            selected_area = areas[args.area_name]
+        else:
+            logger.error(f"Specified area '{args.area_name}' not found in base directory.")
+            logger.error(f"Available areas: {list(areas.keys())}")
+            return
+    else:
+        # Find the first area with at least two time periods
+        selected_area = None
+        for area_name, area_info in areas.items():
+            if len(area_info.time_periods) >= 2:
+                selected_area = area_info
+                break
 
     if not selected_area:
         # Provide detailed feedback about what was found
@@ -470,16 +507,17 @@ def main():
         VIS_BACKEND = cfg.visualization.backend
         visualizer = PointCloudVisualizer(backend=VIS_BACKEND)
 
-        # Visualize the original point clouds
-        # Revert to global coordinates for visualization (users expect UTM coordinates)
-        logger.info("--- Visualizing original point clouds ---")
-        vis_points1 = local_transform.to_global(points1) if local_transform else points1
-        vis_points2 = local_transform.to_global(points2) if local_transform else points2
-        visualizer.visualize_clouds(
-            point_clouds=[vis_points1, vis_points2],
-            names=[f"PC from {t1}", f"PC from {t2}"],
-            sample_size=cfg.visualization.sample_size  # Downsample for visualization
-        )
+        if show_plots:
+            # Visualize the original point clouds
+            # Revert to global coordinates for visualization (users expect UTM coordinates)
+            logger.info("--- Visualizing original point clouds ---")
+            vis_points1 = local_transform.to_global(points1) if local_transform else points1
+            vis_points2 = local_transform.to_global(points2) if local_transform else points2
+            visualizer.visualize_clouds(
+                point_clouds=[vis_points1, vis_points2],
+                names=[f"PC from {t1}", f"PC from {t2}"],
+                sample_size=cfg.visualization.sample_size  # Downsample for visualization
+            )
 
         # ============================================================
         # Step 2: Spatial Alignment
@@ -670,16 +708,17 @@ def main():
             step2_end = time.time()
             logger.info("Spatial alignment completed in %.2f seconds", step2_end - step2_start)
 
-            # Visualize the aligned point clouds
-            # Revert to global coordinates for visualization (users expect UTM coordinates)
-            logger.info("--- Visualizing aligned point clouds ---")
-            vis_points1_aligned = local_transform.to_global(points1) if local_transform else points1
-            vis_points2_aligned = local_transform.to_global(points2_full_aligned) if local_transform else points2_full_aligned
-            visualizer.visualize_clouds(
-                point_clouds=[vis_points1_aligned, vis_points2_aligned],
-                names=[f"PC from {t1} (Target)", f"PC from {t2} (Aligned)"],
-                sample_size=cfg.visualization.sample_size  # Downsample for visualization
-            )
+            if show_plots:
+                # Visualize the aligned point clouds
+                # Revert to global coordinates for visualization (users expect UTM coordinates)
+                logger.info("--- Visualizing aligned point clouds ---")
+                vis_points1_aligned = local_transform.to_global(points1) if local_transform else points1
+                vis_points2_aligned = local_transform.to_global(points2_full_aligned) if local_transform else points2_full_aligned
+                visualizer.visualize_clouds(
+                    point_clouds=[vis_points1_aligned, vis_points2_aligned],
+                    names=[f"PC from {t1} (Target)", f"PC from {t2} (Aligned)"],
+                    sample_size=cfg.visualization.sample_size  # Downsample for visualization
+                )
         else:
             # Alignment disabled - skip ICP and use original point clouds
             logger.info("=== STEP 2: Spatial Alignment (SKIPPED) ===")
@@ -773,17 +812,21 @@ def main():
                         aggregator=cfg.detection.dod.aggregator,
                         config=cfg,
                     )
-                # Visualize DoD
-                # Revert grid coordinates to global for visualization (users expect UTM coordinates)
-                if local_transform is not None:
-                    dod_res.grid_x = dod_res.grid_x + local_transform.offset_x
-                    dod_res.grid_y = dod_res.grid_y + local_transform.offset_y
-                visualizer.visualize_dod_heatmap(dod_res, title="DEM of Difference (m)")
-                
+                if show_plots:
+                    # Visualize DoD
+                    # Revert grid coordinates to global for visualization (users expect UTM coordinates)
+                    if local_transform is not None:
+                        dod_res.grid_x = dod_res.grid_x + local_transform.offset_x
+                        dod_res.grid_y = dod_res.grid_y + local_transform.offset_y
+                    visualizer.visualize_dod_heatmap(dod_res, title="DEM of Difference (m)")
+                    
                 # Export DoD to GeoTIFF if enabled
                 if getattr(cfg.detection.dod, 'export_raster', False):
                     try:
-                        from terrain_change_detection.utils.export import export_dod_to_geotiff, detect_crs_from_laz
+                        from terrain_change_detection.utils.export import (
+                            detect_crs_from_laz,
+                            export_dod_to_geotiff,
+                        )
                         
                         # Determine output directory (flat structure, area name in filename)
                         if cfg.paths.output_dir:
@@ -863,10 +906,11 @@ def main():
                         )
                     # 3D scatter not supported in streaming; fallback to histogram if plotly
                     try:
-                        if cfg.visualization.backend == 'plotly':
-                            visualizer.visualize_distance_histogram(
-                                c2c_res.distances, title="C2C distances (m)", bins=60
-                            )
+                        if show_plots:
+                            if cfg.visualization.backend == 'plotly':
+                                visualizer.visualize_distance_histogram(
+                                    c2c_res.distances, title="C2C distances (m)", bins=60
+                                )
                     except Exception:
                         pass
                 else:
@@ -894,16 +938,18 @@ def main():
                         )
                     else:
                         c2c_res = ChangeDetector.compute_c2c(src, tgt, max_distance=cfg.detection.c2c.max_distance, config=cfg)  # Pass config for GPU acceleration
-                    # Visualize 3D per-point distances on the source cloud (like M3C2)
-                    try:
-                        visualizer.visualize_c2c_points(
-                            src,
-                            c2c_res.distances,
-                            sample_size=cfg.visualization.sample_size,
-                            title="C2C distances (m)",
-                        )
-                    except Exception:
-                        pass
+                    
+                    if show_plots:
+                        # Visualize 3D per-point distances on the source cloud (like M3C2)
+                        try:
+                            visualizer.visualize_c2c_points(
+                                src,
+                                c2c_res.distances,
+                                sample_size=cfg.visualization.sample_size,
+                                title="C2C distances (m)",
+                            )
+                        except Exception:
+                            pass
                     
                     # Export C2C results if enabled
                     export_c2c_pc = getattr(cfg.detection.c2c, 'export_pc', False)
@@ -911,9 +957,9 @@ def main():
                     if export_c2c_pc or export_c2c_raster:
                         try:
                             from terrain_change_detection.utils.export import (
-                                export_points_to_laz,
-                                export_distances_to_geotiff,
                                 detect_crs_from_laz,
+                                export_distances_to_geotiff,
+                                export_points_to_laz,
                             )
                             
                             # Determine output directory (flat structure, area name in filename)
@@ -1282,18 +1328,20 @@ def main():
                         cloud_t2=points2_full_aligned,
                         params=m3c2_params,
                     )
-                # Visualize M3C2 distance histogram first
-                visualizer.visualize_distance_histogram(m3c2_res.distances, title="M3C2 distances (m)", bins=60)
                 
-                # Visualize M3C2 core points in 3D
-                # Revert to global coordinates for visualization (users expect UTM coordinates)
-                vis_core_points = local_transform.to_global(m3c2_res.core_points) if local_transform else m3c2_res.core_points
-                visualizer.visualize_m3c2_corepoints(
-                    vis_core_points,
-                    m3c2_res.distances,
-                    sample_size=cfg.visualization.sample_size,
-                    title="M3C2 distances (m)",
-                )
+                if show_plots:
+                    # Visualize M3C2 distance histogram first
+                    visualizer.visualize_distance_histogram(m3c2_res.distances, title="M3C2 distances (m)", bins=60)
+                    
+                    # Visualize M3C2 core points in 3D
+                    # Revert to global coordinates for visualization (users expect UTM coordinates)
+                    vis_core_points = local_transform.to_global(m3c2_res.core_points) if local_transform else m3c2_res.core_points
+                    visualizer.visualize_m3c2_corepoints(
+                        vis_core_points,
+                        m3c2_res.distances,
+                        sample_size=cfg.visualization.sample_size,
+                        title="M3C2 distances (m)",
+                    )
                 
                 # Export M3C2 results if enabled
                 export_m3c2_pc = getattr(cfg.detection.m3c2, 'export_pc', True)
@@ -1301,9 +1349,9 @@ def main():
                 if export_m3c2_pc or export_m3c2_raster:
                     try:
                         from terrain_change_detection.utils.export import (
-                            export_points_to_laz,
-                            export_distances_to_geotiff,
                             detect_crs_from_laz,
+                            export_distances_to_geotiff,
+                            export_points_to_laz,
                         )
                         
                         # Determine output directory (flat structure, area name in filename)
