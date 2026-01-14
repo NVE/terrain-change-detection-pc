@@ -1,3 +1,5 @@
+# Folders that start with .
+.*/
 # Python-generated files
 __pycache__/
 *.py[oc]
