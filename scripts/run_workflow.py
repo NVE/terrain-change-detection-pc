@@ -1393,7 +1393,7 @@ def main():
                         if cfg.paths.output_dir:
                             export_dir = Path(cfg.paths.output_dir)
                         else:
-                            export_dir = Path(cfg.paths.base_dir) / "output"
+                            export_dir = Path(cfg.paths.base_dir) / "output" / selected_area.area_name
                         export_dir.mkdir(parents=True, exist_ok=True)
                         
                         # Try to auto-detect CRS from input files
