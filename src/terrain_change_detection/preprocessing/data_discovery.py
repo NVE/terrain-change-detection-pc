@@ -20,10 +20,12 @@ data/raw/
 │       └── metadata/
 """
 
-import numpy as np
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+
+import numpy as np
+
 from ..utils.logging import setup_logger
 from .loader import PointCloudLoader
 
@@ -96,7 +98,7 @@ class DataDiscovery:
         self.loader = loader if loader is not None else PointCloudLoader()
 
 
-    def scan_areas(self) -> Dict[str, AreaInfo]:
+    def scan_areas(self, user_area_name: Optional[str] = None) -> Dict[str, AreaInfo]:
         """
         Scan the base directory for area subdirectories and their datasets.
         
@@ -137,6 +139,8 @@ class DataDiscovery:
         
         for area_path in subdirs:
             area_name = area_path.name
+            if user_area_name is not None and area_name != user_area_name:
+                continue
             logger.info(f"Found area directory: {area_name}")
             logger.info(f"Scanning area: {area_name}")
 
