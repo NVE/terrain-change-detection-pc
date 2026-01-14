@@ -121,9 +121,16 @@ def main():
         help="If True, show plots interactively instead of saving to files.",
     )
 
-    args, unknown = parser.parse_known_args()
+    parser.add_argument(
+        "--years",
+        type=int,
+        nargs='+',  # Acepta uno o más valores
+        default=None,
+        help="List of years to select for processing (e.g., --years 2020 2021).",
+    )
 
-    show_plots: bool = args.show_plots
+    args, unknown = parser.parse_known_args()
+    
 
     # Load configuration
     cfg: AppConfig = load_config(args.config)
@@ -133,6 +140,11 @@ def main():
     # Setup logging from config
     log_level = getattr(logging, cfg.logging.level.upper(), logging.INFO)
     logger = setup_logger(__name__, level=log_level, log_file=cfg.logging.file)
+
+    show_plots: bool = args.show_plots
+    selected_years: list[int] | None = args.years
+
+    logger.info(f"selected_years: {selected_years}")
 
     # Optional deterministic seed for NumPy RNG (affects subsampling/core selection)
     try:
@@ -261,7 +273,7 @@ def main():
         metadata_dir_name=cfg.discovery.metadata_dir_name,
         loader=loader,
     )
-    areas = data_discovery.scan_areas()
+    areas = data_discovery.scan_areas(user_area_name=args.area_name)
 
     if not areas:
         logger.error("No area directories found in the base directory.")
@@ -300,8 +312,31 @@ def main():
         logger.error("Please organize your data with multiple time periods per area or add more data.")
         return
 
+    
+    # If selected_years is provided, filter time periods accordingly
+    if selected_years is not None and len(selected_years) > 1:
+        if len(selected_years) > 2:
+            logger.warning("More than two selected years provided; only the first two will be used.")
+
+        filtered_time_periods = [
+            tp for tp in selected_area.time_periods
+            if any(str(year) in tp for year in selected_years)
+        ]
+        
+        if len(filtered_time_periods) < 2:
+            logger.error(f"After filtering, less than two time periods remain for area '{selected_area.area_name}'.")
+            logger.error(f"Filtered time periods: {filtered_time_periods}")
+            return
+
+        logger.info(f"Filtered time periods for area '{selected_area.area_name}': {filtered_time_periods}")
+
+        t1, t2 = filtered_time_periods[:2]
+
+    else:
     # Select the first two time periods
-    t1, t2 = selected_area.time_periods[:2]
+        t1, t2 = selected_area.time_periods[:2]
+        logger.info(f"Selected time periods for area '{selected_area.area_name}': {t1}, {t2}")
+
     ds1 = selected_area.datasets[t1]
     ds2 = selected_area.datasets[t2]
 
