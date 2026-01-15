@@ -3,13 +3,13 @@ Example script for complete terrain change detection workflow
 
 This script demonstrates the full workflow from data discovery to change detection.
 """
-
 import argparse
 import logging
 import os
 import sys
 import time
 from pathlib import Path
+from time import perf_counter
 
 import numpy as np
 
@@ -59,10 +59,38 @@ from terrain_change_detection.visualization.point_cloud import PointCloudVisuali
 # - detection.c2c.max_points: maximum points per cloud for C2C distances
 # - visualization.sample_size: sample size for visualization
 
+logging.getLogger("terrain_change_detection.preprocessing.data_discovery").setLevel(logging.ERROR)
+logging.getLogger("terrain_change_detection.preprocessing.loader").setLevel(logging.ERROR)
+
+def write_run_inputs(base_dir: Path, args: argparse.Namespace, cfg: AppConfig):
+    """
+    Write the run inputs (CLI args and config) to a text file for record-keeping.
+    """
+    from datetime import datetime
+
+    import yaml
+    filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+
+    output_path = base_dir / "logs" / filename
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, 'w') as f:
+        f.write("=== Command Line Arguments ===\n")
+        for arg, value in vars(args).items():
+            f.write(f"{arg}: {value}\n")
+        
+        f.write("\n=== Configuration ===\n")
+        
+        cfg_yaml = yaml.dump(cfg.model_dump(), sort_keys=False)
+        f.write(cfg_yaml)
+
+
+
 def main():
     """
     Main function to run the terrain change detection workflow.
     """
+    runtime_start = perf_counter()
+
     # CLI: allow overriding the data root and config path
     parser = argparse.ArgumentParser(description="Terrain Change Detection Workflow")
     parser.add_argument(
@@ -556,17 +584,54 @@ def main():
         VIS_BACKEND = cfg.visualization.backend
         visualizer = PointCloudVisualizer(backend=VIS_BACKEND)
 
+        vis_points1 = local_transform.to_global(points1) if local_transform else points1
+        vis_points2 = local_transform.to_global(points2) if local_transform else points2
         if show_plots:
             # Visualize the original point clouds
             # Revert to global coordinates for visualization (users expect UTM coordinates)
             logger.info("--- Visualizing original point clouds ---")
-            vis_points1 = local_transform.to_global(points1) if local_transform else points1
-            vis_points2 = local_transform.to_global(points2) if local_transform else points2
             visualizer.visualize_clouds(
                 point_clouds=[vis_points1, vis_points2],
                 names=[f"PC from {t1}", f"PC from {t2}"],
                 sample_size=cfg.visualization.sample_size  # Downsample for visualization
             )
+
+        if export_dem_rasters:
+            #TODO: Export DEM rasters before alignment
+            logger.info("--- Exporting DEM rasters before alignment ---")
+            try:
+                
+                
+                for yy_i, pc_i in zip([t1, t2], [vis_points1, vis_points2]):
+                    
+                    crs = cfg.paths.output_crs
+                    try:
+                        detected_crs = detect_crs_from_laz(str(ds1.laz_files[0]))
+                        if detected_crs:
+                            crs = detected_crs
+                    except Exception:
+                        pass
+
+                    if cfg.paths.output_dir:
+                        export_dir = Path(cfg.paths.output_dir)
+                    else:
+                        export_dir = Path(cfg.paths.base_dir) / "output" / selected_area.area_name
+
+                    dem_tif = export_dir / f"dem_{yy_i}_raw.tif"
+
+                    try:
+                        export_distances_to_geotiff(
+                            pc_i[:, :2], pc_i[:, 2], str(dem_tif),
+                            cell_size=cfg.detection.dod.cell_size, crs=crs,
+                            local_transform=None
+                        )
+                        logger.info(f"Exported Dem raster: {dem_tif}")
+                    except Exception as export_e:
+                        logger.error(f"Failed to export raw DEM raster for point cloud {yy_i}: {export_e}")
+                        continue
+            except Exception as e:
+                logger.error(f"Failed to export DEM rasters before alignment: {e}")
+
 
         # ============================================================
         # Step 2: Spatial Alignment
@@ -791,7 +856,6 @@ def main():
                             export_dir = Path(cfg.paths.base_dir) / "output" / selected_area.area_name
 
                         dem_tif = export_dir / f"dem_{yy_i}_icp.tif"
-                        logger.info(f"Max value in point cloud: {np.max(pc_i)}. Min value: {np.min(pc_i)}")
                         try:
                             export_distances_to_geotiff(
                                 pc_i[:, :2], pc_i[:, 2], str(dem_tif),
@@ -1474,6 +1538,17 @@ def main():
                 logger.error(f"M3C2 computation failed: {e}")
         else:
             logger.info("Skipping M3C2 (disabled in config).")
+
+        if cfg.paths.output_dir:
+            export_dir = Path(cfg.paths.output_dir)
+        else:
+            export_dir = Path(cfg.paths.base_dir) / "output" / selected_area.area_name
+
+        write_run_inputs(export_dir, args, cfg)
+
+        runtime_end = perf_counter()
+        runtime_elapsed = runtime_end - runtime_start
+        logger.info(f"Total workflow runtime: {runtime_elapsed:.2f} seconds")
 
         # 3d) M3C2 with Error Propagation (EP)
         # try:
