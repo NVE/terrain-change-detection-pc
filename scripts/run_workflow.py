@@ -40,6 +40,12 @@ from terrain_change_detection.preprocessing.data_discovery import (
 from terrain_change_detection.preprocessing.loader import PointCloudLoader
 from terrain_change_detection.utils.config import AppConfig, load_config
 from terrain_change_detection.utils.coordinate_transform import LocalCoordinateTransform
+from terrain_change_detection.utils.export import (
+    detect_crs_from_laz,
+    export_distances_to_geotiff,
+    export_dod_to_geotiff,
+    export_points_to_laz,
+)
 from terrain_change_detection.utils.logging import setup_logger
 from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
 
@@ -129,6 +135,13 @@ def main():
         help="List of years to select for processing (e.g., --years 2020 2021).",
     )
 
+    parser.add_argument(
+        "--save-dems",
+        type=bool,
+        default=False,
+        help="If True, generate DEMs after ICP and saves them to disk.",
+    )
+
     args, unknown = parser.parse_known_args()
     
 
@@ -143,6 +156,7 @@ def main():
 
     show_plots: bool = args.show_plots
     selected_years: list[int] | None = args.years
+    export_dem_rasters: bool = args.save_dems
 
     logger.info(f"selected_years: {selected_years}")
 
@@ -743,17 +757,55 @@ def main():
             step2_end = time.time()
             logger.info("Spatial alignment completed in %.2f seconds", step2_end - step2_start)
 
+            # Revert to global coordinates for visualization (users expect UTM coordinates)
+            vis_points1_aligned = local_transform.to_global(points1) if local_transform else points1
+            vis_points2_aligned = local_transform.to_global(points2_full_aligned) if local_transform else points2_full_aligned
             if show_plots:
                 # Visualize the aligned point clouds
-                # Revert to global coordinates for visualization (users expect UTM coordinates)
                 logger.info("--- Visualizing aligned point clouds ---")
-                vis_points1_aligned = local_transform.to_global(points1) if local_transform else points1
-                vis_points2_aligned = local_transform.to_global(points2_full_aligned) if local_transform else points2_full_aligned
                 visualizer.visualize_clouds(
                     point_clouds=[vis_points1_aligned, vis_points2_aligned],
                     names=[f"PC from {t1} (Target)", f"PC from {t2} (Aligned)"],
                     sample_size=cfg.visualization.sample_size  # Downsample for visualization
                 )
+            
+            if export_dem_rasters:
+                #TODO: Export DEM rasters after alignment
+                logger.info("--- Exporting DEM rasters after alignment ---")
+                try:
+                    
+                    
+                    for yy_i, pc_i in zip([t1, t2], [vis_points1_aligned, vis_points2_aligned]):
+                        
+                        crs = cfg.paths.output_crs
+                        try:
+                            detected_crs = detect_crs_from_laz(str(ds1.laz_files[0]))
+                            if detected_crs:
+                                crs = detected_crs
+                        except Exception:
+                            pass
+
+                        if cfg.paths.output_dir:
+                            export_dir = Path(cfg.paths.output_dir)
+                        else:
+                            export_dir = Path(cfg.paths.base_dir) / "output" / selected_area.area_name
+
+                        dem_tif = export_dir / f"dem_{yy_i}_icp.tif"
+                        logger.info(f"Max value in point cloud: {np.max(pc_i)}. Min value: {np.min(pc_i)}")
+                        try:
+                            export_distances_to_geotiff(
+                                pc_i[:, :2], pc_i[:, 2], str(dem_tif),
+                                cell_size=cfg.detection.dod.cell_size, crs=crs,
+                                local_transform=None
+                            )
+                            logger.info(f"Exported Dem raster: {dem_tif}")
+                        except Exception as export_e:
+                            logger.error(f"Failed to export DEM raster for {yy_i}: {export_e}")
+                            continue
+                except Exception as e:
+                    logger.error(f"Failed to export DEM rasters after alignment: {e}")
+
+
         else:
             # Alignment disabled - skip ICP and use original point clouds
             logger.info("=== STEP 2: Spatial Alignment (SKIPPED) ===")
@@ -858,10 +910,6 @@ def main():
                 # Export DoD to GeoTIFF if enabled
                 if getattr(cfg.detection.dod, 'export_raster', False):
                     try:
-                        from terrain_change_detection.utils.export import (
-                            detect_crs_from_laz,
-                            export_dod_to_geotiff,
-                        )
                         
                         # Determine output directory (flat structure, area name in filename)
                         if cfg.paths.output_dir:
@@ -991,11 +1039,6 @@ def main():
                     export_c2c_raster = getattr(cfg.detection.c2c, 'export_raster', False)
                     if export_c2c_pc or export_c2c_raster:
                         try:
-                            from terrain_change_detection.utils.export import (
-                                detect_crs_from_laz,
-                                export_distances_to_geotiff,
-                                export_points_to_laz,
-                            )
                             
                             # Determine output directory (flat structure, area name in filename)
                             if cfg.paths.output_dir:
@@ -1383,11 +1426,6 @@ def main():
                 export_m3c2_raster = getattr(cfg.detection.m3c2, 'export_raster', True)
                 if export_m3c2_pc or export_m3c2_raster:
                     try:
-                        from terrain_change_detection.utils.export import (
-                            detect_crs_from_laz,
-                            export_distances_to_geotiff,
-                            export_points_to_laz,
-                        )
                         
                         # Determine output directory (flat structure, area name in filename)
                         if cfg.paths.output_dir:
