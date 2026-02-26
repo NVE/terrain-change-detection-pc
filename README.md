@@ -48,6 +48,19 @@ cd terrain-change-detection-pc
 uv sync
 ```
 
+For managed devices (without admin rights) using conda/Anaconda, do the following:
+```bash
+# Clone the repository
+git clone https://github.com/NVE/terrain-change-detection-pc.git
+cd terrain-change-detection-pc
+conda create --name myenv python=3.13
+conda activate myenv
+pip install uv
+uv pip install -r pyproject.toml
+# Further installs with uv pip install <package_name> as needed
+```
+
+
 ### Running the Workflow
 
 1.  **Generate Test Data** (Optional)
@@ -55,11 +68,21 @@ uv sync
     ```bash
     uv run scripts/generate_synthetic_laz.py
     ```
+    or
+    ```bash
+    # conda activate myenv
+    python scripts/generate_synthetic_laz.py
+    ```
 
 2.  **Run Processing**
     Execute the full pipeline (Discovery → Alignment → Detection → Visualization):
     ```bash
     uv run scripts/run_workflow.py --config config/profiles/synthetic.yaml
+    ```
+    or
+    ```bash
+    # conda activate myenv
+    python scripts/run_workflow.py --config config/profiles/synthetic.yaml
     ```
 
 ## Usage
@@ -79,6 +102,23 @@ Run with a specific profile:
 ```bash
 uv run scripts/run_workflow.py --config config/profiles/drone.yaml
 ```
+or
+```bash
+# conda activate myenv
+python scripts/run_workflow.py --config config/profiles/drone.yaml
+```
+
+Run a specific area and time period:
+```bash
+uv run scripts/run_workflow.py --config config/profiles/proaktiv_drone_no-icp.yaml --area-name Ristvassdrag --years 2017 2025
+```
+or
+
+```bash
+# conda activate myenv
+python scripts/run_workflow.py --config config/profiles/proaktiv_drone_no-icp.yaml --area-name Ristvassdrag --years 2017 2025
+```
+
 
 ### Data Organization
 
