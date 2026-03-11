@@ -79,3 +79,6 @@ Thumbs.db
 
 # Experiments
 experiments/
+
+# Verification runs (temporary test outputs)
+verification_runs/
