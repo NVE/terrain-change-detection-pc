@@ -39,6 +39,7 @@ alignment:
   tolerance: 1.0e-6
   max_correspondence_distance: 2.0  # Slightly larger for drone data
   subsample_size: 50000
+  random_seed: 42
   convergence_translation_epsilon: 1.0e-4
   convergence_rotation_epsilon_deg: 0.1
   # Export aligned T2 point cloud as LAZ file

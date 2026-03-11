@@ -62,6 +62,7 @@ alignment:
   max_correspondence_distance: 2.0
   # Larger subsample for better alignment with big datasets
   subsample_size: 100000
+  random_seed: 42
   # Export aligned T2 point cloud as LAZ file
   export_aligned_pc: false
   coarse:

@@ -49,6 +49,7 @@ alignment:
   max_correspondence_distance: 1.0
   # Number of points sampled per epoch for alignment
   subsample_size: 50000
+  random_seed: 42
   # Convergence criteria for motion-based stopping
   convergence_translation_epsilon: 1.0e-4
   convergence_rotation_epsilon_deg: 0.1

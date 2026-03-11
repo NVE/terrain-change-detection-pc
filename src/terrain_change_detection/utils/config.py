@@ -119,6 +119,18 @@ class AlignmentICPConfig(BaseModel):
     tolerance: float = Field(default=1e-6)
     max_correspondence_distance: float = Field(default=1.0)
     subsample_size: int = Field(default=50000)
+    subsample_mode: Literal["count", "percent"] = Field(
+        default="count",
+        description="How subsample size is specified: 'count' uses subsample_size, 'percent' uses subsample_percent",
+    )
+    subsample_percent: float = Field(
+        default=10.0,
+        description="Percentage of points to subsample when subsample_mode is 'percent'",
+    )
+    max_subsample_size: int = Field(
+        default=500_000,
+        description="Safety cap: maximum number of subsampled points regardless of mode",
+    )
     convergence_translation_epsilon: float = Field(
         default=1e-4,
         description="Minimum translation step (meters) to continue ICP iterations",
@@ -127,11 +139,31 @@ class AlignmentICPConfig(BaseModel):
         default=0.1,
         description="Minimum rotation step (degrees) to continue ICP iterations",
     )
+    random_seed: int = Field(
+        default=42,
+        description="Random seed for reproducible subsampling. Use different values for independent runs.",
+    )
+    overlap_filter: bool = Field(
+        default=True,
+        description="Filter points to bounding-box overlap region before subsampling for ICP",
+    )
+    overlap_margin_m: float = Field(
+        default=5.0,
+        description="Margin in meters to expand overlap bounding box (accounts for alignment shifts)",
+    )
+    reference: Literal["t1", "t2"] = Field(
+        default="t1",
+        description="Which time period to use as the ICP reference. 't1' = earlier epoch, 't2' = later epoch.",
+    )
+    icp_backend: Literal["custom", "open3d"] = Field(
+        default="custom",
+        description="ICP implementation: 'custom' (built-in SVD-based) or 'open3d' (Open3D library)",
+    )
     coarse: CoarseRegistrationConfig = Field(default_factory=CoarseRegistrationConfig)
     multiscale: AlignmentMultiscaleConfig = Field(default_factory=AlignmentMultiscaleConfig)
     export_aligned_pc: bool = Field(
         default=False,
-        description="Export aligned T2 point cloud as LAZ file"
+        description="Export aligned point cloud as LAZ file"
     )
 
 

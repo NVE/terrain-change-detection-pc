@@ -82,7 +82,7 @@ def _extract_epsg_from_wkt(wkt: str) -> Optional[str]:
 
 def export_points_to_laz(
     points: np.ndarray,
-    distances: np.ndarray,
+    distances: Optional[np.ndarray],
     output_path: str,
     *,
     crs: Optional[str] = None,
@@ -91,14 +91,15 @@ def export_points_to_laz(
     local_transform: Optional["LocalCoordinateTransform"] = None,
 ) -> str:
     """
-    Export points with distance values to a LAZ/LAS file.
+    Export points to a LAZ/LAS file, optionally with distance values.
 
-    The distance values are stored as an extra dimension named "distance".
-    Additional extra dimensions can be provided (e.g., uncertainty, significance).
+    When *distances* is provided they are stored as an extra dimension named
+    ``"distance"``.  Additional extra dimensions can be provided (e.g.,
+    uncertainty, significance).
 
     Args:
         points: (N, 3) array of point coordinates (in local or global system)
-        distances: (N,) array of distance values
+        distances: (N,) array of distance values, or None to export only XYZ
         output_path: Path for output file (extension determines format)
         crs: CRS string (e.g., "EPSG:25833"). If None, attempts auto-detection.
         extra_dims: Optional dict of additional arrays to store as extra dimensions
@@ -114,12 +115,15 @@ def export_points_to_laz(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     points = np.asarray(points, dtype=np.float64)
-    distances = np.asarray(distances, dtype=np.float64)
 
     if points.ndim != 2 or points.shape[1] != 3:
         raise ValueError(f"points must be (N, 3), got {points.shape}")
-    if distances.ndim != 1 or len(distances) != len(points):
-        raise ValueError(f"distances must be (N,), got {distances.shape}")
+
+    has_distances = distances is not None
+    if has_distances:
+        distances = np.asarray(distances, dtype=np.float64)
+        if distances.ndim != 1 or len(distances) != len(points):
+            raise ValueError(f"distances must be (N,), got {distances.shape}")
 
     # Revert to global coordinates if transform was used
     if local_transform is not None:
@@ -138,8 +142,9 @@ def export_points_to_laz(
     # Use LAS 1.4 point format 6 which supports extra bytes
     header = laspy.LasHeader(point_format=6, version="1.4")
 
-    # Add distance as extra dimension
-    header.add_extra_dim(laspy.ExtraBytesParams(name="distance", type=np.float64))
+    # Add distance as extra dimension (only if distances provided)
+    if has_distances:
+        header.add_extra_dim(laspy.ExtraBytesParams(name="distance", type=np.float64))
 
     # Add any additional extra dimensions
     if extra_dims:
@@ -175,7 +180,8 @@ def export_points_to_laz(
     las.z = points[:, 2]
 
     # Set distance dimension
-    las.distance = distances
+    if has_distances:
+        las.distance = distances
 
     # Set additional dimensions
     if extra_dims:

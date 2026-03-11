@@ -440,3 +440,41 @@ class ICPRegistration:
         rmse = float(np.sqrt(np.mean(distances[valid_mask] ** 2)))
 
         return rmse
+
+
+def compute_overlap_mask(
+    cloud_a: np.ndarray,
+    cloud_b: np.ndarray,
+    margin: float = 0.0,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Compute boolean masks for the XY bounding-box overlap between two point clouds.
+
+    Points outside the overlap region are unlikely to have valid ICP
+    correspondences, so filtering them out before subsampling improves
+    alignment quality when the two clouds have different spatial extents.
+
+    Args:
+        cloud_a: First point cloud (N x 3).
+        cloud_b: Second point cloud (M x 3).
+        margin: Expand the overlap box by this many meters on each side.
+
+    Returns:
+        Tuple of (mask_a, mask_b) boolean arrays indicating which points
+        fall within the overlap region.
+    """
+    # Compute XY bounding-box intersection
+    min_x = max(cloud_a[:, 0].min(), cloud_b[:, 0].min()) - margin
+    max_x = min(cloud_a[:, 0].max(), cloud_b[:, 0].max()) + margin
+    min_y = max(cloud_a[:, 1].min(), cloud_b[:, 1].min()) - margin
+    max_y = min(cloud_a[:, 1].max(), cloud_b[:, 1].max()) + margin
+
+    mask_a = (
+        (cloud_a[:, 0] >= min_x) & (cloud_a[:, 0] <= max_x)
+        & (cloud_a[:, 1] >= min_y) & (cloud_a[:, 1] <= max_y)
+    )
+    mask_b = (
+        (cloud_b[:, 0] >= min_x) & (cloud_b[:, 0] <= max_x)
+        & (cloud_b[:, 1] >= min_y) & (cloud_b[:, 1] <= max_y)
+    )
+
+    return mask_a, mask_b

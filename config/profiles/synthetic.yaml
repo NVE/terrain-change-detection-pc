@@ -37,6 +37,7 @@ alignment:
   max_correspondence_distance: 1.0
   # Number of points sampled per epoch for alignment (approx.)
   subsample_size: 30000
+  random_seed: 42
   # Export aligned T2 point cloud as LAZ file
   export_aligned_pc: false
   coarse:
