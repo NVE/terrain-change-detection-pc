@@ -1,0 +1,39 @@
+2026-03-11 09:23:45 | INFO | __main__ | selected_years: None
+2026-03-11 09:23:45 | INFO | __main__ | NumPy RNG seeded with 42
+2026-03-11 09:23:45 | INFO | __main__ | Terrain Change Detection Workflow
+2026-03-11 09:23:45 | INFO | __main__ | =================================
+2026-03-11 09:23:45 | INFO | __main__ | GPU Acceleration: DISABLED (CPU only)
+2026-03-11 09:23:47 | INFO | __main__ | Selected time periods for area 'eksport_1225654_20250602': 2015, 2020
+2026-03-11 09:23:47 | INFO | __main__ | === STEP 1: Data Preparation ===
+2026-03-11 09:23:47 | INFO | __main__ | Selected area: eksport_1225654_20250602
+2026-03-11 09:23:47 | INFO | __main__ | Time period 1: 2015 (1 files)
+2026-03-11 09:23:47 | INFO | __main__ | Time period 2: 2020 (1 files)
+2026-03-11 09:23:47 | INFO | __main__ | Local coordinate transform: offset=(280475.00, 6674489.00, 0.00) using min_bounds origin
+2026-03-11 09:23:47 | INFO | __main__ | --- Step 1: Loading point cloud data (in-memory) ---
+2026-03-11 09:23:47 | INFO | __main__ | Loading single file for time period 2015...
+2026-03-11 09:23:53 | INFO | __main__ | Loading single file for time period 2020...
+2026-03-11 09:24:02 | INFO | __main__ | Dataset 1 (2015): 5937325 points
+2026-03-11 09:24:02 | INFO | __main__ | Dataset 2 (2020): 9061457 points
+2026-03-11 09:24:02 | INFO | __main__ | === STEP 2: Spatial Alignment ===
+2026-03-11 09:24:02 | INFO | __main__ | Overlap filter: T1 5937325/5937325, T2 9061457/9061457 points in overlap region
+2026-03-11 09:24:02 | INFO | __main__ | ICP direction: aligning T2 (2020) to T1 (2015) reference
+2026-03-11 09:24:02 | INFO | terrain_change_detection.alignment.fine_registration | Starting ICP alignment with 50000 source points and 50000 target points.
+2026-03-11 09:24:05 | INFO | terrain_change_detection.alignment.fine_registration | ICP converged after 36 iterations (MSE change < 1.000e-06).
+2026-03-11 09:24:05 | INFO | terrain_change_detection.alignment.fine_registration | ICP finished in 2.4073 s (36 iterations, mean iter 0.0669 s). Final RMSE on 50000 alignment points: 0.697938
+2026-03-11 09:24:06 | INFO | __main__ | Alignment validation (post-ICP): RMSE=0.700875 m
+2026-03-11 09:24:06 | INFO | __main__ | Spatial alignment completed in 4.06 seconds
+2026-03-11 09:24:06 | INFO | __main__ | === STEP 3: Change Detection ===
+2026-03-11 09:24:06 | INFO | __main__ | Skipping DoD (disabled in config).
+2026-03-11 09:24:06 | INFO | __main__ | Skipping C2C (disabled in config).
+2026-03-11 09:24:06 | INFO | __main__ | Computing M3C2 distances...
+2026-03-11 09:24:06 | INFO | __main__ | M3C2 core points: 5,937,325 (100.0% of 5,937,325 reference ground points)
+2026-03-11 09:24:06 | INFO | __main__ | M3C2 fixed params from config: radius=1.00, normal_scale=1.00, max_depth=2.00 (factor=2.00)
+2026-03-11 09:24:06 | INFO | __main__ | Using in-memory M3C2...
+2026-03-11 09:24:25 | INFO | terrain_change_detection.detection.m3c2 | M3C2 completed: n=5937325 (valid=5864520), mean=-0.0062 m, median=0.0012 m, std=0.1030 m
+2026-03-11 09:24:25 | INFO | terrain_change_detection.utils.export | Reverting 5,937,325 points from local to global coordinates for export
+2026-03-11 09:24:26 | INFO | terrain_change_detection.utils.export | Exported 5,937,325 points to data/raw/output/eksport_1225654_20250602/m3c2_eksport_1225654_20250602_2015_2020.laz
+2026-03-11 09:24:26 | INFO | __main__ | Exported M3C2 point cloud: data/raw/output/eksport_1225654_20250602/m3c2_eksport_1225654_20250602_2015_2020.laz
+2026-03-11 09:24:27 | INFO | terrain_change_detection.utils.export | Reverting 5,937,325 points from local to global coordinates for raster export
+2026-03-11 09:24:31 | INFO | terrain_change_detection.utils.export | Exported distance raster (1775x1132, 1,989,326 cells with data) to data/raw/output/eksport_1225654_20250602/m3c2_eksport_1225654_20250602_2015_2020.tif
+2026-03-11 09:24:31 | INFO | __main__ | Exported M3C2 raster: data/raw/output/eksport_1225654_20250602/m3c2_eksport_1225654_20250602_2015_2020.tif
+2026-03-11 09:24:31 | INFO | __main__ | Total workflow runtime: 44.39 seconds
