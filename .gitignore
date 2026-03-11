@@ -63,6 +63,8 @@ docs/_build/
 # Include data/raw but exclude synthetic/generated data and outputs
 data/synthetic/
 data/large_synthetic/
+data/Ristvassdrag OG/
+data/Jeksla/
 tests/sample_data/
 **/output/
 
