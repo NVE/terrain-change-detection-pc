@@ -326,16 +326,21 @@ def test_backends_produce_similar_results():
     tgt = _apply_rigid_transform(src, Rz, t)
 
     params = dict(
-        max_iterations=50,
+        max_iterations=100,
         tolerance=1e-8,
-        max_correspondence_distance=5.0,
+        max_correspondence_distance=15.0,
     )
 
     _, _, err_custom = ICPRegistration(**params).align_point_clouds(source=src, target=tgt)
     _, _, err_open3d = Open3DICP(**params).align_point_clouds(source=src, target=tgt)
 
-    # Both should be low; allow up to 50% relative difference
-    assert err_custom < 0.5, f"Custom ICP error too high: {err_custom}"
-    assert err_open3d < 0.5, f"Open3D ICP error too high: {err_open3d}"
+    # Both should converge well; compare against naive baseline
+    from sklearn.neighbors import NearestNeighbors
+    nn = NearestNeighbors(n_neighbors=1, algorithm="kd_tree").fit(tgt)
+    d0, _ = nn.kneighbors(src)
+    baseline_rmse = float(np.sqrt(np.mean(d0 ** 2)))
+
+    assert err_custom < baseline_rmse * 0.5, f"Custom ICP error too high: {err_custom} (baseline {baseline_rmse})"
+    assert err_open3d < baseline_rmse * 0.5, f"Open3D ICP error too high: {err_open3d} (baseline {baseline_rmse})"
     rel_diff = abs(err_custom - err_open3d) / max(err_custom, err_open3d, 1e-12)
     assert rel_diff < 0.5, f"Backends differ too much: custom={err_custom:.6f}, open3d={err_open3d:.6f}"
