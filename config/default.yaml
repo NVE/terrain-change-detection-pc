@@ -66,13 +66,15 @@ alignment:
   max_iterations: 100
   tolerance: 1.0e-6
   max_correspondence_distance: 1.0
-  # Number of points sampled per epoch for alignment (approx.)
-  subsample_size: 50000
-  # Subsampling mode: 'count' uses subsample_size, 'percent' uses subsample_percent
+  # Subsampling strategy for ICP:
+  # - count: use subsample_size
+  # - percent: compute from subsample_percent
   subsample_mode: count
-  # Percentage of points to subsample (used when subsample_mode: percent)
+  # Number of points sampled per epoch when subsample_mode: count
+  subsample_size: 50000
+  # Percentage of points sampled per epoch when subsample_mode: percent
   subsample_percent: 10.0
-  # Safety cap: maximum number of subsampled points regardless of mode
+  # Safety cap applied after either mode is resolved
   max_subsample_size: 500000
   # Convergence criteria for motion-based stopping
   convergence_translation_epsilon: 1.0e-4
@@ -97,13 +99,6 @@ alignment:
     voxel_size: 2.0
     # Cell size (m) for phase correlation grid
     phase_grid_cell: 2.0
-  multiscale:
-    # Optional coarse-to-fine ICP refinement pass
-    enabled: false
-    coarse_subsample_size: 20000
-    coarse_max_iterations: 30
-    # Null means reuse alignment.max_correspondence_distance
-    coarse_max_correspondence_distance: null
 
 detection:
   dod:

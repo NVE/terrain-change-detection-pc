@@ -105,7 +105,10 @@ alignment:
   max_iterations: 100
   tolerance: 1.0e-6
   max_correspondence_distance: 1.0
+  subsample_mode: count
   subsample_size: 50000
+  subsample_percent: 10.0
+  max_subsample_size: 500000
   export_aligned_pc: false
   
   coarse:
@@ -119,13 +122,18 @@ alignment:
 | `max_iterations` | `100` | Maximum number of iterations for the ICP algorithm. |
 | `tolerance` | `1e-6` | Convergence threshold based on MSE change. |
 | `max_correspondence_distance` | `1.0` | Max distance (meters) to search for matching points. |
-| `subsample_size` | `50000` | Number of points to sample for calculating alignment. |
+| `subsample_mode` | `count` | Choose `count` to use `subsample_size`, or `percent` to use `subsample_percent`. |
+| `subsample_size` | `50000` | Number of points to sample when `subsample_mode: count`. |
+| `subsample_percent` | `10.0` | Percentage of points to sample when `subsample_mode: percent`. |
+| `max_subsample_size` | `500000` | Upper cap applied after either subsampling mode is resolved. |
 | `export_aligned_pc` | `false` | If true, saves the aligned T2 point cloud as a new LAZ file. |
 | `convergence_translation_epsilon` | `1e-4` | Translation threshold for early stopping. |
 | `convergence_rotation_epsilon_deg` | `0.1` | Rotation threshold (degrees) for early stopping. |
 | **coarse.enabled** | `false` | Enables pre-alignment. Use only if datasets are significantly misaligned (>1m). |
 | **coarse.method** | `centroid` | Alignment method: `centroid`, `pca`, `phase`, or `open3d_fpfh`. |
 | **coarse.voxel_size** | `2.0` | Voxel size (m) for downsampling during coarse registration. |
+
+`subsample_size` and `subsample_percent` are not competing settings. The workflow uses exactly one of them based on `subsample_mode`, then applies `max_subsample_size` as a final cap.
 
 ---
 
