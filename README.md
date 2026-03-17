@@ -11,14 +11,14 @@ A robust Python toolkit for detecting and quantifying terrain changes using mult
     *   **M3C2**: Accurate, normal-oriented 3D change detection (wraps the **py4dgeo** library).
     *   **DoD & C2C**: Complementary methods for analysis and validation.
 *   **Scalable Architecture**: Support for out-of-core streaming and spatial tiling to process massive national-scale datasets.
-*   **Flexible Configuration**: YAML-based profile system to switch between drone surveys, national datasets, and synthetic validation data.
+*   **Flexible Configuration**: One canonical `config/default.yaml`, repeatable `--set` overrides, and optional small override presets for common dataset types.
 *   **Point Cloud Native**: Computes changes directly on 3D point clouds (LAS/LAZ) to preserve fine terrain details.
 
 ## Project Structure
 
 ```text
 terrain-change-detection-pc/
-├── config/                 # YAML configuration profiles
+├── config/                 # Canonical default config + small override presets
 ├── data/                   # Data directory (raw inputs & outputs)
 ├── docs/                   # Documentation and guides
 ├── scripts/                # Entry point scripts (workflow, generators)
@@ -87,36 +87,40 @@ uv pip install -r pyproject.toml
 
 ## Usage
 
-### Configuration Profiles
+### Configuration
 
-The toolkit uses YAML configuration files in the `config/` directory.
+The toolkit always starts from `config/default.yaml`. You can then:
 
-| Profile | Description |
+- add one or more small override YAMLs with `--config`
+- override individual values with `--set section.key=value`
+
+Common override presets live in `config/profiles/`.
+
+| Config | Description |
 | :--- | :--- |
-| **`default.yaml`** | Standard profile for in-memory processing of small-to-medium areas. |
-| **`profiles/drone.yaml`** | Optimized for high-density drone LiDAR data. |
-| **`profiles/large_scale.yaml`** | Enables tiling and streaming for massive datasets. |
-| **`default_clipped.yaml`** | Example of polygon clipping to restrict analysis to a specific area. |
+| **`default.yaml`** | Full canonical config with all runtime defaults. |
+| **`profiles/drone.yaml`** | Minimal override preset for high-density drone LiDAR data. |
+| **`profiles/large_scale.yaml`** | Minimal override preset for large out-of-core runs. |
+| **`default_clipped.yaml`** | Minimal override that enables polygon clipping. |
 
-Run with a specific profile:
+Run with CLI overrides only:
+```bash
+uv run scripts/run_workflow.py --set paths.base_dir=data/drone_scanning_data --set discovery.source_type=drone
+```
+
+Run with an override preset:
 ```bash
 uv run scripts/run_workflow.py --config config/profiles/drone.yaml
 ```
-or
+
+You can combine both styles:
 ```bash
-# conda activate myenv
-python scripts/run_workflow.py --config config/profiles/drone.yaml
+uv run scripts/run_workflow.py --config config/profiles/drone.yaml --set alignment.enabled=false
 ```
 
 Run a specific area and time period:
 ```bash
-uv run scripts/run_workflow.py --config config/profiles/proaktiv_drone_no-icp.yaml --area-name Ristvassdrag --years 2017 2025
-```
-or
-
-```bash
-# conda activate myenv
-python scripts/run_workflow.py --config config/profiles/proaktiv_drone_no-icp.yaml --area-name Ristvassdrag --years 2017 2025
+uv run scripts/run_workflow.py --config config/profiles/drone.yaml --area-name Ristvassdrag --years 2017 2025
 ```
 
 

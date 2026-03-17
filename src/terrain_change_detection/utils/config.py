@@ -6,10 +6,12 @@ Provides a typed pydantic model and YAML loader with sensible defaults.
 
 from __future__ import annotations
 
+from copy import deepcopy
+from difflib import get_close_matches
 from pathlib import Path
-from typing import Optional, Literal, List, Any, Dict
+from typing import Optional, Literal, List, Any, Dict, Sequence, get_args, get_origin
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 import yaml
 
 
@@ -182,7 +184,7 @@ class DetectionC2CConfig(BaseModel):
     # Algorithm mode: 'euclidean' uses nearest-neighbor 3D distances;
     # 'vertical_plane' fits a local plane in the target and measures vertical offset.
     mode: Literal["euclidean", "vertical_plane"] = Field(default="euclidean")
-    max_points: int = Field(default=1_000_000)
+    max_points: int = Field(default=9_000_000)
     # For streaming C2C, a finite max_distance is required
     max_distance: Optional[float] = Field(default=10.0)
     # Local modeling parameters (used when mode='vertical_plane')
@@ -214,15 +216,15 @@ class DetectionM3C2FixedConfig(BaseModel):
     # When use_autotune is False, use these fixed parameters
     # If normal_scale is None, defaults to radius
     # If depth_factor is None, defaults to autotune.max_depth_factor
-    radius: Optional[float] = Field(default=None)
-    normal_scale: Optional[float] = Field(default=None)
-    depth_factor: Optional[float] = Field(default=None)
+    radius: Optional[float] = Field(default=1.0)
+    normal_scale: Optional[float] = Field(default=1.0)
+    depth_factor: Optional[float] = Field(default=2.0)
 
 
 class DetectionM3C2Config(BaseModel):
     enabled: bool = Field(default=True)
     core_points_percent: Optional[float] = Field(
-        default=10.0,
+        default=100.0,
         description="Percentage of reference ground points to use as M3C2 core points (e.g., 10.0 = 10%)"
     )
     core_points: Optional[int] = Field(
@@ -230,7 +232,7 @@ class DetectionM3C2Config(BaseModel):
         description="(Deprecated) Absolute number of core points. If set, overrides core_points_percent."
     )
     # Choose between autotuned parameters or fixed ones from config
-    use_autotune: bool = Field(default=True)
+    use_autotune: bool = Field(default=False)
     autotune: DetectionM3C2AutotuneConfig = Field(default_factory=DetectionM3C2AutotuneConfig)
     fixed: DetectionM3C2FixedConfig = Field(default_factory=DetectionM3C2FixedConfig)
 
@@ -325,37 +327,214 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def load_config(path: Optional[str | Path] = None, *, allow_missing: bool = True) -> AppConfig:
-    """
-    Load configuration from YAML into a typed AppConfig.
+def _default_config_path() -> Path:
+    """Return the repository's canonical default config path."""
+    return _project_root() / "config" / "default.yaml"
 
-    Search order when path is None:
-    1) repo_root/config/default.yaml
-    2) if missing and allow_missing=True: return default AppConfig()
 
-    Args:
-        path: Explicit YAML file path.
-        allow_missing: If True, returns defaults when file missing; otherwise raises.
+def _resolve_config_path(path: str | Path) -> Path:
+    """Resolve config paths relative to the cwd first, then the repo root."""
+    cfg_path = Path(path)
+    if cfg_path.is_absolute() or cfg_path.exists():
+        return cfg_path
 
-    Returns:
-        AppConfig instance
-    """
-    cfg_path: Path
-    if path is None:
-        cfg_path = _project_root() / "config" / "default.yaml"
-    else:
-        cfg_path = Path(path)
+    repo_relative = _project_root() / cfg_path
+    if repo_relative.exists():
+        return repo_relative
 
-    if not cfg_path.exists():
+    return cfg_path
+
+
+def _load_yaml_dict(path: Path, *, allow_missing: bool = True) -> Dict[str, Any]:
+    """Load a YAML file and require a mapping at the document root."""
+    if not path.exists():
         if allow_missing:
-            return AppConfig()
-        raise FileNotFoundError(f"Config file not found: {cfg_path}")
+            return {}
+        raise FileNotFoundError(f"Config file not found: {path}")
 
-    with cfg_path.open("r", encoding="utf-8") as f:
-        raw: Dict[str, Any] = yaml.safe_load(f) or {}
+    with path.open("r", encoding="utf-8") as f:
+        raw = yaml.safe_load(f)
+
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"Invalid configuration in {path}: expected a YAML mapping at the top level.")
+    return raw
+
+
+def deep_merge(base: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively merge nested dictionaries without mutating the inputs."""
+    merged = deepcopy(base)
+    for key, value in overrides.items():
+        if (
+            key in merged
+            and isinstance(merged[key], dict)
+            and isinstance(value, dict)
+        ):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
+
+
+def _annotation_model_class(annotation: Any) -> type[BaseModel] | None:
+    """Return the nested BaseModel class for an annotation, if any."""
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+
+    origin = get_origin(annotation)
+    if origin is None:
+        return None
+
+    for arg in get_args(annotation):
+        nested = _annotation_model_class(arg)
+        if nested is not None:
+            return nested
+    return None
+
+
+def parse_dot_notation(
+    key: str,
+    value: str,
+    model_cls: type[BaseModel] = AppConfig,
+) -> tuple[list[str], Any]:
+    """
+    Validate a dot-path config key and coerce its value to the target field type.
+
+    Values are parsed with YAML semantics first, then validated with Pydantic so
+    booleans, numbers, ``null``, lists, and literals behave naturally.
+    """
+    path = [segment.strip() for segment in key.split(".") if segment.strip()]
+    if not path:
+        raise ValueError("Invalid override: config key cannot be empty.")
+
+    current_model = model_cls
+    target_annotation: Any = None
+
+    for idx, segment in enumerate(path):
+        available = sorted(current_model.model_fields)
+        if segment not in current_model.model_fields:
+            matches = get_close_matches(segment, available, n=3)
+            scope = ".".join(path[:idx]) or current_model.__name__
+            suggestion = f" Did you mean: {', '.join(matches)}?" if matches else ""
+            raise ValueError(
+                f"Unknown config key '{segment}' in override '{key}' under '{scope}'.{suggestion}"
+            )
+
+        field_info = current_model.model_fields[segment]
+        target_annotation = field_info.annotation
+
+        if idx == len(path) - 1:
+            break
+
+        nested_model = _annotation_model_class(target_annotation)
+        if nested_model is None:
+            prefix = ".".join(path[: idx + 1])
+            raise ValueError(
+                f"Invalid override '{key}': '{prefix}' is a scalar field and cannot have nested keys."
+            )
+        current_model = nested_model
+
+    raw_value: Any
+    if value == "":
+        raw_value = ""
+    else:
+        try:
+            raw_value = yaml.safe_load(value)
+        except yaml.YAMLError as exc:
+            raise ValueError(f"Invalid YAML value for override '{key}={value}': {exc}") from exc
 
     try:
-        return AppConfig.model_validate(raw)
+        parsed_value = TypeAdapter(target_annotation).validate_python(raw_value)
+    except ValidationError as exc:
+        raise ValueError(
+            f"Invalid value for override '{key}={value}': {exc}"
+        ) from exc
+
+    return path, parsed_value
+
+
+def apply_overrides(config: AppConfig, overrides: Sequence[str]) -> AppConfig:
+    """Apply ``key=value`` dot-path overrides to an existing config object."""
+    merged = config.model_dump()
+    for override in overrides:
+        if "=" not in override:
+            raise ValueError(
+                f"Invalid override '{override}': expected the form 'section.key=value'."
+            )
+
+        key, value = override.split("=", 1)
+        path, parsed_value = parse_dot_notation(key, value, AppConfig)
+
+        patch: Dict[str, Any] = {}
+        cursor = patch
+        for segment in path[:-1]:
+            cursor[segment] = {}
+            cursor = cursor[segment]
+        cursor[path[-1]] = parsed_value
+
+        merged = deep_merge(merged, patch)
+
+    try:
+        return AppConfig.model_validate(merged)
+    except ValidationError as exc:
+        raise ValueError(f"Invalid configuration after applying CLI overrides: {exc}") from exc
+
+
+def load_config(
+    path: Optional[str | Path] = None,
+    *,
+    config_paths: Optional[Sequence[str | Path]] = None,
+    overrides: Optional[Sequence[str]] = None,
+    allow_missing: bool = True,
+) -> AppConfig:
+    """
+    Load configuration into a typed ``AppConfig`` using layered sources.
+
+    Precedence order:
+    1) ``AppConfig`` schema defaults
+    2) repo_root/config/default.yaml
+    3) any explicit override YAML files, in the order provided
+    4) CLI ``key=value`` overrides
+
+    Args:
+        path: Backward-compatible singular override YAML path.
+        config_paths: Additional override YAMLs layered after ``path``.
+        overrides: Dot-path ``key=value`` overrides.
+        allow_missing: If True, missing config files are ignored; otherwise raises.
+
+    Returns:
+        Fully validated ``AppConfig`` instance.
+    """
+    merged: Dict[str, Any] = AppConfig().model_dump()
+    config_sources: list[Path] = []
+
+    default_path = _default_config_path()
+    if default_path.exists():
+        merged = deep_merge(merged, _load_yaml_dict(default_path, allow_missing=False))
+        config_sources.append(default_path)
+    elif not allow_missing:
+        raise FileNotFoundError(f"Config file not found: {default_path}")
+
+    layered_paths: list[str | Path] = []
+    if path is not None:
+        layered_paths.append(path)
+    if config_paths:
+        layered_paths.extend(config_paths)
+
+    for override_path in layered_paths:
+        resolved_path = _resolve_config_path(override_path)
+        raw = _load_yaml_dict(resolved_path, allow_missing=allow_missing)
+        if raw:
+            merged = deep_merge(merged, raw)
+        config_sources.append(resolved_path)
+
+    if overrides:
+        config = apply_overrides(AppConfig.model_validate(merged), overrides)
+        return config
+
+    try:
+        return AppConfig.model_validate(merged)
     except ValidationError as e:
-        # Re-raise with context to help users fix the YAML
-        raise ValueError(f"Invalid configuration in {cfg_path}: {e}")
+        joined_sources = ", ".join(str(path) for path in config_sources) or "schema defaults"
+        raise ValueError(f"Invalid configuration after merging {joined_sources}: {e}") from e

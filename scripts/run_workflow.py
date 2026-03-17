@@ -84,7 +84,49 @@ def resolve_subsample_count(total_points: int, cfg) -> int:
     return min(n, cap)
 
 
-def write_run_inputs(base_dir: Path, args: argparse.Namespace, cfg: AppConfig):
+def build_cli_overrides(args: argparse.Namespace) -> list[str]:
+    """Translate dedicated CLI flags into config-style dot-path overrides."""
+    overrides = list(args.set_overrides or [])
+
+    if args.base_dir:
+        overrides.append(f"paths.base_dir={args.base_dir}")
+    if args.seed is not None:
+        overrides.append(f"alignment.random_seed={args.seed}")
+    if args.reference is not None:
+        overrides.append(f"alignment.reference={args.reference}")
+
+    if args.m3c2_radius is not None:
+        overrides.extend([
+            "detection.m3c2.use_autotune=false",
+            f"detection.m3c2.fixed.radius={args.m3c2_radius}",
+        ])
+        if args.m3c2_normal_scale is None:
+            overrides.append("detection.m3c2.fixed.normal_scale=null")
+        if args.m3c2_depth_factor is None:
+            overrides.append("detection.m3c2.fixed.depth_factor=null")
+
+    if args.m3c2_normal_scale is not None:
+        overrides.extend([
+            "detection.m3c2.use_autotune=false",
+            f"detection.m3c2.fixed.normal_scale={args.m3c2_normal_scale}",
+        ])
+    if args.m3c2_depth_factor is not None:
+        overrides.extend([
+            "detection.m3c2.use_autotune=false",
+            f"detection.m3c2.fixed.depth_factor={args.m3c2_depth_factor}",
+        ])
+
+    return overrides
+
+
+def write_run_inputs(
+    base_dir: Path,
+    args: argparse.Namespace,
+    cfg: AppConfig,
+    *,
+    config_files: list[str] | None = None,
+    cli_overrides: list[str] | None = None,
+):
     """
     Write the run inputs (CLI args and config) to a text file for record-keeping.
     """
@@ -99,10 +141,23 @@ def write_run_inputs(base_dir: Path, args: argparse.Namespace, cfg: AppConfig):
         f.write("=== Command Line Arguments ===\n")
         for arg, value in vars(args).items():
             f.write(f"{arg}: {value}\n")
-        
+
+        f.write("\n=== Configuration Sources ===\n")
+        f.write("base_config: config/default.yaml\n")
+        if config_files:
+            for idx, config_file in enumerate(config_files, start=1):
+                f.write(f"override_file_{idx}: {config_file}\n")
+        else:
+            f.write("override_files: none\n")
+        if cli_overrides:
+            for idx, override in enumerate(cli_overrides, start=1):
+                f.write(f"cli_override_{idx}: {override}\n")
+        else:
+            f.write("cli_overrides: none\n")
+
         f.write("\n=== Configuration ===\n")
-        
-        cfg_yaml = yaml.dump(cfg.model_dump(), sort_keys=False)
+
+        cfg_yaml = yaml.safe_dump(cfg.model_dump(), sort_keys=False)
         f.write(cfg_yaml)
 
 
@@ -124,8 +179,28 @@ def main():
     parser.add_argument(
         "--config",
         type=str,
+        action="append",
         default=None,
-        help="Path to YAML configuration file (defaults to config/default.yaml)",
+        help=(
+            "Repeatable override YAML layered on top of config/default.yaml. "
+            "Example: --config config/profiles/large_scale.yaml"
+        ),
+    )
+    parser.add_argument(
+        "--set",
+        "-s",
+        action="append",
+        dest="set_overrides",
+        default=None,
+        help=(
+            "Override any config value with KEY=VALUE dot notation. "
+            "Example: --set discovery.source_type=drone"
+        ),
+    )
+    parser.add_argument(
+        "--show-config",
+        action="store_true",
+        help="Print the resolved configuration YAML and exit.",
     )
     parser.add_argument(
         "--seed",
@@ -199,13 +274,25 @@ def main():
         help="Which epoch is the ICP reference (t1=earlier, t2=later). Overrides config.",
     )
 
-    args, unknown = parser.parse_known_args()
-    
+    args = parser.parse_args()
+
+    if (args.m3c2_normal_scale is not None or args.m3c2_depth_factor is not None) and args.m3c2_radius is None:
+        parser.error("--m3c2-normal-scale and --m3c2-depth-factor require --m3c2-radius")
+
+    cli_overrides = build_cli_overrides(args)
 
     # Load configuration
-    cfg: AppConfig = load_config(args.config)
-    if args.base_dir:
-        cfg.paths.base_dir = args.base_dir
+    cfg: AppConfig = load_config(
+        config_paths=args.config,
+        overrides=cli_overrides,
+        allow_missing=False,
+    )
+
+    if args.show_config:
+        import yaml
+
+        print(yaml.safe_dump(cfg.model_dump(), sort_keys=False), end="")
+        return
 
     # Setup logging from config
     log_level = getattr(logging, cfg.logging.level.upper(), logging.INFO)
@@ -219,13 +306,9 @@ def main():
 
     # Deterministic RNG for reproducible subsampling
     # CLI --seed overrides config; config defaults to 42 for determinism
-    _seed = args.seed if args.seed is not None else cfg.alignment.random_seed
+    _seed = cfg.alignment.random_seed
     rng = np.random.default_rng(int(_seed))
     logger.info(f"NumPy RNG seeded with {int(_seed)}")
-
-    # CLI --reference overrides config
-    if args.reference is not None:
-        cfg.alignment.reference = args.reference
 
     # Performance: set thread env vars if configured
     try:
@@ -1473,27 +1556,6 @@ def main():
                             min_radius=at.min_radius,
                             max_radius=at.max_radius,
                         )
-                # Optional CLI override to enforce identical parameters across modes
-                if args.m3c2_radius is not None:
-                    r = float(args.m3c2_radius)
-                    depth_factor = (
-                        float(args.m3c2_depth_factor)
-                        if args.m3c2_depth_factor is not None
-                        else float(cfg.detection.m3c2.autotune.max_depth_factor)
-                    )
-                    normal_scale = float(args.m3c2_normal_scale) if args.m3c2_normal_scale is not None else r
-                    m3c2_params = M3C2Params(
-                        projection_scale=r,
-                        cylinder_radius=r,
-                        max_depth=r * depth_factor,
-                        min_neighbors=m3c2_params.min_neighbors,
-                        normal_scale=normal_scale,
-                        confidence=m3c2_params.confidence,
-                    )
-                    logger.info(
-                        "M3C2 CLI override: radius=%.2f m, normal_scale=%.2f m, max_depth=%.2f m",
-                        r, normal_scale, r * depth_factor
-                    )
 
                 # Prefer streaming tiled M3C2 when out-of-core is enabled and file paths are available
                 use_streaming_m3c2 = (
@@ -1701,7 +1763,13 @@ def main():
         else:
             export_dir = Path(cfg.paths.base_dir) / "output" / selected_area.area_name
 
-        write_run_inputs(export_dir, args, cfg)
+        write_run_inputs(
+            export_dir,
+            args,
+            cfg,
+            config_files=list(args.config or []),
+            cli_overrides=cli_overrides,
+        )
 
         runtime_end = perf_counter()
         runtime_elapsed = runtime_end - runtime_start
