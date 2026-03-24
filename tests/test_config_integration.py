@@ -21,6 +21,9 @@ def test_default_config_outofcore_disabled():
     assert cfg.outofcore.chunk_points == 1_000_000
     # Default behavior: do not write transformed files unless explicitly enabled
     assert cfg.outofcore.save_transformed_files is False
+    assert cfg.detection.m3c2.variant == "original"
+    assert cfg.detection.m3c2.ep.scan_metadata_source == "auto"
+    assert cfg.detection.m3c2.ep.cxx_source == "icp_estimate"
 
 
 def test_large_scale_profile_outofcore_enabled():
@@ -95,12 +98,16 @@ def test_set_override_nested_key_and_types():
             "alignment.coarse.enabled=true",
             "preprocessing.classification_filter=[2,9]",
             "detection.c2c.max_distance=null",
+            "detection.m3c2.variant=ep",
+            "detection.m3c2.ep.cxx_source=file",
         ]
     )
 
     assert cfg.alignment.coarse.enabled is True
     assert cfg.preprocessing.classification_filter == [2, 9]
     assert cfg.detection.c2c.max_distance is None
+    assert cfg.detection.m3c2.variant == "ep"
+    assert cfg.detection.m3c2.ep.cxx_source == "file"
 
 
 def test_set_override_invalid_key():

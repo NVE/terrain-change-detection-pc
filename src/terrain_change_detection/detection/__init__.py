@@ -14,7 +14,7 @@ The original unified ChangeDetector interface is maintained for backward compati
 # Import from new submodules
 from .dod import DoDResult, DoDDetector
 from .c2c import C2CResult, C2CDetector
-from .m3c2 import M3C2Result, M3C2Params, M3C2Detector
+from .m3c2 import M3C2Result, M3C2Params, M3C2Detector, M3C2EPDetails, M3C2EPScanMetadata
 
 
 class ChangeDetector:
@@ -40,7 +40,9 @@ class ChangeDetector:
     # M3C2 methods
     autotune_m3c2_params = staticmethod(M3C2Detector.autotune_m3c2_params)
     autotune_m3c2_params_from_headers = staticmethod(M3C2Detector.autotune_m3c2_params_from_headers)
+    compute_m3c2 = staticmethod(M3C2Detector.compute_m3c2)
     compute_m3c2_original = staticmethod(M3C2Detector.compute_m3c2_original)
+    compute_m3c2_ep = staticmethod(M3C2Detector.compute_m3c2_ep)
     compute_m3c2_streaming_files_tiled = staticmethod(M3C2Detector.compute_m3c2_streaming_files_tiled)
     compute_m3c2_streaming_files_tiled_parallel = staticmethod(M3C2Detector.compute_m3c2_streaming_files_tiled_parallel)
     compute_m3c2_streaming_pertile_parallel = staticmethod(M3C2Detector.compute_m3c2_streaming_pertile_parallel)
@@ -60,6 +62,8 @@ __all__ = [
     "C2CResult",
     "M3C2Result",
     "M3C2Params",
+    "M3C2EPDetails",
+    "M3C2EPScanMetadata",
     
     # Specialized detector classes (new)
     "DoDDetector",

@@ -221,8 +221,65 @@ class DetectionM3C2FixedConfig(BaseModel):
     depth_factor: Optional[float] = Field(default=2.0)
 
 
+class DetectionM3C2EPConfig(BaseModel):
+    scan_metadata_source: Literal["auto", "sidecar", "synthetic_from_point_source_id"] = Field(
+        default="auto",
+        description=(
+            "How scan-position metadata is resolved for M3C2-EP. "
+            "'auto' prefers sidecars and falls back to synthetic ALS metadata."
+        ),
+    )
+    auto_discover_from_metadata_dir: bool = Field(
+        default=True,
+        description="Automatically look for scan-position sidecars in discovered metadata directories.",
+    )
+    scan_positions_t1_path: Optional[str] = Field(
+        default=None,
+        description="Optional explicit scan-position sidecar path for epoch T1.",
+    )
+    scan_positions_t2_path: Optional[str] = Field(
+        default=None,
+        description="Optional explicit scan-position sidecar path for epoch T2.",
+    )
+    cxx_source: Literal["icp_estimate", "file", "zero"] = Field(
+        default="icp_estimate",
+        description="How to obtain the 12x12 alignment covariance matrix for M3C2-EP.",
+    )
+    alignment_covariance_path: Optional[str] = Field(
+        default=None,
+        description="Optional file path for a persisted 12x12 alignment covariance matrix.",
+    )
+    export_scalar_fields: bool = Field(
+        default=True,
+        description="Export EP-only scalar fields like spreads and sample counts to LAZ when available.",
+    )
+    synthetic_sigma_range: float = Field(
+        default=0.02,
+        description="Synthetic ALS range uncertainty used when scan metadata is synthesized (meters).",
+    )
+    synthetic_sigma_scan: float = Field(
+        default=0.001,
+        description="Synthetic ALS scan-angle uncertainty used when scan metadata is synthesized (radians).",
+    )
+    synthetic_sigma_yaw: float = Field(
+        default=0.001,
+        description="Synthetic ALS yaw uncertainty used when scan metadata is synthesized (radians).",
+    )
+    synthetic_origin_height: Optional[float] = Field(
+        default=None,
+        description=(
+            "Height to place synthesized scanner origins above local maximum Z. "
+            "If null, a conservative ALS default is used."
+        ),
+    )
+
+
 class DetectionM3C2Config(BaseModel):
     enabled: bool = Field(default=True)
+    variant: Literal["original", "ep"] = Field(
+        default="original",
+        description="M3C2 algorithm variant: vanilla 'original' or error-propagating 'ep'.",
+    )
     core_points_percent: Optional[float] = Field(
         default=100.0,
         description="Percentage of reference ground points to use as M3C2 core points (e.g., 10.0 = 10%)"
@@ -244,6 +301,7 @@ class DetectionM3C2Config(BaseModel):
         default=True,
         description="Export M3C2 distances as interpolated GeoTIFF raster"
     )
+    ep: DetectionM3C2EPConfig = Field(default_factory=DetectionM3C2EPConfig)
 
 
 class DetectionConfig(BaseModel):

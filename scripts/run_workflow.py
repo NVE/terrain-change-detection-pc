@@ -21,11 +21,13 @@ from terrain_change_detection.alignment import (
     apply_transform_to_files,
     save_transform_matrix,
     compute_overlap_mask,
+    estimate_alignment_covariance,
 )
 from terrain_change_detection.alignment.coarse_registration import CoarseRegistration
 from terrain_change_detection.alignment.fine_registration import ICPRegistration
 from terrain_change_detection.detection import (
     ChangeDetector,
+    M3C2Detector,
     M3C2Params,
     autotune_m3c2_params,
     autotune_m3c2_params_from_headers,
@@ -159,6 +161,41 @@ def write_run_inputs(
 
         cfg_yaml = yaml.safe_dump(cfg.model_dump(), sort_keys=False)
         f.write(cfg_yaml)
+
+
+def _slice_attributes(attributes: dict, mask: np.ndarray) -> dict:
+    """Apply a point mask to all attribute arrays in a dataset."""
+    clipped = {}
+    for name, values in attributes.items():
+        arr = np.asarray(values)
+        if len(arr) != len(mask):
+            logger.warning(
+                "Skipping attribute %s during clipping because its length (%d) does not match mask (%d)",
+                name,
+                len(arr),
+                len(mask),
+            )
+            continue
+        clipped[name] = arr[mask]
+    return clipped
+
+
+def _load_alignment_covariance_matrix(path: str) -> np.ndarray:
+    """Load a persisted 12x12 covariance matrix from .npy, .txt, or .csv."""
+    cov_path = Path(path)
+    if not cov_path.exists():
+        raise FileNotFoundError(f"Alignment covariance file not found: {cov_path}")
+
+    if cov_path.suffix.lower() == ".npy":
+        cxx = np.load(cov_path)
+    else:
+        delimiter = "," if cov_path.suffix.lower() == ".csv" else None
+        cxx = np.loadtxt(cov_path, dtype=np.float64, delimiter=delimiter)
+
+    cxx = np.asarray(cxx, dtype=np.float64)
+    if cxx.shape != (12, 12):
+        raise ValueError(f"Alignment covariance must be shape (12, 12), got {cxx.shape}")
+    return cxx
 
 
 
@@ -699,10 +736,16 @@ def main():
                 # Store original counts
                 original_count_1 = len(points1)
                 original_count_2 = len(points2)
-                
-                # Clip both point clouds (logging happens inside clipper.clip)
-                points1 = clipper.clip(points1)
-                points2 = clipper.clip(points2)
+
+                # Clip both point clouds. In in-memory mode we also preserve per-point
+                # attributes such as point_source_id for downstream M3C2-EP metadata.
+                points1, mask1 = clipper.clip(points1, return_mask=True)
+                points2, mask2 = clipper.clip(points2, return_mask=True)
+                if not use_streaming:
+                    pc1_data['points'] = points1
+                    pc2_data['points'] = points2
+                    pc1_data['attributes'] = _slice_attributes(pc1_data.get('attributes', {}), mask1)
+                    pc2_data['attributes'] = _slice_attributes(pc2_data.get('attributes', {}), mask2)
                 
                 # Summary log
                 pct1 = 100.0 * len(points1) / original_count_1 if original_count_1 > 0 else 0
@@ -778,6 +821,7 @@ def main():
         # ============================================================
         # Check if alignment is enabled (default: True for backward compatibility)
         alignment_enabled = getattr(cfg.alignment, 'enabled', True)
+        alignment_cxx = None
 
         if alignment_enabled:
             logger.info("=== STEP 2: Spatial Alignment ===")
@@ -1118,6 +1162,10 @@ def main():
             points2_full_aligned = points2
             alignment_error = None
 
+        # Common aligned views for downstream in-memory analysis
+        points1_analysis = points1_full_aligned
+        points2_analysis = points2_full_aligned
+
         # ============================================================
         # Step 3: Change Detection
         # ============================================================
@@ -1187,8 +1235,8 @@ def main():
                         logger.info("Falling back to in-memory DoD computation...")
                         # Fallback to in-memory
                         dod_res = ChangeDetector.compute_dod(
-                            points_t1=points1,
-                            points_t2=points2_full_aligned,
+                            points_t1=points1_analysis,
+                            points_t2=points2_analysis,
                             cell_size=cfg.detection.dod.cell_size,
                             aggregator=cfg.detection.dod.aggregator,
                             config=cfg,
@@ -1197,8 +1245,8 @@ def main():
                     # In-memory DoD computation
                     logger.info("Using in-memory DoD...")
                     dod_res = ChangeDetector.compute_dod(
-                        points_t1=points1,
-                        points_t2=points2_full_aligned,
+                        points_t1=points1_analysis,
+                        points_t2=points2_analysis,
                         cell_size=cfg.detection.dod.cell_size,
                         aggregator=cfg.detection.dod.aggregator,
                         config=cfg,
@@ -1305,8 +1353,8 @@ def main():
                     logger.info(f"Using in-memory C2C ({c2c_mode})...")
                     # Downsample to keep pairwise search manageable if sklearn is unavailable
                     max_points = cfg.detection.c2c.max_points
-                    src = points2_full_aligned
-                    tgt = points1
+                    src = points2_analysis
+                    tgt = points1_analysis
                     if len(src) > max_points:
                         idx = np.random.choice(len(src), max_points, replace=False)
                         src = src[idx]
@@ -1388,7 +1436,23 @@ def main():
     # 3c) M3C2
         if getattr(cfg.detection.m3c2, "enabled", True):
             try:
-                logger.info("Computing M3C2 distances...")
+                m3c2_variant = getattr(cfg.detection.m3c2, "variant", "original")
+                m3c2_label = "M3C2-EP" if m3c2_variant == "ep" else "M3C2"
+                logger.info("Computing %s distances...", m3c2_label)
+
+                if m3c2_variant == "ep":
+                    if use_streaming:
+                        raise ValueError("M3C2-EP is currently supported only in in-memory mode")
+                    if getattr(cfg.parallel, "enabled", False):
+                        raise ValueError("M3C2-EP does not support repository-level parallel mode")
+                    if cfg.alignment.reference != "t1":
+                        raise ValueError(
+                            "M3C2-EP currently requires alignment.reference='t1' because py4dgeo "
+                            "applies the transform to epoch 2 internally"
+                        )
+
+                points1_m3c2 = points1_analysis
+                points2_m3c2 = points2_analysis
 
                 # Core points selection or load from file for reproducibility across runs
                 # Determine the total number of reference ground points for percentage calculation
@@ -1410,7 +1474,7 @@ def main():
                     logger.debug(f"Metadata-based T1 ground point count: {total_ref_points:,}")
                 else:
                     # In-memory mode: use loaded array length (already filtered to ground)
-                    total_ref_points = len(points1)
+                    total_ref_points = len(points1_m3c2)
 
                 # Determine number of core points (percentage-based or absolute override)
                 if cfg.detection.m3c2.core_points is not None:
@@ -1440,25 +1504,26 @@ def main():
                     except Exception as e:
                         logger.warning(f"Failed to load cores from {cores_path}: {e}; falling back to selection")
                         core_src = None
+
                 if core_src is None:
                     # Select core points using appropriate method
                     # Check if we'll use per-tile M3C2 (parallel + streaming)
                     use_parallel_streaming = (
-                        use_streaming and 'file_paths' in pc1_data and
-                        getattr(cfg.parallel, 'enabled', False)
+                        m3c2_variant == "original"
+                        and use_streaming and 'file_paths' in pc1_data
+                        and getattr(cfg.parallel, 'enabled', False)
                     )
-                    
+
                     if use_parallel_streaming:
                         # Skip global core selection - per-tile M3C2 handles it internally
                         logger.info(
                             f"Per-tile M3C2 will select {cfg.detection.m3c2.core_points_percent or 10.0:.1f}% "
                             "core points per tile (no global core selection needed)"
                         )
-                        core_src = None  # Will be handled per-tile
-                    elif use_streaming and 'file_paths' in pc1_data:
+                        core_src = None
+                    elif m3c2_variant == "original" and use_streaming and 'file_paths' in pc1_data:
                         # Sequential streaming mode: still needs global core selection
                         logger.info(f"Selecting {max_core:,} core points via streaming from T1 files...")
-                        
                         core_reader = LaspyStreamReader(
                             [str(p) for p in pc1_data['file_paths']],
                             ground_only=cfg.preprocessing.ground_only,
@@ -1469,21 +1534,20 @@ def main():
                         logger.info(f"Selected {len(core_src):,} core points from T1 via streaming")
                     else:
                         # In-memory mode: subsample from loaded points1
-                        if len(points1) > max_core:
-                            idx = np.random.choice(len(points1), max_core, replace=False)
-                            core_src = points1[idx]
+                        if len(points1_m3c2) > max_core:
+                            idx = np.random.choice(len(points1_m3c2), max_core, replace=False)
+                            core_src = points1_m3c2[idx]
                         else:
-                            core_src = points1
-                    
+                            core_src = points1_m3c2
+
                     # Save if a path was provided but did not exist
-                    if cores_path is not None:
+                    if cores_path is not None and core_src is not None:
                         try:
                             cores_path.parent.mkdir(parents=True, exist_ok=True)
                             np.save(str(cores_path), core_src)
                             logger.info(f"Saved {len(core_src)} core points to {cores_path}")
                         except Exception as e:
                             logger.warning(f"Could not save cores to {cores_path}: {e}")
-
 
                 # Auto-tune M3C2 parameters based on point density
                 # Select M3C2 parameters: fixed from config or autotuned from data
@@ -1541,7 +1605,7 @@ def main():
                         if m3c2_params is None:
                             # Fallback to sample-based
                             m3c2_params = autotune_m3c2_params(
-                                points1,
+                                points1_m3c2,
                                 target_neighbors=at.target_neighbors,
                                 max_depth_factor=at.max_depth_factor,
                                 min_radius=at.min_radius,
@@ -1550,7 +1614,7 @@ def main():
                     else:
                         # Sample-based (current behavior)
                         m3c2_params = autotune_m3c2_params(
-                            points1,
+                            points1_m3c2,
                             target_neighbors=at.target_neighbors,
                             max_depth_factor=at.max_depth_factor,
                             min_radius=at.min_radius,
@@ -1559,20 +1623,22 @@ def main():
 
                 # Prefer streaming tiled M3C2 when out-of-core is enabled and file paths are available
                 use_streaming_m3c2 = (
-                    use_streaming and 'file_paths' in pc1_data and (
-                        'aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths'] or pc2_data.get('file_paths')
+                    m3c2_variant == "original"
+                    and use_streaming and 'file_paths' in pc1_data and (
+                        ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths'])
+                        or pc2_data.get('file_paths')
                     ) is not None
                 )
 
                 if use_streaming_m3c2:
                     files_t1 = pc1_data['file_paths']
                     files_t2 = pc2_data.get('aligned_file_paths') or pc2_data['file_paths']
-                    
+
                     # Check if parallel processing is enabled
                     use_parallel = getattr(cfg.parallel, 'enabled', False)
                     mode = "parallel" if use_parallel else "sequential"
                     logger.info(f"Using streaming M3C2 ({mode}, tiled)...")
-                    
+
                     try:
                         if use_parallel:
                             # Use per-tile core selection for truly out-of-core processing
@@ -1587,7 +1653,7 @@ def main():
                                 classification_filter=cfg.preprocessing.classification_filter,
                                 chunk_points=cfg.outofcore.chunk_points,
                                 transform_t2=(None if ('aligned_file_paths' in pc2_data and pc2_data['aligned_file_paths']) else transform_matrix),
-                                n_workers=None,  # auto-detect
+                                n_workers=None,
                                 threads_per_worker=getattr(cfg.parallel, 'threads_per_worker', 1),
                                 local_transform=local_transform,
                             )
@@ -1610,8 +1676,8 @@ def main():
                             logger.info("Debug: also running in-memory M3C2 for comparison...")
                             m3c2_res_mem = ChangeDetector.compute_m3c2_original(
                                 core_points=core_src,
-                                cloud_t1=points1,
-                                cloud_t2=points2_full_aligned,
+                                cloud_t1=points1_m3c2,
+                                cloud_t2=points2_m3c2,
                                 params=m3c2_params,
                             )
                             import numpy as _np
@@ -1653,11 +1719,11 @@ def main():
                             try:
                                 # Vertical proxy using nearest neighbors in each epoch
                                 from sklearn.neighbors import NearestNeighbors as _NN
-                                nn1 = _NN(n_neighbors=1, algorithm='kd_tree').fit(points1)
-                                nn2 = _NN(n_neighbors=1, algorithm='kd_tree').fit(points2_full_aligned)
+                                nn1 = _NN(n_neighbors=1, algorithm='kd_tree').fit(points1_m3c2)
+                                nn2 = _NN(n_neighbors=1, algorithm='kd_tree').fit(points2_m3c2)
                                 i1 = nn1.kneighbors(core_src, return_distance=False).ravel()
                                 i2 = nn2.kneighbors(core_src, return_distance=False).ravel()
-                                dz = points2_full_aligned[i2, 2] - points1[i1, 2]
+                                dz = points2_m3c2[i2, 2] - points1_m3c2[i1, 2]
                                 rz_stream = _pearson(m3c2_res_stream.distances, dz)
                                 rz_mem = _pearson(m3c2_res_mem.distances, dz)
                                 rz_mem_flip = _pearson(-_np.asarray(m3c2_res_mem.distances), dz)
@@ -1677,22 +1743,100 @@ def main():
                         logger.info("Falling back to in-memory M3C2...")
                         m3c2_res = ChangeDetector.compute_m3c2_original(
                             core_points=core_src,
-                            cloud_t1=points1,
-                            cloud_t2=points2_full_aligned,
+                            cloud_t1=points1_m3c2,
+                            cloud_t2=points2_m3c2,
                             params=m3c2_params,
                         )
+                elif m3c2_variant == "ep":
+                    ep_cfg = cfg.detection.m3c2.ep
+                    t1_point_source = pc1_data.get("attributes", {}).get("point_source_id")
+                    t2_point_source = pc2_data.get("attributes", {}).get("point_source_id")
+                    if t1_point_source is None or t2_point_source is None:
+                        raise ValueError(
+                            "M3C2-EP requires point_source_id on both epochs. "
+                            "Ensure the input data contains it and clipping preserves attributes."
+                        )
+
+                    scan_metadata_t1 = M3C2Detector.resolve_scan_metadata(
+                        points=points1_m3c2,
+                        raw_scan_ids=t1_point_source,
+                        scan_metadata_source=ep_cfg.scan_metadata_source,
+                        explicit_path=ep_cfg.scan_positions_t1_path,
+                        metadata_dir=ds1.metadata_dir,
+                        auto_discover_from_metadata_dir=ep_cfg.auto_discover_from_metadata_dir,
+                        synthetic_sigma_range=ep_cfg.synthetic_sigma_range,
+                        synthetic_sigma_scan=ep_cfg.synthetic_sigma_scan,
+                        synthetic_sigma_yaw=ep_cfg.synthetic_sigma_yaw,
+                        synthetic_origin_height=ep_cfg.synthetic_origin_height,
+                        epoch_label="T1",
+                    )
+                    scan_metadata_t2 = M3C2Detector.resolve_scan_metadata(
+                        points=points2,
+                        raw_scan_ids=t2_point_source,
+                        scan_metadata_source=ep_cfg.scan_metadata_source,
+                        explicit_path=ep_cfg.scan_positions_t2_path,
+                        metadata_dir=ds2.metadata_dir,
+                        auto_discover_from_metadata_dir=ep_cfg.auto_discover_from_metadata_dir,
+                        synthetic_sigma_range=ep_cfg.synthetic_sigma_range,
+                        synthetic_sigma_scan=ep_cfg.synthetic_sigma_scan,
+                        synthetic_sigma_yaw=ep_cfg.synthetic_sigma_yaw,
+                        synthetic_origin_height=ep_cfg.synthetic_origin_height,
+                        epoch_label="T2",
+                    )
+
+                    if local_transform is not None:
+                        for scan_metadata in (scan_metadata_t1, scan_metadata_t2):
+                            if scan_metadata.source.startswith("sidecar:"):
+                                for entry in scan_metadata.scanpos_info.values():
+                                    entry["origin"][0] -= local_transform.offset_x
+                                    entry["origin"][1] -= local_transform.offset_y
+                                    entry["origin"][2] -= local_transform.offset_z
+
+                    if ep_cfg.cxx_source == "icp_estimate":
+                        alignment_cxx = estimate_alignment_covariance(
+                            source=points2,
+                            target=points1_m3c2,
+                            transform=transform_matrix,
+                            max_correspondence_distance=cfg.alignment.max_correspondence_distance,
+                            reduction_point=np.zeros(3, dtype=np.float64),
+                        )
+                    elif ep_cfg.cxx_source == "file":
+                        if not ep_cfg.alignment_covariance_path:
+                            raise ValueError(
+                                "detection.m3c2.ep.alignment_covariance_path must be set when cxx_source='file'"
+                            )
+                        alignment_cxx = _load_alignment_covariance_matrix(ep_cfg.alignment_covariance_path)
+                    elif ep_cfg.cxx_source == "zero":
+                        alignment_cxx = np.zeros((12, 12), dtype=np.float64)
+                    else:
+                        raise ValueError(f"Unsupported M3C2-EP cxx_source: {ep_cfg.cxx_source}")
+
+                    logger.info("Using in-memory M3C2-EP...")
+                    m3c2_res = ChangeDetector.compute_m3c2_ep(
+                        core_points=core_src,
+                        cloud_t1=points1_m3c2,
+                        cloud_t2=points2,
+                        params=m3c2_params,
+                        transform_matrix=transform_matrix,
+                        cxx=alignment_cxx,
+                        scan_metadata_t1=scan_metadata_t1,
+                        scan_metadata_t2=scan_metadata_t2,
+                        reduction_point=np.zeros(3, dtype=np.float64),
+                        perform_transform=True,
+                    )
                 else:
                     logger.info("Using in-memory M3C2...")
                     m3c2_res = ChangeDetector.compute_m3c2_original(
                         core_points=core_src,
-                        cloud_t1=points1,
-                        cloud_t2=points2_full_aligned,
+                        cloud_t1=points1_m3c2,
+                        cloud_t2=points2_m3c2,
                         params=m3c2_params,
                     )
-                
+
+                plot_title = "M3C2-EP distances (m)" if m3c2_variant == "ep" else "M3C2 distances (m)"
                 if show_plots:
                     # Visualize M3C2 distance histogram first
-                    visualizer.visualize_distance_histogram(m3c2_res.distances, title="M3C2 distances (m)", bins=60)
+                    visualizer.visualize_distance_histogram(m3c2_res.distances, title=plot_title, bins=60)
                     
                     # Visualize M3C2 core points in 3D
                     # Revert to global coordinates for visualization (users expect UTM coordinates)
@@ -1701,13 +1845,13 @@ def main():
                         vis_core_points,
                         m3c2_res.distances,
                         sample_size=cfg.visualization.sample_size,
-                        title="M3C2 distances (m)",
+                        title=plot_title,
                     )
-                
+
                 # Export M3C2 results if enabled
                 export_m3c2_pc = getattr(cfg.detection.m3c2, 'export_pc', True)
                 export_m3c2_raster = getattr(cfg.detection.m3c2, 'export_raster', True)
-                if export_m3c2_pc or export_m3c2_raster:
+                if export_m3c2_pc or export_m3c2_raster or m3c2_variant == "ep":
                     try:
                         
                         # Determine output directory (flat structure, area name in filename)
@@ -1716,7 +1860,7 @@ def main():
                         else:
                             export_dir = Path(cfg.paths.base_dir) / "output" / selected_area.area_name
                         export_dir.mkdir(parents=True, exist_ok=True)
-                        
+
                         # Try to auto-detect CRS from input files
                         crs = cfg.paths.output_crs
                         try:
@@ -1725,34 +1869,54 @@ def main():
                                 crs = detected_crs
                         except Exception:
                             pass
-                        
+
                         area_prefix = selected_area.area_name
+                        output_stem = "m3c2_ep" if m3c2_variant == "ep" else "m3c2"
+                        if m3c2_variant == "ep" and alignment_cxx is not None:
+                            cxx_output = export_dir / f"alignment_cxx_{area_prefix}_{t1}_{t2}.npy"
+                            np.save(cxx_output, alignment_cxx)
+                            logger.info(f"Exported alignment covariance matrix: {cxx_output}")
                         if export_m3c2_pc:
-                            m3c2_laz = export_dir / f"m3c2_{area_prefix}_{t1}_{t2}.laz"
-                            # Include uncertainty as extra dimension if available
+                            m3c2_laz = export_dir / f"{output_stem}_{area_prefix}_{t1}_{t2}.laz"
                             extra_dims = {}
                             if m3c2_res.uncertainty is not None:
                                 extra_dims['uncertainty'] = m3c2_res.uncertainty
                             if m3c2_res.significant is not None:
                                 extra_dims['significant'] = m3c2_res.significant
+                            if m3c2_variant == "ep" and cfg.detection.m3c2.ep.export_scalar_fields and m3c2_res.ep_details is not None:
+                                extra_dims['spread1'] = m3c2_res.ep_details.spread1
+                                extra_dims['spread2'] = m3c2_res.ep_details.spread2
+                                extra_dims['num_samples1'] = m3c2_res.ep_details.num_samples1
+                                extra_dims['num_samples2'] = m3c2_res.ep_details.num_samples2
                             export_points_to_laz(
                                 m3c2_res.core_points, m3c2_res.distances, str(m3c2_laz),
                                 crs=crs, extra_dims=extra_dims if extra_dims else None,
                                 source_laz_path=str(ds1.laz_files[0]),
                                 local_transform=local_transform
                             )
-                            logger.info(f"Exported M3C2 point cloud: {m3c2_laz}")
-                        
+                            logger.info(f"Exported {m3c2_label} point cloud: {m3c2_laz}")
+
                         if export_m3c2_raster:
-                            m3c2_tif = export_dir / f"m3c2_{area_prefix}_{t1}_{t2}.tif"
+                            m3c2_tif = export_dir / f"{output_stem}_{area_prefix}_{t1}_{t2}.tif"
                             export_distances_to_geotiff(
                                 m3c2_res.core_points, m3c2_res.distances, str(m3c2_tif),
                                 cell_size=cfg.detection.dod.cell_size, crs=crs,
                                 local_transform=local_transform
                             )
-                            logger.info(f"Exported M3C2 raster: {m3c2_tif}")
+                            logger.info(f"Exported {m3c2_label} raster: {m3c2_tif}")
+                            if m3c2_variant == "ep" and m3c2_res.uncertainty is not None:
+                                lod_tif = export_dir / f"{output_stem}_lod_{area_prefix}_{t1}_{t2}.tif"
+                                export_distances_to_geotiff(
+                                    m3c2_res.core_points,
+                                    m3c2_res.uncertainty,
+                                    str(lod_tif),
+                                    cell_size=cfg.detection.dod.cell_size,
+                                    crs=crs,
+                                    local_transform=local_transform,
+                                )
+                                logger.info(f"Exported {m3c2_label} LoD raster: {lod_tif}")
                     except Exception as export_err:
-                        logger.error(f"M3C2 export failed: {export_err}")
+                        logger.error(f"{m3c2_label} export failed: {export_err}")
             except Exception as e:
                 logger.error(f"M3C2 computation failed: {e}")
         else:

@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from terrain_change_detection.preprocessing.clipping import (
     AreaClipper,
+    clip_point_cloud_files,
     check_shapely_available,
     check_fiona_available,
 )
@@ -282,6 +283,36 @@ class TestClipWithAttributes:
         assert len(clipped_pts) == 2
         np.testing.assert_array_equal(clipped_attrs['intensity'], [200, 400])
         np.testing.assert_array_equal(clipped_attrs['classification'], [2, 2])
+
+
+class TestClipPointCloudFiles:
+    """Regression tests for file-based clipping exports."""
+
+    def test_clip_point_cloud_files_preserves_point_source_id(self, tmp_path):
+        import laspy
+
+        input_path = tmp_path / "input.las"
+        output_dir = tmp_path / "out"
+
+        header = laspy.LasHeader(point_format=1, version="1.2")
+        las = laspy.LasData(header)
+        las.x = np.array([5.0, 25.0, 30.0, 80.0])
+        las.y = np.array([5.0, 25.0, 30.0, 80.0])
+        las.z = np.array([0.0, 1.0, 2.0, 3.0])
+        las.classification = np.array([2, 2, 2, 2], dtype=np.uint8)
+        las.point_source_id = np.array([100, 200, 200, 300], dtype=np.uint16)
+        las.scan_angle_rank = np.array([1, 2, 3, 4], dtype=np.int8)
+        las.gps_time = np.array([10.0, 20.0, 30.0, 40.0], dtype=np.float64)
+        las.write(str(input_path))
+
+        clipper = AreaClipper.from_bounds(10.0, 10.0, 50.0, 50.0)
+        outputs = clip_point_cloud_files([input_path], clipper, output_dir, ground_only=True)
+
+        assert len(outputs) == 1
+        clipped = laspy.read(outputs[0])
+        np.testing.assert_array_equal(np.asarray(clipped.point_source_id), [200, 200])
+        np.testing.assert_array_equal(np.asarray(clipped.scan_angle_rank), [2, 3])
+        np.testing.assert_allclose(np.asarray(clipped.gps_time), [20.0, 30.0])
 
 
 class TestStatistics:

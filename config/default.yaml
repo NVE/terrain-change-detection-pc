@@ -127,6 +127,8 @@ detection:
     export_raster: false
   m3c2:
     enabled: true
+    # M3C2 algorithm variant: original | ep
+    variant: original
     # Use automatic parameter tuning (true) or fixed parameters below (false)
     use_autotune: false
     # Percentage of reference ground points to use as M3C2 core points
@@ -148,6 +150,26 @@ detection:
       radius: 1.0          # If set, projection_scale=cylinder_radius=radius
       normal_scale: 1.0    # Defaults to radius when null
       depth_factor: 2.0    # If null, falls back to autotune.max_depth_factor
+    ep:
+      # Scan metadata resolution: auto | sidecar | synthetic_from_point_source_id
+      scan_metadata_source: auto
+      # Search the discovered metadata/ directory for scan-position sidecars
+      auto_discover_from_metadata_dir: true
+      # Optional explicit sidecar paths for epoch-specific scan metadata
+      scan_positions_t1_path: null
+      scan_positions_t2_path: null
+      # Alignment covariance source: icp_estimate | file | zero
+      cxx_source: icp_estimate
+      # Optional persisted 12x12 covariance matrix path (.npy, .txt, .csv)
+      alignment_covariance_path: null
+      # Export EP-only scalar fields in LAZ output when available
+      export_scalar_fields: true
+      # Synthetic ALS defaults used when scan metadata is synthesized
+      synthetic_sigma_range: 0.02
+      synthetic_sigma_scan: 0.001
+      synthetic_sigma_yaw: 0.001
+      # Height above local max Z for synthesized scanner origins; null uses a conservative default
+      synthetic_origin_height: null
     # Export M3C2 core points with distances as LAZ point cloud
     export_pc: true
     # Export M3C2 distances as interpolated GeoTIFF raster

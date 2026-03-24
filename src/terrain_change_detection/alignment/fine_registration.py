@@ -5,6 +5,8 @@ This module implements the Iterative Closest Point (ICP) algorithm for
 spatial alignment of multi-temporal point cloud datasets.
 """
 
+from __future__ import annotations
+
 from typing import Optional, Tuple
 import time
 
@@ -440,6 +442,105 @@ class ICPRegistration:
         rmse = float(np.sqrt(np.mean(distances[valid_mask] ** 2)))
 
         return rmse
+
+    def estimate_alignment_covariance(
+        self,
+        source: np.ndarray,
+        target: np.ndarray,
+        transform: np.ndarray,
+        *,
+        reduction_point: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """Estimate a 12x12 covariance matrix for the affine ICP parameters.
+
+        The parameter order matches the installed ``py4dgeo`` backend:
+        ``[a11, a12, a13, a21, a22, a23, a31, a32, a33, tx, ty, tz]``.
+        """
+        return estimate_alignment_covariance(
+            source=source,
+            target=target,
+            transform=transform,
+            max_correspondence_distance=self.max_correspondence_distance,
+            reduction_point=reduction_point,
+        )
+
+
+def estimate_alignment_covariance(
+    source: np.ndarray,
+    target: np.ndarray,
+    transform: np.ndarray,
+    *,
+    max_correspondence_distance: float = 1.0,
+    reduction_point: Optional[np.ndarray] = None,
+) -> np.ndarray:
+    """Estimate a 12x12 covariance matrix for an affine 3x4 transform.
+
+    The estimate is based on nearest-neighbor correspondences after applying the
+    final ICP transform to the moving cloud. It is intended for M3C2-EP, which
+    expects the transform parameters ordered as the flattened 3x3 linear part
+    followed by translation: ``[a11, a12, a13, a21, a22, a23, a31, a32, a33, tx, ty, tz]``.
+    """
+    if source.size == 0 or target.size == 0:
+        raise ValueError("source and target must be non-empty to estimate alignment covariance")
+    if transform.shape != (4, 4):
+        raise ValueError(f"transform must be shape (4, 4), got {transform.shape}")
+
+    reduction_point_vec = (
+        np.zeros(3, dtype=np.float64)
+        if reduction_point is None
+        else np.asarray(reduction_point, dtype=np.float64).reshape(3)
+    )
+
+    source = np.asarray(source, dtype=np.float64)
+    target = np.asarray(target, dtype=np.float64)
+    linear = np.asarray(transform[:3, :3], dtype=np.float64)
+    translation = np.asarray(transform[:3, 3], dtype=np.float64)
+
+    source_rel = source - reduction_point_vec
+    transformed = source_rel @ linear.T + translation + reduction_point_vec
+
+    nbrs = NearestNeighbors(n_neighbors=1, algorithm="kd_tree").fit(target)
+    distances, indices = nbrs.kneighbors(transformed)
+    distances = distances.ravel()
+    indices = indices.ravel()
+
+    valid_mask = np.isfinite(distances) & (distances < max_correspondence_distance)
+    n_valid = int(np.count_nonzero(valid_mask))
+    if n_valid < 5:
+        raise ValueError(
+            "Not enough valid ICP correspondences to estimate alignment covariance "
+            f"(need at least 5, got {n_valid})"
+        )
+
+    source_valid_rel = source_rel[valid_mask]
+    target_valid = target[indices[valid_mask]]
+    transformed_valid = transformed[valid_mask]
+    residuals = target_valid - transformed_valid
+
+    jtj = np.zeros((12, 12), dtype=np.float64)
+    for dx, dy, dz in source_valid_rel:
+        jacobian = np.array(
+            [
+                [-dx, -dy, -dz, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, -dx, -dy, -dz, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -dx, -dy, -dz, 0.0, 0.0, -1.0],
+            ],
+            dtype=np.float64,
+        )
+        jtj += jacobian.T @ jacobian
+
+    rss = float(np.sum(residuals**2))
+    dof = max(1, 3 * n_valid - 12)
+    sigma2 = rss / dof
+    cxx = sigma2 * np.linalg.pinv(jtj, hermitian=True)
+    cxx = 0.5 * (cxx + cxx.T)
+
+    logger.info(
+        "Estimated alignment covariance from %d correspondences (sigma^2=%.6e)",
+        n_valid,
+        sigma2,
+    )
+    return cxx
 
 
 def compute_overlap_mask(

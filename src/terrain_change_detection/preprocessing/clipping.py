@@ -659,6 +659,10 @@ def clip_point_cloud_files(
             out_las.return_number = np.array(las.return_number)[combined_mask]
         if hasattr(las, 'number_of_returns'):
             out_las.number_of_returns = np.array(las.number_of_returns)[combined_mask]
+        if hasattr(las, 'scan_angle_rank'):
+            out_las.scan_angle_rank = np.array(las.scan_angle_rank)[combined_mask]
+        if hasattr(las, 'point_source_id'):
+            out_las.point_source_id = np.array(las.point_source_id)[combined_mask]
         if hasattr(las, 'gps_time'):
             out_las.gps_time = np.array(las.gps_time)[combined_mask]
         

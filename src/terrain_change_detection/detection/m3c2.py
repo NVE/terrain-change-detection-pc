@@ -8,11 +8,14 @@ normal-based distance measurements.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass
-from typing import Optional, Dict, TYPE_CHECKING
+from pathlib import Path
+from typing import Optional, Dict, TYPE_CHECKING, Any
 import numpy as np
+import yaml
 
 if TYPE_CHECKING:
     from ..utils.coordinate_transform import LocalCoordinateTransform
@@ -29,6 +32,208 @@ from ..acceleration import (
 )
 
 logger = setup_logger(__name__)
+
+
+@dataclass
+class M3C2EPDetails:
+    """EP-specific scalar and covariance outputs."""
+
+    lodetection: np.ndarray
+    spread1: np.ndarray
+    spread2: np.ndarray
+    num_samples1: np.ndarray
+    num_samples2: np.ndarray
+    covariance1: Optional[np.ndarray] = None
+    covariance2: Optional[np.ndarray] = None
+
+
+@dataclass
+class M3C2EPScanMetadata:
+    """Prepared scan metadata ready to be attached to a py4dgeo Epoch."""
+
+    raw_scan_ids: np.ndarray
+    normalized_scan_ids: np.ndarray
+    raw_to_normalized: Dict[int, int]
+    scanpos_info: Dict[int, Dict[str, Any]]
+    source: str
+
+
+def _normal_radius(params: M3C2Params) -> float:
+    return float(params.normal_scale if params.normal_scale is not None else params.projection_scale)
+
+
+def _build_epoch(points: np.ndarray, scan_metadata: Optional[M3C2EPScanMetadata] = None):
+    from py4dgeo import Epoch
+
+    if scan_metadata is None:
+        return Epoch(points)
+
+    additional_dimensions = np.empty(
+        shape=(len(points), 1),
+        dtype=np.dtype([("scanpos_id", "<i4")]),
+    )
+    additional_dimensions["scanpos_id"] = np.asarray(
+        scan_metadata.normalized_scan_ids,
+        dtype=np.int32,
+    ).reshape(-1, 1)
+    return Epoch(
+        points,
+        additional_dimensions=additional_dimensions,
+        scanpos_info=scan_metadata.scanpos_info,
+    )
+
+
+def _coerce_scan_position_entry(raw_id: int, entry: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(entry, dict):
+        raise ValueError(f"Scan position entry for raw ID {raw_id} must be a mapping")
+
+    origin = entry.get("origin")
+    if not isinstance(origin, (list, tuple)) or len(origin) != 3:
+        raise ValueError(f"Scan position entry for raw ID {raw_id} must define origin=[x, y, z]")
+
+    try:
+        return {
+            "origin": [float(origin[0]), float(origin[1]), float(origin[2])],
+            "sigma_range": float(entry["sigma_range"]),
+            "sigma_scan": float(entry["sigma_scan"]),
+            "sigma_yaw": float(entry["sigma_yaw"]),
+        }
+    except KeyError as exc:
+        raise ValueError(f"Scan position entry for raw ID {raw_id} is missing {exc.args[0]}") from exc
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Scan position entry for raw ID {raw_id} contains non-numeric uncertainty values") from exc
+
+
+def _normalize_scan_metadata(
+    points: np.ndarray,
+    raw_scan_ids: np.ndarray,
+    raw_scan_info: dict[int, dict[str, Any]],
+    *,
+    source: str,
+) -> M3C2EPScanMetadata:
+    raw_scan_ids = np.asarray(raw_scan_ids)
+    if raw_scan_ids.ndim != 1 or raw_scan_ids.shape[0] != points.shape[0]:
+        raise ValueError("raw_scan_ids must be a 1D array with the same length as points")
+
+    unique_raw = [int(v) for v in np.unique(raw_scan_ids)]
+    missing = [raw_id for raw_id in unique_raw if raw_id not in raw_scan_info]
+    if missing:
+        raise ValueError(
+            "Missing scan metadata for raw point_source_id values: "
+            + ", ".join(str(raw_id) for raw_id in missing)
+        )
+
+    raw_to_normalized = {raw_id: idx + 1 for idx, raw_id in enumerate(unique_raw)}
+    normalized_ids = np.array([raw_to_normalized[int(raw_id)] for raw_id in raw_scan_ids], dtype=np.int32)
+    scanpos_info = {
+        raw_to_normalized[raw_id]: _coerce_scan_position_entry(raw_id, raw_scan_info[raw_id])
+        for raw_id in unique_raw
+    }
+
+    return M3C2EPScanMetadata(
+        raw_scan_ids=raw_scan_ids.astype(np.int32, copy=False),
+        normalized_scan_ids=normalized_ids,
+        raw_to_normalized=raw_to_normalized,
+        scanpos_info=scanpos_info,
+        source=source,
+    )
+
+
+def _load_scan_metadata_sidecar(path: str | Path) -> dict[int, dict[str, Any]]:
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Scan metadata sidecar not found: {path}")
+
+    with path.open("r", encoding="utf-8") as handle:
+        if path.suffix.lower() in {".yaml", ".yml"}:
+            raw = yaml.safe_load(handle)
+        else:
+            raw = json.load(handle)
+
+    if not isinstance(raw, dict):
+        raise ValueError(f"Scan metadata sidecar must contain a top-level mapping: {path}")
+
+    normalized: dict[int, dict[str, Any]] = {}
+    for raw_id, entry in raw.items():
+        try:
+            normalized[int(raw_id)] = entry
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid scan metadata key {raw_id!r} in {path}") from exc
+    return normalized
+
+
+def _discover_scan_metadata_sidecar(metadata_dir: str | Path | None) -> Optional[Path]:
+    if metadata_dir is None:
+        return None
+
+    metadata_path = Path(metadata_dir)
+    if not metadata_path.exists() or not metadata_path.is_dir():
+        return None
+
+    preferred_names = [
+        "scan_positions.json",
+        "scan_positions.yaml",
+        "scan_positions.yml",
+        "scanpos_info.json",
+        "scanpos_info.yaml",
+        "scanpos_info.yml",
+        "sps.json",
+        "sps.yaml",
+        "sps.yml",
+    ]
+    for name in preferred_names:
+        candidate = metadata_path / name
+        if candidate.exists():
+            return candidate
+
+    matches = sorted(
+        [
+            *metadata_path.glob("*scan*pos*.json"),
+            *metadata_path.glob("*scan*pos*.yaml"),
+            *metadata_path.glob("*scan*pos*.yml"),
+            *metadata_path.glob("sps*.json"),
+            *metadata_path.glob("sps*.yaml"),
+            *metadata_path.glob("sps*.yml"),
+        ]
+    )
+    return matches[0] if matches else None
+
+
+def _synthesize_scan_metadata_from_point_source_id(
+    points: np.ndarray,
+    raw_scan_ids: np.ndarray,
+    *,
+    sigma_range: float,
+    sigma_scan: float,
+    sigma_yaw: float,
+    origin_height: Optional[float],
+) -> dict[int, dict[str, Any]]:
+    if points.size == 0:
+        raise ValueError("Cannot synthesize scan metadata from an empty point cloud")
+
+    altitude_offset = float(origin_height) if origin_height is not None else 1000.0
+    raw_scan_ids = np.asarray(raw_scan_ids)
+    scan_info: dict[int, dict[str, Any]] = {}
+
+    for raw_id in np.unique(raw_scan_ids):
+        raw_id_int = int(raw_id)
+        group = points[raw_scan_ids == raw_id]
+        if group.size == 0:
+            continue
+        scan_info[raw_id_int] = {
+            "origin": [
+                float(np.median(group[:, 0])),
+                float(np.median(group[:, 1])),
+                float(np.max(group[:, 2]) + altitude_offset),
+            ],
+            "sigma_range": float(sigma_range),
+            "sigma_scan": float(sigma_scan),
+            "sigma_yaw": float(sigma_yaw),
+        }
+
+    if not scan_info:
+        raise ValueError("No scan metadata could be synthesized from point_source_id")
+    return scan_info
 
 
 @dataclass
@@ -71,6 +276,7 @@ class M3C2Result:
     uncertainty: Optional[np.ndarray] = None
     significant: Optional[np.ndarray] = None
     metadata: Optional[Dict] = None
+    ep_details: Optional[M3C2EPDetails] = None
 
 
 class M3C2Detector:
@@ -203,6 +409,105 @@ class M3C2Detector:
         return params
 
     @staticmethod
+    def load_scan_metadata_sidecar(path: str | Path) -> dict[int, dict[str, Any]]:
+        """Load raw scan metadata keyed by raw ``point_source_id`` values."""
+        return _load_scan_metadata_sidecar(path)
+
+    @staticmethod
+    def discover_scan_metadata_sidecar(metadata_dir: str | Path | None) -> Optional[Path]:
+        """Discover a scan metadata sidecar in a dataset metadata directory."""
+        return _discover_scan_metadata_sidecar(metadata_dir)
+
+    @staticmethod
+    def resolve_scan_metadata(
+        points: np.ndarray,
+        raw_scan_ids: np.ndarray,
+        *,
+        scan_metadata_source: str = "auto",
+        explicit_path: str | Path | None = None,
+        metadata_dir: str | Path | None = None,
+        auto_discover_from_metadata_dir: bool = True,
+        synthetic_sigma_range: float = 0.02,
+        synthetic_sigma_scan: float = 0.001,
+        synthetic_sigma_yaw: float = 0.001,
+        synthetic_origin_height: Optional[float] = None,
+        epoch_label: str = "epoch",
+    ) -> M3C2EPScanMetadata:
+        """Resolve EP scan metadata from sidecars or synthetic ALS defaults."""
+        raw_scan_ids = np.asarray(raw_scan_ids)
+        if raw_scan_ids.ndim != 1 or raw_scan_ids.shape[0] != points.shape[0]:
+            raise ValueError(
+                f"{epoch_label}: point_source_id must be a 1D array matching the number of points"
+            )
+
+        sidecar_path: Optional[Path] = None
+        if explicit_path is not None:
+            sidecar_path = Path(explicit_path)
+        elif auto_discover_from_metadata_dir:
+            sidecar_path = _discover_scan_metadata_sidecar(metadata_dir)
+
+        if sidecar_path is not None:
+            raw_scan_info = _load_scan_metadata_sidecar(sidecar_path)
+            return _normalize_scan_metadata(
+                points,
+                raw_scan_ids,
+                raw_scan_info,
+                source=f"sidecar:{sidecar_path}",
+            )
+
+        if scan_metadata_source == "sidecar":
+            raise ValueError(
+                f"{epoch_label}: scan_metadata_source='sidecar' but no usable sidecar was found"
+            )
+
+        if scan_metadata_source not in {"auto", "synthetic_from_point_source_id"}:
+            raise ValueError(f"Unsupported scan_metadata_source: {scan_metadata_source}")
+
+        raw_scan_info = _synthesize_scan_metadata_from_point_source_id(
+            points,
+            raw_scan_ids,
+            sigma_range=synthetic_sigma_range,
+            sigma_scan=synthetic_sigma_scan,
+            sigma_yaw=synthetic_sigma_yaw,
+            origin_height=synthetic_origin_height,
+        )
+        return _normalize_scan_metadata(
+            points,
+            raw_scan_ids,
+            raw_scan_info,
+            source="synthetic_from_point_source_id",
+        )
+
+    @staticmethod
+    def compute_m3c2(
+        core_points: np.ndarray,
+        cloud_t1: np.ndarray,
+        cloud_t2: np.ndarray,
+        params: M3C2Params,
+        *,
+        variant: str = "original",
+        **kwargs,
+    ) -> M3C2Result:
+        """Dispatch between vanilla M3C2 and M3C2-EP."""
+        if variant == "original":
+            return M3C2Detector.compute_m3c2_original(
+                core_points=core_points,
+                cloud_t1=cloud_t1,
+                cloud_t2=cloud_t2,
+                params=params,
+                **kwargs,
+            )
+        if variant == "ep":
+            return M3C2Detector.compute_m3c2_ep(
+                core_points=core_points,
+                cloud_t1=cloud_t1,
+                cloud_t2=cloud_t2,
+                params=params,
+                **kwargs,
+            )
+        raise ValueError(f"Unsupported M3C2 variant: {variant}")
+
+    @staticmethod
     def compute_m3c2_original(
         core_points: np.ndarray,
         cloud_t1: np.ndarray,
@@ -238,8 +543,8 @@ class M3C2Detector:
         )
 
         # Construct Epochs (py4dgeo ensures DP and contiguous memory)
-        epoch1 = Epoch(cloud_t1)
-        epoch2 = Epoch(cloud_t2)
+        epoch1 = _build_epoch(cloud_t1)
+        epoch2 = _build_epoch(cloud_t2)
 
         # Prepare normal radii inline in call to avoid indentation issues
 
@@ -251,7 +556,7 @@ class M3C2Detector:
             max_distance=float(params.max_depth),
             registration_error=0.0,
             robust_aggr=False,
-            normal_radii=[float(params.normal_scale if params.normal_scale is not None else params.projection_scale)],
+            normal_radii=[_normal_radius(params)],
         )
 
         # Run algorithm, capturing both Python and C-level prints (e.g., KDTree build)
@@ -295,7 +600,7 @@ class M3C2Detector:
             significant=None,  # Original M3C2 does not produce significance mask without EP
             metadata={
                 "variant": "original",
-                "normal_radii": [float(params.normal_scale if params.normal_scale is not None else params.projection_scale)],
+                "normal_radii": [_normal_radius(params)],
                 "cylinder_radius": float(params.cylinder_radius),
                 "max_depth": float(params.max_depth),
                 "min_neighbors": int(params.min_neighbors),
@@ -318,6 +623,143 @@ class M3C2Detector:
                 median_v,
                 std_v,
             )
+
+        return result
+
+    @staticmethod
+    def compute_m3c2_ep(
+        core_points: np.ndarray,
+        cloud_t1: np.ndarray,
+        cloud_t2: np.ndarray,
+        params: M3C2Params,
+        *,
+        transform_matrix: np.ndarray,
+        cxx: np.ndarray,
+        scan_metadata_t1: M3C2EPScanMetadata,
+        scan_metadata_t2: M3C2EPScanMetadata,
+        reduction_point: Optional[np.ndarray] = None,
+        perform_transform: bool = True,
+    ) -> M3C2Result:
+        """Compute M3C2-EP distances using the ``py4dgeo`` backend."""
+        if core_points.size == 0 or cloud_t1.size == 0 or cloud_t2.size == 0:
+            raise ValueError("Input point arrays must be non-empty")
+        if transform_matrix.shape != (4, 4):
+            raise ValueError(f"transform_matrix must be shape (4, 4), got {transform_matrix.shape}")
+
+        cxx = np.asarray(cxx, dtype=np.float64)
+        if cxx.shape != (12, 12):
+            raise ValueError(f"cxx must be shape (12, 12), got {cxx.shape}")
+
+        try:
+            from py4dgeo import M3C2EP
+        except Exception as e:
+            logger.error("py4dgeo M3C2EP not available: %s", e)
+            raise ImportError("py4dgeo is required for M3C2-EP computation") from e
+
+        tfm = np.asarray(transform_matrix[:3, :], dtype=np.float64)
+        ref_point = (
+            np.zeros(3, dtype=np.float64)
+            if reduction_point is None
+            else np.asarray(reduction_point, dtype=np.float64).reshape(3)
+        )
+
+        epoch1 = _build_epoch(cloud_t1, scan_metadata=scan_metadata_t1)
+        epoch2 = _build_epoch(cloud_t2, scan_metadata=scan_metadata_t2)
+
+        logger.debug(
+            "Running M3C2-EP: core_points=%d, cloud_t1=%d, cloud_t2=%d, perform_transform=%s",
+            len(core_points),
+            len(cloud_t1),
+            len(cloud_t2),
+            perform_transform,
+        )
+
+        algo = M3C2EP(
+            epochs=(epoch1, epoch2),
+            corepoints=core_points,
+            cyl_radius=float(params.cylinder_radius),
+            max_distance=float(params.max_depth),
+            registration_error=0.0,
+            robust_aggr=False,
+            normal_radii=[_normal_radius(params)],
+            tfM=tfm,
+            Cxx=cxx,
+            refPointMov=ref_point,
+            perform_trans=perform_transform,
+        )
+
+        with capture_c_streams_to_logger(logger, level=logging.DEBUG, include_patterns=["Building KDTree"]), \
+             redirect_stdout_stderr_to_logger(logger, level=logging.DEBUG, pattern="Building KDTree"):
+            distances, uncertainties, covariance = algo.run()
+
+        distances = np.asarray(distances, dtype=float).reshape(-1)
+        if uncertainties.dtype.names is None:
+            raise ValueError("py4dgeo M3C2EP uncertainties output must be a structured array")
+
+        lodetection = uncertainties["lodetection"].astype(float)
+        spread1 = uncertainties["spread1"].astype(float)
+        spread2 = uncertainties["spread2"].astype(float)
+        num_samples1 = uncertainties["num_samples1"].astype(np.int64)
+        num_samples2 = uncertainties["num_samples2"].astype(np.int64)
+
+        covariance1 = None
+        covariance2 = None
+        if getattr(covariance, "dtype", None) is not None and covariance.dtype.names is not None:
+            covariance1 = covariance["cov1"].astype(float)
+            covariance2 = covariance["cov2"].astype(float)
+
+        significant = (
+            np.isfinite(distances)
+            & np.isfinite(lodetection)
+            & (np.abs(distances) > lodetection)
+        )
+
+        valid_mask = np.isfinite(distances)
+        n_valid = int(valid_mask.sum())
+        mean_v = float(np.nanmean(distances)) if n_valid > 0 else float("nan")
+        median_v = float(np.nanmedian(distances)) if n_valid > 0 else float("nan")
+        std_v = float(np.nanstd(distances)) if n_valid > 0 else float("nan")
+
+        result = M3C2Result(
+            core_points=core_points,
+            distances=distances,
+            uncertainty=lodetection,
+            significant=significant,
+            metadata={
+                "variant": "ep",
+                "normal_radii": [_normal_radius(params)],
+                "cylinder_radius": float(params.cylinder_radius),
+                "max_depth": float(params.max_depth),
+                "min_neighbors": int(params.min_neighbors),
+                "confidence": float(params.confidence),
+                "perform_transform": bool(perform_transform),
+                "scan_metadata_source_t1": scan_metadata_t1.source,
+                "scan_metadata_source_t2": scan_metadata_t2.source,
+                "n_valid": n_valid,
+                "mean": mean_v,
+                "median": median_v,
+                "std": std_v,
+            },
+            ep_details=M3C2EPDetails(
+                lodetection=lodetection,
+                spread1=spread1,
+                spread2=spread2,
+                num_samples1=num_samples1,
+                num_samples2=num_samples2,
+                covariance1=covariance1,
+                covariance2=covariance2,
+            ),
+        )
+
+        logger.info(
+            "M3C2-EP completed: n=%d (valid=%d), significant=%d, mean=%.4f m, median=%.4f m, std=%.4f m",
+            result.distances.size,
+            n_valid,
+            int(np.count_nonzero(significant)),
+            mean_v,
+            median_v,
+            std_v,
+        )
 
         return result
 
