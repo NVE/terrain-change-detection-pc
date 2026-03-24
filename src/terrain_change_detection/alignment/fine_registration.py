@@ -453,7 +453,7 @@ class ICPRegistration:
     ) -> np.ndarray:
         """Estimate a 12x12 covariance matrix for the affine ICP parameters.
 
-        The parameter order matches the installed ``py4dgeo`` backend:
+        The parameter order matches the installed ``py4dgeo`` backend code:
         ``[a11, a12, a13, a21, a22, a23, a31, a32, a33, tx, ty, tz]``.
         """
         return estimate_alignment_covariance(
@@ -478,7 +478,11 @@ def estimate_alignment_covariance(
     The estimate is based on nearest-neighbor correspondences after applying the
     final ICP transform to the moving cloud. It is intended for M3C2-EP, which
     expects the transform parameters ordered as the flattened 3x3 linear part
-    followed by translation: ``[a11, a12, a13, a21, a22, a23, a31, a32, a33, tx, ty, tz]``.
+    followed by translation:
+    ``[a11, a12, a13, a21, a22, a23, a31, a32, a33, tx, ty, tz]``.
+
+    Note: the installed ``py4dgeo`` backend formulas index translation at
+    positions 9, 10, and 11, so this function follows that backend behavior.
     """
     if source.size == 0 or target.size == 0:
         raise ValueError("source and target must be non-empty to estimate alignment covariance")

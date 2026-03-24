@@ -14,6 +14,7 @@ from terrain_change_detection.detection.m3c2 import (
     M3C2EPScanMetadata,
     M3C2Params,
     _build_epoch,
+    _transform_scan_metadata,
 )
 
 
@@ -171,6 +172,7 @@ def test_compute_m3c2_ep_converts_backend_outputs(monkeypatch):
         scan_metadata_t2=scan_metadata,
     )
 
+    np.testing.assert_allclose(result.distances, [-0.25, 0.1])
     np.testing.assert_allclose(result.uncertainty, [0.2, 0.3])
     np.testing.assert_array_equal(result.significant, [True, False])
     assert result.metadata["variant"] == "ep"
@@ -179,6 +181,40 @@ def test_compute_m3c2_ep_converts_backend_outputs(monkeypatch):
     np.testing.assert_array_equal(result.ep_details.num_samples2, [6, 8])
     np.testing.assert_allclose(result.ep_details.covariance1[0], np.eye(3))
     np.testing.assert_allclose(result.ep_details.covariance2[1], np.eye(3) * 4.0)
+
+
+def test_transform_scan_metadata_moves_origins_without_mutating_input():
+    scan_metadata = M3C2EPScanMetadata(
+        raw_scan_ids=np.array([10, 10], dtype=np.int32),
+        normalized_scan_ids=np.array([1, 1], dtype=np.int32),
+        raw_to_normalized={10: 1},
+        scanpos_info={
+            1: {
+                "origin": [1.0, 2.0, 3.0],
+                "sigma_range": 0.02,
+                "sigma_scan": 0.001,
+                "sigma_yaw": 0.001,
+            }
+        },
+        source="synthetic_from_point_source_id",
+    )
+    transform_3x4 = np.array(
+        [
+            [1.0, 0.0, 0.0, 10.0],
+            [0.0, 1.0, 0.0, -5.0],
+            [0.0, 0.0, 1.0, 2.0],
+        ],
+        dtype=float,
+    )
+
+    transformed = _transform_scan_metadata(
+        scan_metadata,
+        transform_3x4,
+        np.zeros(3, dtype=float),
+    )
+
+    assert scan_metadata.scanpos_info[1]["origin"] == [1.0, 2.0, 3.0]
+    assert transformed.scanpos_info[1]["origin"] == [11.0, -3.0, 5.0]
 
 
 def test_build_epoch_with_scan_metadata_attaches_scanpos_ids():

@@ -1835,11 +1835,11 @@ def main():
 
                 plot_title = "M3C2-EP distances (m)" if m3c2_variant == "ep" else "M3C2 distances (m)"
                 if show_plots:
-                    # Visualize M3C2 distance histogram first
-                    visualizer.visualize_distance_histogram(m3c2_res.distances, title=plot_title, bins=60)
-                    
-                    # Visualize M3C2 core points in 3D
-                    # Revert to global coordinates for visualization (users expect UTM coordinates)
+                    if cfg.visualization.backend == 'plotly':
+                        visualizer.visualize_distance_histogram(m3c2_res.distances, title=plot_title, bins=60)
+
+                    # Visualize M3C2 core points in 3D.
+                    # Revert to global coordinates for visualization (users expect UTM coordinates).
                     vis_core_points = local_transform.to_global(m3c2_res.core_points) if local_transform else m3c2_res.core_points
                     visualizer.visualize_m3c2_corepoints(
                         vis_core_points,
@@ -1918,7 +1918,7 @@ def main():
                     except Exception as export_err:
                         logger.error(f"{m3c2_label} export failed: {export_err}")
             except Exception as e:
-                logger.error(f"M3C2 computation failed: {e}")
+                logger.error(f"M3C2 computation failed: {e}", exc_info=True)
         else:
             logger.info("Skipping M3C2 (disabled in config).")
 

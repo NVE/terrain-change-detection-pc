@@ -58,6 +58,55 @@ class M3C2EPScanMetadata:
     source: str
 
 
+def _apply_affine_transform(
+    point: np.ndarray,
+    transform_3x4: np.ndarray,
+    reduction_point: np.ndarray,
+) -> np.ndarray:
+    """Apply the py4dgeo 3x4 affine transform notation to a single point."""
+    point = np.asarray(point, dtype=np.float64).reshape(3)
+    return (
+        transform_3x4[:, :3] @ (point - reduction_point)
+        + transform_3x4[:, 3]
+        + reduction_point
+    )
+
+
+def _transform_scan_metadata(
+    scan_metadata: M3C2EPScanMetadata,
+    transform_3x4: np.ndarray,
+    reduction_point: np.ndarray,
+) -> M3C2EPScanMetadata:
+    """Return a copy with scan origins transformed into the comparison frame.
+
+    ``py4dgeo.M3C2EP`` transforms epoch-2 points internally when
+    ``perform_trans=True``. Its scan-position metadata are consumed in the same
+    transformed geometric context, so origins tied to the moving epoch must be
+    transformed as well.
+    """
+    transformed_scanpos_info: Dict[int, Dict[str, Any]] = {}
+    for normalized_id, entry in scan_metadata.scanpos_info.items():
+        origin = _apply_affine_transform(
+            np.asarray(entry["origin"], dtype=np.float64),
+            transform_3x4,
+            reduction_point,
+        )
+        transformed_scanpos_info[int(normalized_id)] = {
+            "origin": [float(origin[0]), float(origin[1]), float(origin[2])],
+            "sigma_range": float(entry["sigma_range"]),
+            "sigma_scan": float(entry["sigma_scan"]),
+            "sigma_yaw": float(entry["sigma_yaw"]),
+        }
+
+    return M3C2EPScanMetadata(
+        raw_scan_ids=scan_metadata.raw_scan_ids.copy(),
+        normalized_scan_ids=scan_metadata.normalized_scan_ids.copy(),
+        raw_to_normalized=dict(scan_metadata.raw_to_normalized),
+        scanpos_info=transformed_scanpos_info,
+        source=scan_metadata.source,
+    )
+
+
 def _normal_radius(params: M3C2Params) -> float:
     return float(params.normal_scale if params.normal_scale is not None else params.projection_scale)
 
@@ -664,7 +713,12 @@ class M3C2Detector:
         )
 
         epoch1 = _build_epoch(cloud_t1, scan_metadata=scan_metadata_t1)
-        epoch2 = _build_epoch(cloud_t2, scan_metadata=scan_metadata_t2)
+        epoch2_scan_metadata = (
+            _transform_scan_metadata(scan_metadata_t2, tfm, ref_point)
+            if perform_transform
+            else scan_metadata_t2
+        )
+        epoch2 = _build_epoch(cloud_t2, scan_metadata=epoch2_scan_metadata)
 
         logger.debug(
             "Running M3C2-EP: core_points=%d, cloud_t1=%d, cloud_t2=%d, perform_transform=%s",
@@ -692,7 +746,10 @@ class M3C2Detector:
              redirect_stdout_stderr_to_logger(logger, level=logging.DEBUG, pattern="Building KDTree"):
             distances, uncertainties, covariance = algo.run()
 
-        distances = np.asarray(distances, dtype=float).reshape(-1)
+        # ``py4dgeo.M3C2EP`` reports the opposite sign convention to the base
+        # M3C2 backend used elsewhere in this repository. Normalize it here so
+        # both variants remain directly comparable.
+        distances = -np.asarray(distances, dtype=float).reshape(-1)
         if uncertainties.dtype.names is None:
             raise ValueError("py4dgeo M3C2EP uncertainties output must be a structured array")
 
