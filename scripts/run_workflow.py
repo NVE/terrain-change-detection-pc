@@ -20,6 +20,7 @@ from terrain_change_detection.acceleration import LaspyStreamReader
 from terrain_change_detection.alignment import (
     apply_transform_to_files,
     save_transform_matrix,
+    compute_overlap_mask,
 )
 from terrain_change_detection.alignment.coarse_registration import CoarseRegistration
 from terrain_change_detection.alignment.fine_registration import ICPRegistration
@@ -61,6 +62,27 @@ from terrain_change_detection.visualization.point_cloud import PointCloudVisuali
 
 logging.getLogger("terrain_change_detection.preprocessing.data_discovery").setLevel(logging.ERROR)
 logging.getLogger("terrain_change_detection.preprocessing.loader").setLevel(logging.ERROR)
+
+
+def resolve_subsample_count(total_points: int, cfg) -> int:
+    """Compute the effective subsample count from config.
+
+    Supports both absolute-count and percentage modes, with a safety cap.
+
+    Args:
+        total_points: Total number of points in the cloud.
+        cfg: ``AlignmentICPConfig`` (or similar object with the required fields).
+
+    Returns:
+        Number of points to subsample (capped by ``max_subsample_size``).
+    """
+    if getattr(cfg, "subsample_mode", "count") == "percent":
+        n = int(total_points * cfg.subsample_percent / 100.0)
+    else:
+        n = cfg.subsample_size
+    cap = getattr(cfg, "max_subsample_size", 500_000)
+    return min(n, cap)
+
 
 def write_run_inputs(base_dir: Path, args: argparse.Namespace, cfg: AppConfig):
     """
@@ -170,6 +192,13 @@ def main():
         help="If True, generate DEMs after ICP and saves them to disk.",
     )
 
+    parser.add_argument(
+        "--reference",
+        choices=["t1", "t2"],
+        default=None,
+        help="Which epoch is the ICP reference (t1=earlier, t2=later). Overrides config.",
+    )
+
     args, unknown = parser.parse_known_args()
     
 
@@ -188,14 +217,15 @@ def main():
 
     logger.info(f"selected_years: {selected_years}")
 
-    # Optional deterministic seed for NumPy RNG (affects subsampling/core selection)
-    try:
-        if args.seed is not None:
-            import numpy as _np_seed
-            _np_seed.random.seed(int(args.seed))
-            logger.info(f"NumPy RNG seeded with {int(args.seed)}")
-    except Exception:
-        pass
+    # Deterministic RNG for reproducible subsampling
+    # CLI --seed overrides config; config defaults to 42 for determinism
+    _seed = args.seed if args.seed is not None else cfg.alignment.random_seed
+    rng = np.random.default_rng(int(_seed))
+    logger.info(f"NumPy RNG seeded with {int(_seed)}")
+
+    # CLI --reference overrides config
+    if args.reference is not None:
+        cfg.alignment.reference = args.reference
 
     # Performance: set thread env vars if configured
     try:
@@ -467,10 +497,31 @@ def main():
             )
             
             # Load samples for alignment (streaming-based reservoir sampling)
-            logger.info("Loading subsampled data for alignment (subsample_size=%d)...", cfg.alignment.subsample_size)
+            # Estimate total ground points for percentage-based subsampling
+            est_ground1 = int(m1.get('total_points_ground') or m1.get('total_points_all') or 0)
+            est_ground2 = int(m2.get('total_points_ground') or m2.get('total_points_all') or 0)
+            n_per_ds1 = resolve_subsample_count(max(est_ground1, 1), cfg.alignment)
+            n_per_ds2 = resolve_subsample_count(max(est_ground2, 1), cfg.alignment)
+            logger.info("Loading subsampled data for alignment (T1→%d, T2→%d)...", n_per_ds1, n_per_ds2)
 
-            n_per_dataset = cfg.alignment.subsample_size
-            
+            # Overlap-aware bounding box for streaming subsampling
+            overlap_bbox = None
+            if cfg.alignment.overlap_filter:
+                from terrain_change_detection.acceleration.tiling import intersection_bounds
+                overlap_bbox = intersection_bounds(
+                    [str(p) for p in ds1.laz_files],
+                    [str(p) for p in ds2.laz_files],
+                    margin=cfg.alignment.overlap_margin_m,
+                )
+                if overlap_bbox is not None:
+                    logger.info(
+                        "Streaming overlap bbox: x=[%.1f, %.1f], y=[%.1f, %.1f]",
+                        overlap_bbox.min_x, overlap_bbox.max_x,
+                        overlap_bbox.min_y, overlap_bbox.max_y,
+                    )
+                else:
+                    logger.warning("No overlap found between datasets; sampling full extents.")
+
             # T1 alignment subsample
             reader1 = LaspyStreamReader(
                 [str(p) for p in ds1.laz_files],
@@ -478,17 +529,23 @@ def main():
                 classification_filter=cfg.preprocessing.classification_filter,
                 chunk_points=cfg.outofcore.chunk_points,
             )
-            points1 = reader1.reservoir_sample(n_per_dataset, transform=local_transform)
-            
-            # T2 alignment subsample
+            points1 = reader1.reservoir_sample(
+                n_per_ds1, transform=local_transform, bbox=overlap_bbox,
+                seed=int(_seed),
+            )
+
+            # T2 alignment subsample (use a derived seed for independence)
             reader2 = LaspyStreamReader(
                 [str(p) for p in ds2.laz_files],
                 ground_only=cfg.preprocessing.ground_only,
                 classification_filter=cfg.preprocessing.classification_filter,
                 chunk_points=cfg.outofcore.chunk_points,
             )
-            points2 = reader2.reservoir_sample(n_per_dataset, transform=local_transform)
-            
+            points2 = reader2.reservoir_sample(
+                n_per_ds2, transform=local_transform, bbox=overlap_bbox,
+                seed=int(_seed) + 1,
+            )
+
             logger.info(f"Loaded {len(points1)} sample points from T1 for alignment")
             logger.info(f"Loaded {len(points2)} sample points from T2 for alignment")
         else:
@@ -677,12 +734,12 @@ def main():
             if getattr(cfg.alignment, "multiscale", None) and cfg.alignment.multiscale.enabled:
                 logger.info("Running multi-scale ICP refinement...")
 
-                # Coarse subsampling
+                # Coarse subsampling (deterministic via rng)
                 n_coarse = cfg.alignment.multiscale.coarse_subsample_size
                 n1c = min(len(points1), n_coarse)
                 n2c = min(len(points2), n_coarse)
-                idx1c = np.random.choice(len(points1), n1c, replace=False) if len(points1) > n1c else np.arange(len(points1))
-                idx2c = np.random.choice(len(points2), n2c, replace=False) if len(points2) > n2c else np.arange(len(points2))
+                idx1c = rng.choice(len(points1), n1c, replace=False) if len(points1) > n1c else np.arange(len(points1))
+                idx2c = rng.choice(len(points2), n2c, replace=False) if len(points2) > n2c else np.arange(len(points2))
                 points1_coarse = points1[idx1c]
                 points2_coarse = points2[idx2c]
 
@@ -729,54 +786,116 @@ def main():
                     else:
                         logger.info("Multi-scale refinement completed: RMSE=%.6f m", coarse_err)
 
-            # Fine ICP configuration
-            icp = ICPRegistration(
-                max_iterations=cfg.alignment.max_iterations,
-                tolerance=cfg.alignment.tolerance,
-                max_correspondence_distance=cfg.alignment.max_correspondence_distance,
-                use_gpu=(cfg.gpu.enabled and cfg.gpu.use_for_alignment),
-                convergence_translation_epsilon=cfg.alignment.convergence_translation_epsilon,
-                convergence_rotation_epsilon_deg=cfg.alignment.convergence_rotation_epsilon_deg,
-            )
-
-            # Subsample for fine alignment if datasets are large
-            if len(points1) > cfg.alignment.subsample_size:
-                n1 = min(len(points1), cfg.alignment.subsample_size)
-                indices1 = np.random.choice(len(points1), n1, replace=False)
-                points1_subsampled = points1[indices1]
+            # --- ICP backend selection (Issue 6) ---
+            if cfg.alignment.icp_backend == "open3d":
+                try:
+                    from terrain_change_detection.alignment.open3d_icp import Open3DICP
+                    icp = Open3DICP(
+                        max_iterations=cfg.alignment.max_iterations,
+                        tolerance=cfg.alignment.tolerance,
+                        max_correspondence_distance=cfg.alignment.max_correspondence_distance,
+                        convergence_translation_epsilon=cfg.alignment.convergence_translation_epsilon,
+                        convergence_rotation_epsilon_deg=cfg.alignment.convergence_rotation_epsilon_deg,
+                    )
+                    logger.info("Using Open3D ICP backend")
+                except ImportError:
+                    logger.warning("Open3D not available; falling back to custom ICP backend")
+                    icp = ICPRegistration(
+                        max_iterations=cfg.alignment.max_iterations,
+                        tolerance=cfg.alignment.tolerance,
+                        max_correspondence_distance=cfg.alignment.max_correspondence_distance,
+                        use_gpu=(cfg.gpu.enabled and cfg.gpu.use_for_alignment),
+                        convergence_translation_epsilon=cfg.alignment.convergence_translation_epsilon,
+                        convergence_rotation_epsilon_deg=cfg.alignment.convergence_rotation_epsilon_deg,
+                    )
             else:
-                points1_subsampled = points1
+                icp = ICPRegistration(
+                    max_iterations=cfg.alignment.max_iterations,
+                    tolerance=cfg.alignment.tolerance,
+                    max_correspondence_distance=cfg.alignment.max_correspondence_distance,
+                    use_gpu=(cfg.gpu.enabled and cfg.gpu.use_for_alignment),
+                    convergence_translation_epsilon=cfg.alignment.convergence_translation_epsilon,
+                    convergence_rotation_epsilon_deg=cfg.alignment.convergence_rotation_epsilon_deg,
+                )
 
-            if len(points2) > cfg.alignment.subsample_size:
-                n2 = min(len(points2), cfg.alignment.subsample_size)
-                indices2 = np.random.choice(len(points2), n2, replace=False)
-                points2_subsampled = points2[indices2]
+            # --- Overlap filtering (Issue 5) ---
+            points1_for_icp = points1
+            points2_for_icp = points2
+            if cfg.alignment.overlap_filter and not use_streaming:
+                mask1, mask2 = compute_overlap_mask(
+                    points1, points2, margin=cfg.alignment.overlap_margin_m,
+                )
+                n1_overlap = int(mask1.sum())
+                n2_overlap = int(mask2.sum())
+                if n1_overlap >= 100 and n2_overlap >= 100:
+                    points1_for_icp = points1[mask1]
+                    points2_for_icp = points2[mask2]
+                    logger.info(
+                        "Overlap filter: T1 %d/%d, T2 %d/%d points in overlap region",
+                        n1_overlap, len(points1), n2_overlap, len(points2),
+                    )
+                else:
+                    logger.warning(
+                        "Overlap filter: too few points in overlap (%d, %d); using full clouds",
+                        n1_overlap, n2_overlap,
+                    )
+
+            # --- Subsample for fine alignment (Issues 3 & 4) ---
+            n1_target = resolve_subsample_count(len(points1_for_icp), cfg.alignment)
+            if len(points1_for_icp) > n1_target:
+                indices1 = rng.choice(len(points1_for_icp), n1_target, replace=False)
+                points1_subsampled = points1_for_icp[indices1]
             else:
-                points2_subsampled = points2
+                points1_subsampled = points1_for_icp
+
+            n2_target = resolve_subsample_count(len(points2_for_icp), cfg.alignment)
+            if len(points2_for_icp) > n2_target:
+                indices2 = rng.choice(len(points2_for_icp), n2_target, replace=False)
+                points2_subsampled = points2_for_icp[indices2]
+            else:
+                points2_subsampled = points2_for_icp
+
+            # --- Reference / target selection (Issue 2) ---
+            if cfg.alignment.reference == "t2":
+                icp_source = points1_subsampled
+                icp_target = points2_subsampled
+                icp_source_full = points1
+                logger.info("ICP direction: aligning T1 (%s) to T2 (%s) reference", t1, t2)
+            else:
+                icp_source = points2_subsampled
+                icp_target = points1_subsampled
+                icp_source_full = points2
+                logger.info("ICP direction: aligning T2 (%s) to T1 (%s) reference", t2, t1)
 
             # Perform ICP alignment
-            points2_subsampled_aligned, transform_matrix, final_error = icp.align_point_clouds(
-                source=points2_subsampled,
-                target=points1_subsampled,
+            _, transform_matrix, final_error = icp.align_point_clouds(
+                source=icp_source,
+                target=icp_target,
                 initial_transform=transform_matrix,
             )
 
-            # Apply the transformation to the original points2
-            if len(points2) > cfg.alignment.subsample_size:
-                points2_full_aligned = icp.apply_transformation(points2, transform_matrix)
+            # Apply the transformation to the correct full point cloud
+            source_full_aligned = icp.apply_transformation(icp_source_full, transform_matrix)
+
+            # Assign aligned results for downstream use
+            if cfg.alignment.reference == "t2":
+                points1_full_aligned = source_full_aligned
+                points2_full_aligned = points2
+                aligned_epoch = t1
             else:
-                points2_full_aligned = points2_subsampled_aligned
+                points1_full_aligned = points1
+                points2_full_aligned = source_full_aligned
+                aligned_epoch = t2
 
             # Compute the registration error (RMSE) on a potentially downsampled subset of full data
-            # This validates how well the alignment generalizes beyond the subsampled points used for ICP
-            src_err = points2_full_aligned
-            tgt_err = points1
+            src_err = source_full_aligned
+            tgt_err = icp_target  # use the reference subsample for validation
             max_err_points = 200_000
             if len(src_err) > max_err_points:
-                idx_s_err = np.random.choice(len(src_err), max_err_points, replace=False)
+                idx_s_err = rng.choice(len(src_err), max_err_points, replace=False)
                 src_err = src_err[idx_s_err]
             if len(tgt_err) > max_err_points:
-                idx_t_err = np.random.choice(len(tgt_err), max_err_points, replace=False)
+                idx_t_err = rng.choice(len(tgt_err), max_err_points, replace=False)
                 tgt_err = tgt_err[idx_t_err]
 
             alignment_error = icp.compute_registration_error(
@@ -787,19 +906,54 @@ def main():
             # Log validation error
             logger.info("Alignment validation (post-ICP): RMSE=%.6f m", alignment_error)
 
+            # --- Export aligned point cloud (Issue 1) ---
+            if cfg.alignment.export_aligned_pc:
+                crs = cfg.paths.output_crs
+                try:
+                    detected_crs = detect_crs_from_laz(str(ds1.laz_files[0]))
+                    if detected_crs:
+                        crs = detected_crs
+                except Exception:
+                    pass
+
+                if cfg.paths.output_dir:
+                    export_dir = Path(cfg.paths.output_dir)
+                else:
+                    export_dir = Path(cfg.paths.base_dir) / "output" / selected_area.area_name
+                export_dir.mkdir(parents=True, exist_ok=True)
+
+                aligned_pc_path = export_dir / f"aligned_{aligned_epoch}.laz"
+                export_points = (
+                    local_transform.to_global(source_full_aligned) if local_transform else source_full_aligned
+                )
+                source_laz = ds1.laz_files[0] if cfg.alignment.reference == "t2" else ds2.laz_files[0]
+                export_points_to_laz(
+                    export_points, None, str(aligned_pc_path),
+                    crs=crs, source_laz_path=str(source_laz),
+                )
+                logger.info("Aligned point cloud exported to: %s", aligned_pc_path)
+
             # If streaming mode, optionally apply transform to original files
             if use_streaming and cfg.outofcore.save_transformed_files:
                 logger.info("--- Applying transformation to full datasets (streaming) ---")
-                
+
+                # Determine which files to transform based on reference direction
+                if cfg.alignment.reference == "t2":
+                    files_to_transform = pc1_data['file_paths']
+                    aligned_label = f"{t1}_aligned"
+                else:
+                    files_to_transform = pc2_data['file_paths']
+                    aligned_label = f"{t2}_aligned"
+
                 # Determine output directory
                 if cfg.outofcore.output_dir:
-                    output_dir = Path(cfg.outofcore.output_dir) / selected_area.area_name / f"{t2}_aligned"
+                    output_dir = Path(cfg.outofcore.output_dir) / selected_area.area_name / aligned_label
                 else:
-                    output_dir = Path(cfg.paths.base_dir).parent / "processed" / selected_area.area_name / f"{t2}_aligned"
-                
+                    output_dir = Path(cfg.paths.base_dir).parent / "processed" / selected_area.area_name / aligned_label
+
                 try:
                     aligned_files = apply_transform_to_files(
-                        input_files=pc2_data['file_paths'],
+                        input_files=files_to_transform,
                         output_dir=str(output_dir),
                         transform=transform_matrix,
                         ground_only=cfg.preprocessing.ground_only,
@@ -807,23 +961,25 @@ def main():
                         chunk_points=cfg.outofcore.chunk_points,
                     )
                     # Store aligned file paths for later use
-                    pc2_data['aligned_file_paths'] = aligned_files
-                    
+                    if cfg.alignment.reference == "t2":
+                        pc1_data['aligned_file_paths'] = aligned_files
+                    else:
+                        pc2_data['aligned_file_paths'] = aligned_files
+
                     # Save transformation matrix for reference
                     transform_file = output_dir / "transformation_matrix.txt"
                     save_transform_matrix(transform_matrix, str(transform_file))
-                    
+
                     logger.info(f"Transformed {len(aligned_files)} files saved to {output_dir}")
                 except Exception as e:
                     logger.error(f"Failed to apply transformation to files: {e}")
                     logger.info("Falling back to in-memory aligned points for DoD")
-                    # Keep points2_full_aligned for DoD computation
 
             step2_end = time.time()
             logger.info("Spatial alignment completed in %.2f seconds", step2_end - step2_start)
 
             # Revert to global coordinates for visualization (users expect UTM coordinates)
-            vis_points1_aligned = local_transform.to_global(points1) if local_transform else points1
+            vis_points1_aligned = local_transform.to_global(points1_full_aligned) if local_transform else points1_full_aligned
             vis_points2_aligned = local_transform.to_global(points2_full_aligned) if local_transform else points2_full_aligned
             if show_plots:
                 # Visualize the aligned point clouds
@@ -875,6 +1031,7 @@ def main():
             logger.info("=== STEP 2: Spatial Alignment (SKIPPED) ===")
             logger.info("ICP alignment disabled in config; using original point clouds.")
             transform_matrix = np.eye(4)
+            points1_full_aligned = points1
             points2_full_aligned = points2
             alignment_error = None
 

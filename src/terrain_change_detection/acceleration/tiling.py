@@ -547,33 +547,36 @@ class LaspyStreamReader:
         n: int,
         transform: Optional["LocalCoordinateTransform"] = None,
         bbox: Optional[Bounds2D] = None,
+        seed: Optional[int] = None,
     ) -> np.ndarray:
         """Reservoir sample n points uniformly from all files.
-        
+
         Uses Algorithm R (reservoir sampling) to select n points uniformly at
         random from the streaming data without loading all points into memory.
-        
+
         Args:
             n: Number of points to sample.
             transform: Optional local coordinate transform to apply.
             bbox: Optional spatial bounding box filter.
-            
+            seed: Optional random seed for reproducibility.
+
         Returns:
             np.ndarray: (n, 3) array of sampled points, or fewer if total
                 points available is less than n.
         """
+        rng = np.random.default_rng(seed)
         reservoir = None
         filled = 0
         seen = 0
-        
+
         for chunk in self.stream_points(bbox=bbox, transform=transform):
             if chunk.size == 0:
                 continue
             m = len(chunk)
-            
+
             if reservoir is None:
                 reservoir = np.empty((n, 3), dtype=np.float64)
-            
+
             # Fill reservoir first
             take = min(n - filled, m)
             if take > 0:
@@ -583,18 +586,18 @@ class LaspyStreamReader:
                 start = take
             else:
                 start = 0
-            
+
             # Replacement phase (Algorithm R)
             for k in range(start, m):
                 j = seen + (k - start)
-                r = np.random.randint(0, j + 1)
+                r = rng.integers(0, j + 1)
                 if r < n:
                     reservoir[r] = chunk[k]
             seen += (m - start)
-        
+
         if reservoir is None:
             return np.empty((0, 3), dtype=np.float64)
-        
+
         # Return only filled portion if we didn't get n points
         return reservoir[:filled] if filled < n else reservoir
 
@@ -645,6 +648,52 @@ def union_bounds(files_a: Iterable[str | Path], files_b: Iterable[str | Path]) -
         max_x=max(ax1, bx1),
         max_y=max(ay1, by1),
     )
+
+
+def intersection_bounds(
+    files_a: Iterable[str | Path],
+    files_b: Iterable[str | Path],
+    margin: float = 0.0,
+) -> Optional[Bounds2D]:
+    """Compute the intersection of bounding boxes from two sets of LAS/LAZ files.
+
+    Useful for overlap-aware subsampling: only sample points within the overlap
+    region so that ICP has useful correspondences.
+
+    Args:
+        files_a: First set of LAS/LAZ file paths.
+        files_b: Second set of LAS/LAZ file paths.
+        margin: Expand the intersection box by this many meters on each side.
+
+    Returns:
+        Bounds2D of the intersection, or None if the datasets do not overlap.
+    """
+    import laspy
+
+    def scan(files: Iterable[str | Path]) -> Tuple[float, float, float, float]:
+        min_x = min_y = float("inf")
+        max_x = max_y = float("-inf")
+        for fp in files:
+            with laspy.open(str(fp)) as r:
+                h = r.header
+                min_x = min(min_x, float(h.x_min))
+                min_y = min(min_y, float(h.y_min))
+                max_x = max(max_x, float(h.x_max))
+                max_y = max(max_y, float(h.y_max))
+        return min_x, min_y, max_x, max_y
+
+    ax0, ay0, ax1, ay1 = scan(files_a)
+    bx0, by0, bx1, by1 = scan(files_b)
+
+    ix0 = max(ax0, bx0) - margin
+    iy0 = max(ay0, by0) - margin
+    ix1 = min(ax1, bx1) + margin
+    iy1 = min(ay1, by1) + margin
+
+    if ix0 >= ix1 or iy0 >= iy1:
+        return None
+
+    return Bounds2D(min_x=ix0, min_y=iy0, max_x=ix1, max_y=iy1)
 
 
 def scan_las_bounds(files: Iterable[str | Path]) -> List[Tuple[Path, Bounds2D]]:

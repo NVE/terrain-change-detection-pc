@@ -53,10 +53,26 @@ alignment:
   max_correspondence_distance: 1.0
   # Number of points sampled per epoch for alignment (approx.)
   subsample_size: 50000
+  # Subsampling mode: 'count' uses subsample_size, 'percent' uses subsample_percent
+  subsample_mode: count
+  # Percentage of points to subsample (used when subsample_mode: percent)
+  # subsample_percent: 10.0
+  # Safety cap: maximum number of subsampled points regardless of mode
+  max_subsample_size: 500000
   # Convergence criteria for motion-based stopping
   convergence_translation_epsilon: 1.0e-4
   convergence_rotation_epsilon_deg: 0.1
-  # Export aligned T2 point cloud as LAZ file
+  # Random seed for reproducible subsampling (deterministic by default)
+  random_seed: 42
+  # Filter points to bounding-box overlap region before subsampling
+  overlap_filter: true
+  # Margin in meters to expand the overlap bounding box
+  overlap_margin_m: 5.0
+  # Which epoch is the ICP reference: t1 (earlier) or t2 (later)
+  reference: t1
+  # ICP implementation: 'custom' (built-in SVD) or 'open3d' (Open3D library)
+  icp_backend: custom
+  # Export aligned point cloud as LAZ file
   export_aligned_pc: false
   coarse:  # Only use if point clouds are significantly misaligned
     enabled: false
