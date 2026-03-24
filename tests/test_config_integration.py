@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from terrain_change_detection.utils.config import load_config, AppConfig
@@ -46,6 +48,88 @@ def test_synthetic_profile_outofcore_settings():
     assert cfg.outofcore.tile_size_m == 300.0
     assert cfg.outofcore.halo_m == 20.0
     assert cfg.outofcore.chunk_points == 20_000
+
+
+def test_partial_yaml_inherits_default_yaml(tmp_path):
+    """Minimal YAML overrides should inherit unspecified values from default.yaml."""
+    override = tmp_path / "partial.yaml"
+    override.write_text("paths:\n  base_dir: data/custom\n", encoding="utf-8")
+
+    cfg = load_config(override)
+
+    assert cfg.paths.base_dir == "data/custom"
+    assert cfg.detection.c2c.max_points == 9_000_000
+    assert cfg.detection.m3c2.use_autotune is False
+    assert cfg.detection.m3c2.fixed.radius == 1.0
+
+
+def test_repeatable_config_paths_apply_in_order(tmp_path):
+    """Later override YAMLs should win when multiple config paths are layered."""
+    first = tmp_path / "first.yaml"
+    second = tmp_path / "second.yaml"
+    first.write_text(
+        "outofcore:\n  enabled: true\n  halo_m: 40.0\n",
+        encoding="utf-8",
+    )
+    second.write_text(
+        "outofcore:\n  halo_m: 55.0\n",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(config_paths=[first, second])
+
+    assert cfg.outofcore.enabled is True
+    assert cfg.outofcore.halo_m == 55.0
+
+
+def test_set_override_flat_key():
+    """Flat dot-path overrides should update top-level scalar values."""
+    cfg = load_config(overrides=["paths.base_dir=data/drone"])
+    assert cfg.paths.base_dir == "data/drone"
+
+
+def test_set_override_nested_key_and_types():
+    """Nested overrides should coerce YAML-style values to the right types."""
+    cfg = load_config(
+        overrides=[
+            "alignment.coarse.enabled=true",
+            "preprocessing.classification_filter=[2,9]",
+            "detection.c2c.max_distance=null",
+        ]
+    )
+
+    assert cfg.alignment.coarse.enabled is True
+    assert cfg.preprocessing.classification_filter == [2, 9]
+    assert cfg.detection.c2c.max_distance is None
+
+
+def test_set_override_invalid_key():
+    """Invalid override paths should produce a helpful suggestion."""
+    with pytest.raises(ValueError, match="Did you mean"):
+        load_config(overrides=["alignment.coarsee.enabled=true"])
+
+
+def test_precedence_chain(tmp_path):
+    """CLI overrides should win over override files, which win over defaults."""
+    override = tmp_path / "override.yaml"
+    override.write_text(
+        "paths:\n  base_dir: data/from_file\nalignment:\n  reference: t2\n",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(
+        override,
+        overrides=["paths.base_dir=data/from_cli"],
+    )
+
+    assert cfg.paths.base_dir == "data/from_cli"
+    assert cfg.alignment.reference == "t2"
+    assert cfg.detection.m3c2.use_autotune is False
+
+
+def test_default_yaml_and_app_defaults_are_aligned():
+    """The canonical default.yaml should match the code defaults exactly."""
+    assert load_config(None).model_dump() == AppConfig().model_dump()
 
 
 def test_outofcore_config_all_fields():

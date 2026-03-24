@@ -1,27 +1,36 @@
 # Configuration Guide
 
-This guide documents all configuration parameters for the terrain change detection toolkit. Configuration files use YAML format and reside in the `config/` directory.
+This guide documents the configuration system for the terrain change detection toolkit. The workflow always starts from `config/default.yaml`, then layers any optional override YAMLs and CLI `--set key=value` overrides on top.
 
-## Running with Configuration Profiles
+## Running with Configuration Overrides
 
 ```bash
-# Default configuration (in-memory processing)
+# Default configuration only
 uv run scripts/run_workflow.py
 
-# Specific configuration profile
+# Apply an override preset
 uv run scripts/run_workflow.py --config config/profiles/large_scale.yaml
+
+# Override a few values directly from the CLI
+uv run scripts/run_workflow.py --set paths.base_dir=data/drone_scanning_data --set discovery.source_type=drone
+
+# Combine preset YAMLs and CLI overrides
+uv run scripts/run_workflow.py --config config/profiles/large_scale.yaml --set gpu.enabled=false
+
+# Print the final resolved config and exit
+uv run scripts/run_workflow.py --config config/profiles/drone.yaml --show-config
 ```
 
-## Available Configuration Profiles
+## Available Override Presets
 
-| Profile | Description |
+| Config | Description |
 | :--- | :--- |
-| `default.yaml` | Base configuration with sensible defaults for all parameters |
-| `default_clipped.yaml` | Default configuration with area clipping enabled |
-| `profiles/large_scale.yaml` | Optimized for national-scale datasets with streaming |
-| `profiles/large_synthetic.yaml` | Large synthetic data with streaming enabled |
-| `profiles/drone.yaml` | Tuned for high-density drone-captured point clouds |
-| `profiles/synthetic.yaml` | Settings for validation with generated test data |
+| `default.yaml` | Full canonical config with all runtime defaults |
+| `default_clipped.yaml` | Minimal override that enables clipping |
+| `profiles/large_scale.yaml` | Minimal override for national-scale streaming |
+| `profiles/large_synthetic.yaml` | Minimal override for generated large synthetic data |
+| `profiles/drone.yaml` | Minimal override for drone-captured point clouds |
+| `profiles/synthetic.yaml` | Minimal override for quick synthetic validation |
 
 ---
 
@@ -96,7 +105,10 @@ alignment:
   max_iterations: 100
   tolerance: 1.0e-6
   max_correspondence_distance: 1.0
+  subsample_mode: count
   subsample_size: 50000
+  subsample_percent: 10.0
+  max_subsample_size: 500000
   export_aligned_pc: false
   
   coarse:
@@ -110,13 +122,18 @@ alignment:
 | `max_iterations` | `100` | Maximum number of iterations for the ICP algorithm. |
 | `tolerance` | `1e-6` | Convergence threshold based on MSE change. |
 | `max_correspondence_distance` | `1.0` | Max distance (meters) to search for matching points. |
-| `subsample_size` | `50000` | Number of points to sample for calculating alignment. |
+| `subsample_mode` | `count` | Choose `count` to use `subsample_size`, or `percent` to use `subsample_percent`. |
+| `subsample_size` | `50000` | Number of points to sample when `subsample_mode: count`. |
+| `subsample_percent` | `10.0` | Percentage of points to sample when `subsample_mode: percent`. |
+| `max_subsample_size` | `500000` | Upper cap applied after either subsampling mode is resolved. |
 | `export_aligned_pc` | `false` | If true, saves the aligned T2 point cloud as a new LAZ file. |
 | `convergence_translation_epsilon` | `1e-4` | Translation threshold for early stopping. |
 | `convergence_rotation_epsilon_deg` | `0.1` | Rotation threshold (degrees) for early stopping. |
 | **coarse.enabled** | `false` | Enables pre-alignment. Use only if datasets are significantly misaligned (>1m). |
 | **coarse.method** | `centroid` | Alignment method: `centroid`, `pca`, `phase`, or `open3d_fpfh`. |
 | **coarse.voxel_size** | `2.0` | Voxel size (m) for downsampling during coarse registration. |
+
+`subsample_size` and `subsample_percent` are not competing settings. The workflow uses exactly one of them based on `subsample_mode`, then applies `max_subsample_size` as a final cap.
 
 ---
 
@@ -132,8 +149,8 @@ The recommended method for accurate 3D change detection.
 detection:
   m3c2:
     enabled: true
-    use_autotune: true
-    core_points_percent: 10.0
+    use_autotune: false
+    core_points_percent: 100.0
     export_pc: true
     export_raster: true
     
@@ -145,16 +162,16 @@ detection:
       max_radius: 20.0
     
     fixed:
-      radius: null
-      normal_scale: null
-      depth_factor: null
+      radius: 1.0
+      normal_scale: 1.0
+      depth_factor: 2.0
 ```
 
 | Parameter | Default | Description |
 | :--- | :--- | :--- |
 | `enabled` | `true` | Activates M3C2 processing. |
-| `use_autotune` | `true` | Automatically estimates cylinder radius from point density. |
-| `core_points_percent` | `10.0` | Percentage of T1 points to use as "core points". |
+| `use_autotune` | `false` | Use manual fixed M3C2 parameters from `fixed.*` instead of autotuning. |
+| `core_points_percent` | `100.0` | Percentage of T1 points to use as "core points". |
 | `export_pc` | `true` | Saves results as a point cloud (.laz) with distance attributes. |
 | `export_raster` | `true` | Interpolates results to a GeoTIFF raster. |
 | **autotune.source** | `header` | Density source: `header` (fast) or `sample` (accurate). |
@@ -162,9 +179,9 @@ detection:
 | **autotune.max_depth_factor** | `1.0` | Cylinder depth relative to radius. |
 | **autotune.min_radius** | `1.0` | Minimum allowed cylinder radius (meters). |
 | **autotune.max_radius** | `20.0` | Maximum allowed cylinder radius (meters). |
-| **fixed.radius** | `null` | Manual cylinder radius (used if `use_autotune: false`). |
-| **fixed.normal_scale** | `null` | Manual scale for normal estimation. |
-| **fixed.depth_factor** | `null` | Manual depth factor (max_depth = radius × depth_factor). |
+| **fixed.radius** | `1.0` | Manual cylinder radius (used if `use_autotune: false`). |
+| **fixed.normal_scale** | `1.0` | Manual scale for normal estimation. |
+| **fixed.depth_factor** | `2.0` | Manual depth factor (max_depth = radius × depth_factor). |
 
 ### 4.2 DoD (DEM of Difference)
 
@@ -205,7 +222,7 @@ detection:
 | `enabled` | `false` | Activates C2C processing. |
 | `mode` | `euclidean` | `euclidean` (3D distance) or `vertical_plane` (local reference). |
 | `max_distance` | `10.0` | Maximum search radius for nearest neighbor. |
-| `max_points` | `1000000` | Limit before switching to tiled processing. |
+| `max_points` | `9000000` | Limit before switching to tiled processing. |
 | `export_pc` | `false` | Saves results as LAZ point cloud. |
 | `export_raster` | `false` | Interpolates results to GeoTIFF. |
 
@@ -251,6 +268,7 @@ parallel:
   enabled: false
   n_workers: null
   memory_limit_gb: null
+  threads_per_worker: 1
 ```
 
 | Parameter | Default | Description |
@@ -258,6 +276,7 @@ parallel:
 | `enabled` | `false` | Process multiple tiles simultaneously. |
 | `n_workers` | `null` | Number of CPU cores (null = all available - 1). |
 | `memory_limit_gb` | `null` | Soft memory limit per worker. |
+| `threads_per_worker` | `1` | BLAS/NumPy threads per worker to avoid oversubscription. |
 
 ### 5.3 GPU Acceleration
 
@@ -269,6 +288,7 @@ gpu:
   gpu_memory_limit_gb: null
   fallback_to_cpu: true
   use_for_c2c: true
+  use_for_dod: true
   use_for_preprocessing: true
   use_for_alignment: false
 ```
@@ -279,6 +299,7 @@ gpu:
 | `gpu_memory_limit_gb` | `null` | Max GPU memory (null = 80%). |
 | `fallback_to_cpu` | `true` | Fall back to CPU if GPU init fails. |
 | `use_for_c2c` | `true` | Use GPU for nearest neighbor search. |
+| `use_for_dod` | `true` | Use GPU for DoD grid accumulation. |
 | `use_for_preprocessing` | `true` | Use GPU for coordinates/filtering. |
 | `use_for_alignment` | `false` | Use GPU for ICP (experimental). |
 
@@ -311,10 +332,10 @@ performance:
 
 ---
 
-## Example: Custom Profile
+## Example: Custom Override YAML
 
 ```yaml
-# config/profiles/my_dataset.yaml
+# config/local/my_dataset.yaml
 paths:
   base_dir: data/my_large_dataset
 
@@ -332,13 +353,12 @@ alignment:
 
 detection:
   m3c2:
-    enabled: true
-    use_autotune: false
-    core_points_percent: 100.0
+    use_autotune: true
+    core_points_percent: 20.0
     fixed:
-      radius: 1.0
-      normal_scale: 1.0
-      depth_factor: 2.0
+      radius: null
+      normal_scale: null
+      depth_factor: null
 
 outofcore:
   enabled: true
@@ -359,7 +379,7 @@ The configuration system uses Pydantic for validation, ensuring type safety and 
 ```python
 from terrain_change_detection.utils.config import load_config
 
-# Loads with validation
+# Loads config/default.yaml and layers the override on top
 cfg = load_config("config/profiles/large_scale.yaml")
 
 # Type-safe access

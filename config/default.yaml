@@ -1,8 +1,15 @@
-# Default configuration (in-memory by default)
+# Terrain Change Detection - Canonical Default Configuration
 #
-# Use this as a starting point. For large datasets that do not fit in memory,
-# switch to an out-of-core profile (e.g., config/profiles/large_scale.yaml) or
-# enable the outofcore section here.
+# This is the single full config file with all runtime defaults.
+#
+# Typical usage:
+#   uv run scripts/run_workflow.py
+#   uv run scripts/run_workflow.py --set paths.base_dir=data/drone_scanning_data --set discovery.source_type=drone
+#   uv run scripts/run_workflow.py --config config/profiles/large_scale.yaml
+#
+# You can layer one or more minimal override YAMLs on top of this file with
+# repeated --config flags, and override any single setting with repeated --set
+# KEY=VALUE arguments.
 
 paths:
   # Root folder containing area subdirectories
@@ -19,6 +26,14 @@ preprocessing:
   ground_only: true
   # Optional list of LAS classification codes to include; overrides ground_only
   classification_filter: [2]
+
+coordinates:
+  # Transform large projected coordinates to a local frame for numerical stability
+  use_local_coordinates: true
+  # Origin method: min_bounds | centroid | first_point
+  origin_method: min_bounds
+  # Also offset Z values when true
+  include_z_offset: false
 
 discovery:
   # Data source type: hoydedata | drone
@@ -51,13 +66,15 @@ alignment:
   max_iterations: 100
   tolerance: 1.0e-6
   max_correspondence_distance: 1.0
-  # Number of points sampled per epoch for alignment (approx.)
-  subsample_size: 50000
-  # Subsampling mode: 'count' uses subsample_size, 'percent' uses subsample_percent
+  # Subsampling strategy for ICP:
+  # - count: use subsample_size
+  # - percent: compute from subsample_percent
   subsample_mode: count
-  # Percentage of points to subsample (used when subsample_mode: percent)
-  # subsample_percent: 10.0
-  # Safety cap: maximum number of subsampled points regardless of mode
+  # Number of points sampled per epoch when subsample_mode: count
+  subsample_size: 50000
+  # Percentage of points sampled per epoch when subsample_mode: percent
+  subsample_percent: 10.0
+  # Safety cap applied after either mode is resolved
   max_subsample_size: 500000
   # Convergence criteria for motion-based stopping
   convergence_translation_epsilon: 1.0e-4
@@ -176,6 +193,8 @@ parallel:
   n_workers: null
   # Soft memory limit (GB) to guide worker count; null = no limit
   memory_limit_gb: null
+  # BLAS/NumPy threads per worker to avoid oversubscription
+  threads_per_worker: 1
 
 gpu:
   # Master switch for GPU acceleration (graceful CPU fallback if unavailable)
@@ -187,6 +206,8 @@ gpu:
   fallback_to_cpu: true
   # Use GPU for C2C nearest neighbor searches (10-50x speedup potential)
   use_for_c2c: true
+  # Use GPU for DoD grid accumulation
+  use_for_dod: true
   # Use GPU for data preprocessing (transformations, filtering)
   use_for_preprocessing: true
   # Use GPU for ICP spatial alignment (experimental)
