@@ -4,6 +4,11 @@ Point Cloud Visualization Tools
 This module provides visualization tools for point cloud data and analysis results.
 """
 
+import logging
+import os
+import shutil
+import sys
+import tempfile
 from typing import Optional, Any
 import numpy as np
 import plotly.graph_objects as go
@@ -14,6 +19,8 @@ try:
     from pyvistaqt import BackgroundPlotter  # type: ignore
 except Exception:  # pragma: no cover
     BackgroundPlotter = None  # type: ignore
+
+logger = logging.getLogger(__name__)
 
 
 class PointCloudVisualizer:
@@ -55,7 +62,7 @@ class PointCloudVisualizer:
             fig.update_layout(title=title, xaxis_title='Y', yaxis_title='X')
             fig.update_yaxes(scaleanchor="x", scaleratio=1)
             fig.update_xaxes(constrain='domain')
-            fig.show(renderer="browser")
+            self._show_plotly_figure(fig, title=title)
             return
         # PyVista / PyVistaQt
         X = dod.grid_x
@@ -93,7 +100,7 @@ class PointCloudVisualizer:
         centers = 0.5 * (edges[:-1] + edges[1:])
         fig = go.Figure(data=go.Bar(x=centers, y=hist))
         fig.update_layout(title=title, xaxis_title='Distance (m)', yaxis_title='Count')
-        fig.show(renderer="browser")
+        self._show_plotly_figure(fig, title=title)
 
     def visualize_m3c2_corepoints(self, core_points: np.ndarray, distances: np.ndarray, sample_size: Optional[int] = None, title: str = "M3C2 distances"):
         pts = core_points
@@ -133,7 +140,7 @@ class PointCloudVisualizer:
                 ),
                 margin=dict(l=0, r=0, t=40, b=0)
             )
-            fig.show(renderer="browser")
+            self._show_plotly_figure(fig, title=title)
             return
         # PyVista / PyVistaQt
         poly = pv.PolyData(pts)
@@ -181,7 +188,49 @@ class PointCloudVisualizer:
                 xaxis=dict(visible=False), yaxis=dict(visible=False), zaxis=dict(visible=False), aspectmode='data'
             ),
         )
-        fig.show(renderer="browser")
+        self._show_plotly_figure(fig, title="Point Cloud Visualization")
+
+    def _show_plotly_figure(self, fig: go.Figure, *, title: str) -> None:
+        if not self._plotly_browser_is_likely_available():
+            output_path = self._write_plotly_html(fig)
+            logger.warning(
+                "Plotly browser rendering is unavailable in this environment. "
+                "Saved '%s' to %s",
+                title,
+                output_path,
+            )
+            return
+
+        try:
+            fig.show(renderer="browser")
+        except Exception as exc:
+            output_path = self._write_plotly_html(fig)
+            logger.warning(
+                "Plotly browser rendering failed for '%s' (%s). Saved HTML to %s",
+                title,
+                exc,
+                output_path,
+            )
+
+    def _plotly_browser_is_likely_available(self) -> bool:
+        if os.environ.get("BROWSER"):
+            return True
+        if os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"):
+            return shutil.which("wslview") is not None
+        if sys.platform == "darwin" or os.name == "nt":
+            return True
+        return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+    def _write_plotly_html(self, fig: go.Figure) -> str:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".html",
+            prefix="terrain_change_detection_plot_",
+            delete=False,
+            encoding="utf-8",
+        ) as tmp:
+            fig.write_html(tmp.name, auto_open=False, include_plotlyjs="cdn")
+            return tmp.name
 
     def _get_plotter(self):
         if self.backend == 'pyvistaqt':
