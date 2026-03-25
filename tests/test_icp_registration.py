@@ -158,9 +158,7 @@ def test_resolve_subsample_count_count_mode():
         subsample_percent=10.0,
         max_subsample_size=500_000,
     )
-    # Import helper from run_workflow (it's a top-level function)
-    sys.path.append(str(Path(__file__).parent.parent / "scripts"))
-    from run_workflow import resolve_subsample_count
+    from terrain_change_detection.workflow.data_loading import resolve_subsample_count
 
     assert resolve_subsample_count(100_000, cfg) == 5000
 
@@ -174,8 +172,7 @@ def test_resolve_subsample_count_percent_mode():
         subsample_percent=10.0,
         max_subsample_size=500_000,
     )
-    sys.path.append(str(Path(__file__).parent.parent / "scripts"))
-    from run_workflow import resolve_subsample_count
+    from terrain_change_detection.workflow.data_loading import resolve_subsample_count
 
     assert resolve_subsample_count(100_000, cfg) == 10_000  # 10% of 100k
 
@@ -189,8 +186,7 @@ def test_resolve_subsample_count_respects_cap():
         subsample_percent=50.0,
         max_subsample_size=20_000,
     )
-    sys.path.append(str(Path(__file__).parent.parent / "scripts"))
-    from run_workflow import resolve_subsample_count
+    from terrain_change_detection.workflow.data_loading import resolve_subsample_count
 
     # 50% of 100k = 50000, but cap is 20000
     assert resolve_subsample_count(100_000, cfg) == 20_000
