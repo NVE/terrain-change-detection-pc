@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Dict, TYPE_CHECKING, Any
 import numpy as np
+from scipy.stats import chi2 as _chi2_dist
 import yaml
 
 if TYPE_CHECKING:
@@ -764,6 +765,59 @@ class M3C2Detector:
         if getattr(covariance, "dtype", None) is not None and covariance.dtype.names is not None:
             covariance1 = covariance["cov1"].astype(float)
             covariance2 = covariance["cov2"].astype(float)
+
+        # -----------------------------------------------------------------
+        # FIX: py4dgeo's get_local_mean_and_Cxx_nocorr() returns the
+        # average per-point covariance (sum_of_cov / N) instead of the
+        # GLS mean covariance (≈ avg_cov / N).  The returned covariance
+        # is therefore N times too large for the mean, which inflates
+        # the Level of Detection by ~sqrt(N).
+        #
+        # Correction: divide by num_samples per epoch, recompute LoD
+        # and spread using the per-corepoint normals from py4dgeo.
+        # -----------------------------------------------------------------
+        if covariance1 is not None and covariance2 is not None:
+            normals = getattr(algo, "corepoint_normals", None)
+            if normals is not None:
+                normals = np.asarray(normals, dtype=float)
+                n_core = len(distances)
+                corrected_lod = np.full(n_core, np.nan)
+                corrected_spread1 = np.full(n_core, np.nan)
+                corrected_spread2 = np.full(n_core, np.nan)
+
+                for i in range(n_core):
+                    n1 = int(num_samples1[i])
+                    n2 = int(num_samples2[i])
+                    if n1 < 1 or n2 < 1 or not np.isfinite(distances[i]):
+                        continue
+
+                    n = normals[i]
+                    cov1_mean = covariance1[i] / n1
+                    cov2_mean = covariance2[i] / n2
+                    sigma_d = cov1_mean + cov2_mean
+
+                    try:
+                        Tsq = n @ np.linalg.inv(sigma_d) @ n
+                        if Tsq > 0:
+                            corrected_lod[i] = np.sqrt(
+                                _chi2_dist.ppf(0.95, 3) / Tsq
+                            )
+                    except np.linalg.LinAlgError:
+                        continue
+
+                    corrected_spread1[i] = np.sqrt(n @ cov1_mean @ n)
+                    corrected_spread2[i] = np.sqrt(n @ cov2_mean @ n)
+
+                lodetection = corrected_lod
+                spread1 = corrected_spread1
+                spread2 = corrected_spread2
+
+                with np.errstate(all="ignore"):
+                    logger.debug(
+                        "M3C2-EP LoD corrected: median LoD before=%.4f, after=%.4f",
+                        float(np.nanmedian(uncertainties["lodetection"].astype(float))),
+                        float(np.nanmedian(lodetection)),
+                    )
 
         significant = (
             np.isfinite(distances)
