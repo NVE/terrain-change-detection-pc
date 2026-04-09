@@ -37,7 +37,7 @@ Change first if needed:
 - If the output is too smooth, lower `radius` and `normal_scale` together
 - Leave the core-point percentage alone until the neighborhood size looks sensible
 
-### Larger Survey Data Like `data/raw/.../2015` And `data/raw/.../2020`
+### Larger Survey Data Like Døli Area Data from hoydedata.no
 
 Start with:
 
