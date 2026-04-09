@@ -2,6 +2,8 @@
 
 This guide documents the configuration system for the terrain change detection toolkit. The workflow always starts from `config/default.yaml`, then layers any optional override YAMLs and CLI `--set key=value` overrides on top.
 
+If you are deciding what settings to use for a real project, start with [Best Practice Guide](BEST_PRACTICES_GUIDE.md) first. This document is the detailed parameter reference.
+
 ## Running with Configuration Overrides
 
 ```bash
@@ -12,13 +14,13 @@ uv run scripts/run_workflow.py
 uv run scripts/run_workflow.py --config config/profiles/large_scale.yaml
 
 # Override a few values directly from the CLI
-uv run scripts/run_workflow.py --set paths.base_dir=data/drone_scanning_data --set discovery.source_type=drone
+uv run scripts/run_workflow.py --set paths.base_dir=data --set discovery.source_type=drone --area-name Jeksla --years 2024 2025
 
 # Combine preset YAMLs and CLI overrides
 uv run scripts/run_workflow.py --config config/profiles/large_scale.yaml --set gpu.enabled=false
 
 # Print the final resolved config and exit
-uv run scripts/run_workflow.py --config config/profiles/drone.yaml --show-config
+uv run scripts/run_workflow.py --config config/profiles/drone.yaml --set paths.base_dir=data --show-config
 ```
 
 ## Available Override Presets

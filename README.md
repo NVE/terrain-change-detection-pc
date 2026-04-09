@@ -105,12 +105,12 @@ Common override presets live in `config/profiles/`.
 
 Run with CLI overrides only:
 ```bash
-uv run scripts/run_workflow.py --set paths.base_dir=data/drone_scanning_data --set discovery.source_type=drone
+uv run scripts/run_workflow.py --set paths.base_dir=data --set discovery.source_type=drone --area-name Jeksla --years 2024 2025
 ```
 
 Run with an override preset:
 ```bash
-uv run scripts/run_workflow.py --config config/profiles/drone.yaml
+uv run scripts/run_workflow.py --config config/profiles/drone.yaml --set paths.base_dir=data --area-name Jeksla --years 2024 2025
 ```
 
 You can combine both styles:
@@ -153,6 +153,8 @@ data/raw/
 
 ## Documentation
 
+*   [**Best Practice Guide**](docs/BEST_PRACTICES_GUIDE.md): Operator-focused guidance on what settings to start with, when to override them, and how to validate results.
+*   [**Best-Practice Evidence**](docs/BEST_PRACTICES_EVIDENCE.md): Short summary of the repo runs and datasets used to support the guide.
 *   [**Configuration Guide**](docs/CONFIGURATION_GUIDE.md): Detailed reference for all YAML parameters.
 *   [**Known Issues**](docs/KNOWN_ISSUES.md): Current limitations and workarounds.
 *   [**Changelog**](docs/CHANGELOG.md): History of changes and updates.
