@@ -1,125 +1,294 @@
 # Terrain Change Detection Best Practice Guide
 
-This guide is for operators who need to make good configuration choices quickly. Use it to decide where to start, when to override the defaults, and how to judge whether an alignment or change-detection run is trustworthy.
+This guide helps you choose good starting settings, decide when to override them, and judge whether an alignment or change-detection run is trustworthy.
 
-This is not the field-by-field parameter reference. For the full YAML reference, see [Configuration Guide](CONFIGURATION_GUIDE.md). For the run evidence behind the recommendations below, see [Best-Practice Evidence](BEST_PRACTICES_EVIDENCE.md).
+This is not the full parameter reference. For the YAML details, see [Configuration Guide](CONFIGURATION_GUIDE.md). For the repo runs that support the recommendations here, see [Best-Practice Evidence](BEST_PRACTICES_EVIDENCE.md).
 
 ## How To Use This Guide
 
-1. Pick the quick-start row that matches your dataset.
-2. Run one pilot area with ICP and M3C2 before scaling up.
-3. Check the validation list before accepting the outputs.
-4. Change one setting family at a time: first alignment sampling, then M3C2 core density, then M3C2 neighborhood size.
-5. Once a pilot works, freeze the config and keep the same seed for repeat work.
+1. Pick the dataset type that matches your project.
+2. Run one pilot area before scaling up.
+3. Change one setting family at a time.
+4. Keep the seed fixed once a pilot behaves the way you want.
+5. Save the exact config used for the accepted run.
 
 ## Quick Start By Dataset Type
 
-| Situation | Recommended starting settings | Signs they are working | Signs they are too aggressive or too loose | First adjustment to try |
-| :--- | :--- | :--- | :--- | :--- |
-| Dense drone data similar to `Jeksla` | Start from `config/profiles/drone.yaml`. For the repo datasets, override `paths.base_dir=data`. Keep ICP on, start with `max_correspondence_distance=2.0`, keep M3C2 on header autotune, and start with `core_points_percent=10.0`. | Most overlap is retained, the chosen M3C2 radius stays in the sub-meter to low-meter range, and the point output shows continuous coverage over the stable ground. | Speckled output, patchy coverage, or many invalid core points usually means the neighborhood is too small. Broad, soft-edged change patches usually means it is too large. | Leave the core-point percentage alone first and adjust `radius` and `normal_scale` together in small steps. |
-| Larger survey data similar to `data/raw/.../2015` and `data/raw/.../2020` | Start from `config/profiles/large_scale.yaml`. For a single-area pilot that fits in memory, temporarily set `outofcore.enabled=false` and `parallel.enabled=false`. Keep M3C2 on header autotune and start with `core_points_percent=5.0`. | The selected core-point count is much lower than the full ground count, the chosen radius lands around a few meters, and valid core coverage stays high. | If the output is still too slow, you are sampling too many core points for a pilot. If banks, scarps, or narrow change bands blur together, the radius is too large. | Reduce `core_points_percent` before changing the neighborhood size. If feature edges are being smoothed, lower `radius` and `normal_scale` together. |
-| Synthetic or controlled validation data | Start from `config/profiles/synthetic.yaml`. Use `subsample_size=30000` for ICP. Use M3C2 header autotune with `core_points_percent=100.0` while tuning parameters, then drop to `10.0` for quick checks. | Repeated runs with the same seed match, header and sample autotune pick almost the same radius, and the summary statistics stay stable when you reduce core-point density for a quick pass. | If lower ICP sampling changes the alignment noticeably, the alignment sample is too small. If a smaller fixed M3C2 radius suddenly makes the result much noisier, the neighborhood is too small. | Return to header autotune before making manual M3C2 overrides. Raise the ICP sample count before changing multiple alignment settings. |
+### Dense Drone Data Like `Jeksla`
+
+Start with:
+
+- `config/profiles/drone.yaml`
+- For the repo datasets, add `--set paths.base_dir=data`
+- Keep ICP enabled
+- Start with `alignment.max_correspondence_distance=2.0`
+- Keep M3C2 on header autotune
+- Start with `detection.m3c2.core_points_percent=10.0`
+
+Looks good when:
+
+- Most of the overlap is retained
+- The chosen M3C2 radius stays in the sub-meter to low-meter range
+- The M3C2 point output covers stable ground continuously
+
+Change first if needed:
+
+- If the output is speckled or patchy, increase `radius` and `normal_scale` together
+- If the output is too smooth, lower `radius` and `normal_scale` together
+- Leave the core-point percentage alone until the neighborhood size looks sensible
+
+### Larger Survey Data Like `data/raw/.../2015` And `data/raw/.../2020`
+
+Start with:
+
+- `config/profiles/large_scale.yaml`
+- For a single-area pilot that fits in memory, temporarily add `--set outofcore.enabled=false --set parallel.enabled=false`
+- Keep M3C2 on header autotune
+- Start with `detection.m3c2.core_points_percent=5.0`
+
+Looks good when:
+
+- The chosen core-point count is much lower than the full ground count
+- The chosen M3C2 radius lands around a few meters
+- Valid core-point coverage stays high
+
+Change first if needed:
+
+- If the pilot is still too slow, reduce `core_points_percent` first
+- If narrow banks, scarps, or edges blur together, lower `radius` and `normal_scale`
+
+### Synthetic Or Controlled Validation Data
+
+Start with:
+
+- `config/profiles/synthetic.yaml`
+- Use `alignment.subsample_size=30000` for ICP
+- Use M3C2 header autotune
+- Use `core_points_percent=100.0` while tuning
+- Drop to `10.0` for faster check runs once the settings are stable
+
+Looks good when:
+
+- Repeated runs with the same seed match
+- Header and sample autotune choose almost the same radius
+- Lower core density keeps the same broad pattern
+
+Change first if needed:
+
+- If a lower ICP sample changes the alignment noticeably, increase the ICP sample
+- If a smaller fixed M3C2 radius makes the result much noisier, go back to header autotune
 
 ## ICP Alignment Best Practices
 
 ### When ICP Should Run
 
-| Situation | Recommended starting settings | Signs they are working | Signs they are too aggressive or too loose | First adjustment to try |
-| :--- | :--- | :--- | :--- | :--- |
-| Two epochs from different flights, sensors, or processing chains | Keep `alignment.enabled=true`. Keep `overlap_filter=true`. | Stable ground looks coincident after alignment and repeated runs with the same seed return the same result. | If the result changes meaningfully when you repeat the run or change the sample slightly, the setup is too fragile. | Increase the ICP sample count before changing anything else. |
-| Products that are already known to be tightly aligned | Still do one pilot run with ICP on. Only disable ICP after a pilot shows that the transform is negligible and the change result is unaffected. | The pilot run produces the same change pattern with or without ICP. | If disabling ICP changes stable areas or known features, the data were not aligned enough to skip it. | Re-enable ICP and keep the default reference epoch. |
+Use ICP whenever the two epochs come from different flights, sensors, or processing chains. Keep `alignment.enabled=true` and keep `overlap_filter=true` unless you have a very specific reason not to.
+
+Only skip ICP after a pilot shows that:
+
+- The transform is negligible
+- Stable ground looks the same with and without ICP
+- The change map does not materially change when ICP is disabled
+
+If disabling ICP changes stable areas or known features, the data were not aligned well enough to skip it.
 
 ### How To Choose The ICP Sample Size
 
-| Situation | Recommended starting settings | Signs they are working | Signs they are too aggressive or too loose | First adjustment to try |
-| :--- | :--- | :--- | :--- | :--- |
-| Production alignment on real data | Use `subsample_mode=count` and start with `subsample_size=50000`. | Final alignment metrics stay stable when you rerun the same site, and the run time is still acceptable. | If the alignment changes when you rerun with a different seed, the sample is too small. If it is too slow for a pilot, it is larger than it needs to be. | Move down or up in one clear step, for example 25k or 75k. |
-| Fast pilot or small synthetic validation | Use `subsample_mode=percent` or a smaller fixed count. In the synthetic verification, 10% of points ran much faster than 30k points but gave a slightly worse validation error. | The faster run still lands close to the same result as the larger sample. | If the faster run changes the transform or validation error more than you are comfortable with, it is too small for decision-making. | Go back to a larger fixed count for the decision run. |
+For real projects, start with:
+
+- `subsample_mode=count`
+- `subsample_size=50000`
+
+This is the safer starting point for production-style work. In the synthetic verification, a much smaller 10% sample ran faster, but the alignment check was slightly worse than the larger sample.
+
+Use a smaller sample only for quick pilots. If a smaller sample changes the alignment result in a meaningful way, it was too small for a decision run.
+
+Change first if needed:
+
+- If the result changes across seeds or sample sizes, increase the sample count
+- If the pilot is too slow, try one lower step such as `25000`
+- Avoid changing sample size and correspondence distance at the same time
 
 ### When To Use Coarse Alignment
 
-| Situation | Recommended starting settings | Signs they are working | Signs they are too aggressive or too loose | First adjustment to try |
-| :--- | :--- | :--- | :--- | :--- |
-| Visible XY shift, partial overlap, or drone data with uncertain starting placement | Turn on `alignment.coarse.enabled=true`. Prefer `method=phase` first for translation-dominated cases. | ICP starts from a sensible position and converges cleanly. | If coarse alignment adds no visible value or makes overlap worse, it is unnecessary or the method is wrong. | Fall back to `centroid`, or disable coarse alignment if the datasets already start close together. |
-| Datasets that already share the same footprint | Leave coarse alignment off for the pilot. | ICP converges without needing a stronger initial nudge. | If ICP struggles to find enough correspondences or the initial overlap is poor, the start was too weak. | Enable `phase` first, then try `centroid` if the shift is simple. |
-| Clear orientation mismatch and simpler starts fail | Treat `pca` or `open3d_fpfh` as recovery options, not as the first choice. | The pilot result becomes stable after simpler methods failed. | If they do not improve stability, they are adding complexity without benefit. | Return to the simpler method that gave the most consistent result. |
+Turn on coarse alignment when you can see a clear XY shift, partial overlap, or uncertain starting placement. For most of those cases, start with:
+
+- `alignment.coarse.enabled=true`
+- `alignment.coarse.method=phase`
+
+Use `centroid` when the shift looks simple and mainly translational. Treat `pca` and `open3d_fpfh` as recovery options after simpler starts fail, not as the first choice.
+
+Coarse alignment is helping when ICP starts from a sensible position and converges cleanly. It is not helping when it adds no visible value or makes overlap worse.
 
 ### How To Choose `max_correspondence_distance`
 
-| Situation | Recommended starting settings | Signs they are working | Signs they are too aggressive or too loose | First adjustment to try |
-| :--- | :--- | :--- | :--- | :--- |
-| Dense drone data | Start at `2.0` meters. This worked on the repo's `Jeksla` example. | ICP finds enough correspondences and converges without obvious drift. | Too tight: ICP reports too few correspondences or stops early. Too loose: alignment looks plausible numerically but stable surfaces still appear smeared. | Change the distance by one step only, not together with other ICP settings. |
-| Larger survey data | Start at `1.0` meter. This worked on the repo's larger survey example. | Stable ground lines up and the run does not need a larger search radius. | Too tight: convergence fails. Too loose: the search pulls in wrong neighbors and the final alignment becomes less trustworthy. | Raise to `1.5` or `2.0` only if the pilot clearly needs it. |
+Use a small but realistic search distance:
+
+- Dense drone data: start at `2.0`
+- Larger survey data: start at `1.0`
+
+These were the working starting points in the repo-backed runs.
+
+The distance is too tight when ICP cannot find enough correspondences or stops too early. It is too loose when the alignment still looks smeared even though the run converged numerically.
+
+Change first if needed:
+
+- Move one step only, for example from `1.0` to `1.5`
+- Do not change this together with coarse alignment and sample size in the same run
 
 ### When The Reference Epoch Matters
 
-| Situation | Recommended starting settings | Signs they are working | Signs they are too aggressive or too loose | First adjustment to try |
-| :--- | :--- | :--- | :--- | :--- |
-| Normal monitoring workflow | Keep the default `reference=t1`. | The later epoch aligns cleanly to the earlier baseline. | If a change in reference direction materially changes the answer, the alignment is not robust enough yet. | Improve sampling or correspondence settings before changing the reference direction. |
-| You must keep the later epoch fixed | Use `reference=t2` and spot-check the result on one pilot area. The synthetic verification showed nearly identical RMSE in both directions, so this is usually a workflow choice rather than a quality fix. | Stable ground still aligns and the result stays close to the default direction. | If direction changes the answer materially, treat that as an alignment problem, not a reference preference. | Return to `t1`, stabilize the alignment, then try `t2` again if needed. |
+Keep the default `reference=t1` for normal monitoring work. That keeps the earlier epoch fixed and aligns the later epoch to it.
+
+Use `reference=t2` only when the workflow requires the later epoch to stay fixed. In the synthetic verification, both directions produced nearly identical alignment quality, so this is usually an operational choice rather than a quality fix.
+
+If changing the reference direction materially changes the answer, treat that as an alignment stability problem first.
 
 ### What "Good Enough" Looks Like After ICP
 
-- The same seed and same inputs reproduce the same result.
-- The overlap filter does not discard an unexpectedly large share of stable ground.
-- The final alignment metric stays broadly stable when you rerun with a modestly different sample size.
-- Stable ground looks aligned before you interpret any detected terrain change.
-- Switching the reference epoch does not materially change the result on a pilot area.
+- The same seed and same inputs reproduce the same result
+- The overlap filter does not discard an unexpectedly large share of stable ground
+- The alignment check stays broadly stable when you make a modest change to sample size
+- Stable ground looks aligned before you interpret terrain change
+- Switching the reference epoch does not materially change a pilot result
 
 ## M3C2 Best Practices
 
-### When To Trust Autotune And When To Override It
+### When To Trust Autotune
 
-| Situation | Recommended starting settings | Signs they are working | Signs they are too aggressive or too loose | First adjustment to try |
-| :--- | :--- | :--- | :--- | :--- |
-| First pass on a new site | Use `use_autotune=true` with `autotune.source=header`. In the synthetic verification, header and sample autotune chose almost identical radii and produced the same summary statistics. | The chosen radius matches the point density: sub-meter to low-meter on dense drone data, around a few meters on sparser survey data. | If the output is obviously noisy or obviously over-smoothed, the autotuned neighborhood does not match the feature size you care about. | Freeze a manual `radius` and `normal_scale` only after one good pilot run tells you roughly where they should land. |
-| Repeated monitoring on the same site | After one successful pilot, freeze the values with `use_autotune=false` and set fixed `radius`, `normal_scale`, and `depth_factor`. | Repeated runs stay comparable because the neighborhood definition no longer changes from project to project. | If you keep changing fixed values from run to run, you lose the main benefit of freezing them. | Pick one validated setting set and reuse it. |
-| Need mode consistency across in-memory and streaming work | Prefer header autotune or fixed settings. | Different execution modes choose the same neighborhood size. | If sample-based autotune changes when the sampled cloud changes, the result is less repeatable. | Switch to header autotune before moving to fixed settings. |
+Use header autotune first:
+
+- `detection.m3c2.use_autotune=true`
+- `detection.m3c2.autotune.source=header`
+
+That is the best starting point for a new site. In the synthetic verification, header autotune and sample autotune chose almost identical radii and produced the same summary statistics.
+
+Header autotune is especially useful when:
+
+- You are running a new site for the first time
+- You want the same scale choice across in-memory and streaming runs
+- You want a stable first answer before freezing manual settings
+
+### When To Override Autotune
+
+Switch to fixed settings only after a pilot tells you roughly what scales are sensible. Manual settings make the most sense when:
+
+- You are repeating the same site over time and want strict comparability
+- You know the feature scale you care about
+- You need to lock the neighborhood definition for reporting consistency
+
+When you freeze the values, set:
+
+- `use_autotune=false`
+- `fixed.radius`
+- `fixed.normal_scale`
+- `fixed.depth_factor`
+
+If you keep changing the fixed values from run to run, you lose the main benefit of fixing them.
 
 ### How To Choose Core-Point Density
 
-| Situation | Recommended starting settings | Signs they are working | Signs they are too aggressive or too loose | First adjustment to try |
-| :--- | :--- | :--- | :--- | :--- |
-| Parameter study or small validation area | Start with `core_points_percent=100.0`. | You get the fullest possible picture while comparing settings. | Runtime and file size can become unnecessarily large for routine work. | Once the settings are stable, lower the percentage for operational runs. |
-| Dense drone operational run | Start with `core_points_percent=10.0`. This produced a usable `Jeksla` output with 272,225 core points. | Coverage stays continuous and the summary statistics remain close to the denser pilot. | If changes disappear because the output is too sparse, the percentage is too low. | Raise to `15` or `20` before changing the neighborhood size. |
-| Larger survey operational run | Start with `core_points_percent=5.0`. This reduced the repo's large survey case to 296,866 core points while preserving broad coverage. | Runtime drops sharply while valid coverage stays high. | If the output becomes too sparse for interpretation, the core-point percentage is too low. | Raise the core-point percentage before touching the M3C2 radius. |
-| Fast first-pass screening | Use the lowest density that still shows the main patterns, typically `5` to `10` percent. | Major change zones still appear in the right places. | If only isolated patches survive or narrow features disappear, the percentage is too low for that area. | Increase the percentage one step and rerun. |
+Use core-point density mainly as a runtime and output-density control.
 
-### How To Think About `radius`, `normal_scale`, and `depth_factor`
+Start with:
 
-| Situation | Recommended starting settings | Signs they are working | Signs they are too aggressive or too loose | First adjustment to try |
-| :--- | :--- | :--- | :--- | :--- |
-| Manual override after a good pilot | Start from the autotuned radius. Keep `normal_scale=radius`. Keep `depth_factor` close to the validated pilot value. | The manual result looks like a controlled refinement of the pilot, not a completely different answer. | If you change several scale parameters at once, it becomes hard to see which one caused the shift. | Keep `normal_scale` tied to `radius` and change only one scale step at a time. |
-| Output is too speckled or too many core points become invalid | Increase `radius` and `normal_scale` together. Keep `depth_factor` conservative at first. | Coverage becomes more continuous and the distance spread settles down. | If the result starts to wash out narrow features, you went too far. | Step the radius back down slightly. |
-| Output is too smooth and small features blur away | Decrease `radius` and `normal_scale` together. | Edges sharpen without the stable ground turning into noise. | If the distance spread suddenly explodes or valid coverage drops, the radius is now too small. | Return to the previous radius and lower the core-point spacing instead. |
+- `100%` for parameter studies or small validation areas
+- `10%` for dense drone operational runs
+- `5%` for larger survey operational runs
 
-The synthetic sweep is the clearest example of why this matters:
+Those starting points were supported by the repo runs:
 
-- Header autotune picked a radius of about `4.5` m and stayed stable.
-- Forcing the radius down to `2.0` m made the output much noisier and reduced valid coverage.
-- Forcing the radius up to `8.0` m kept the result stable but smoothed the response slightly.
+- `Jeksla`: `10%` produced `272,225` core points and a usable output
+- Larger survey pilot: `5%` produced `296,866` core points while keeping broad coverage
+- Synthetic sweep: lowering from `100%` to `10%` kept very similar summary statistics while greatly reducing output size
+
+Increase the percentage when the output becomes too sparse to interpret. Decrease it when the pilot is too slow and the broad pattern is already clear.
+
+### How To Think About `radius`, `normal_scale`, And `depth_factor`
+
+When you manually override M3C2, start from the autotuned radius and keep the scales tied together:
+
+- Keep `normal_scale=radius`
+- Keep `depth_factor` close to the validated pilot value
+
+The synthetic sweep is the clearest example:
+
+- Header autotune picked about `4.5 m` and stayed stable
+- Forcing the radius down to `2.0 m` made the result much noisier and reduced valid coverage
+- Forcing the radius up to `8.0 m` kept the result stable but smoothed the response slightly
+
+Practical rule:
+
+- If the output is speckled or many points become invalid, increase `radius` and `normal_scale` together
+- If the output is too smooth and small features blur away, decrease them together
+- Change one scale step at a time
 
 Use manual overrides to match a known feature scale, not as the first thing you change.
 
-## Validation Checklist Before You Accept A Run
+## Validation Checklist Before Accepting A Run
 
-- Confirm the workflow selected the correct area and time periods.
-- Confirm the overlap and alignment sample sizes make sense for the dataset.
-- Record the chosen M3C2 radius, max depth, and core-point count from the log.
-- Open the M3C2 point output or raster and inspect both stable ground and known change zones.
-- Repeat one pilot run with the same seed if the analysis is important enough to need a fixed baseline.
-- If you freeze manual M3C2 settings, store the exact config and seed with the project record.
+- Confirm the workflow selected the correct area and time periods
+- Confirm the overlap and alignment sample sizes make sense for the dataset
+- Record the chosen M3C2 radius, max depth, and core-point count from the log
+- Open the M3C2 point output or raster and inspect both stable ground and known change zones
+- Repeat one pilot run with the same seed if the work needs a fixed baseline
+- Save the exact config and seed used for the accepted run
 
 ## Common Failure Modes
 
-| Symptom | What it usually means | What to change first |
-| :--- | :--- | :--- |
-| No drone data are discovered | `base_dir` points to an area folder instead of the parent folder, or the source type is wrong. | For drone-style repo data, set `paths.base_dir` to the parent folder such as `data` and keep `discovery.source_type=drone`. |
-| ICP reports too few correspondences or stops too early | The correspondence distance is too tight, the overlap is too small, or the starting offset is too large. | Increase `max_correspondence_distance` one step or enable coarse alignment. |
-| Alignment looks unstable across seeds or sample sizes | The ICP sample is too small or the stable overlap is too weak. | Increase the alignment sample size and keep `overlap_filter=true`. |
-| M3C2 output is speckled or has many holes | The neighborhood is too small or the core-point density is too sparse for the terrain and point density. | Return to header autotune or increase `radius` and `normal_scale` together. |
-| M3C2 output is too smooth | The neighborhood is too large for the feature scale you care about. | Lower `radius` and `normal_scale` together. |
-| Large pilot runs are too slow | The pilot is still evaluating too many core points or generating too many outputs. | Lower `core_points_percent`, turn off extra outputs for the pilot, then re-enable them for the final production run. |
+### No Drone Data Are Discovered
+
+This usually means `base_dir` points to an area folder instead of the parent folder, or the source type is wrong.
+
+Change first:
+
+- For drone-style repo data, set `paths.base_dir` to the parent folder such as `data`
+- Keep `discovery.source_type=drone`
+
+### ICP Reports Too Few Correspondences Or Stops Too Early
+
+This usually means the correspondence distance is too tight, the overlap is too small, or the starting offset is too large.
+
+Change first:
+
+- Increase `max_correspondence_distance` one step
+- If that is not enough, enable coarse alignment
+
+### Alignment Looks Unstable Across Seeds Or Sample Sizes
+
+This usually means the ICP sample is too small or the stable overlap is too weak.
+
+Change first:
+
+- Increase the alignment sample size
+- Keep `overlap_filter=true`
+
+### M3C2 Output Is Speckled Or Full Of Holes
+
+This usually means the neighborhood is too small or the core-point density is too sparse.
+
+Change first:
+
+- Return to header autotune
+- Or increase `radius` and `normal_scale` together
+
+### M3C2 Output Is Too Smooth
+
+This usually means the neighborhood is too large for the feature scale you care about.
+
+Change first:
+
+- Lower `radius` and `normal_scale` together
+
+### Large Pilot Runs Are Too Slow
+
+This usually means the pilot is still evaluating too many core points or generating too many outputs.
+
+Change first:
+
+- Lower `core_points_percent`
+- Turn off extra outputs for the pilot
+- Re-enable them for the final production run
 
 ## Example Commands For This Repo
 

@@ -153,7 +153,7 @@ data/raw/
 
 ## Documentation
 
-*   [**Best Practice Guide**](docs/BEST_PRACTICES_GUIDE.md): Operator-focused guidance on what settings to start with, when to override them, and how to validate results.
+*   [**Best Practice Guide**](docs/BEST_PRACTICES_GUIDE.md): Guidance on what settings to start with, when to override them, and how to validate results.
 *   [**Best-Practice Evidence**](docs/BEST_PRACTICES_EVIDENCE.md): Short summary of the repo runs and datasets used to support the guide.
 *   [**Configuration Guide**](docs/CONFIGURATION_GUIDE.md): Detailed reference for all YAML parameters.
 *   [**Known Issues**](docs/KNOWN_ISSUES.md): Current limitations and workarounds.
