@@ -4,6 +4,8 @@ This guide helps you choose good starting settings, decide when to override them
 
 This is not the full parameter reference. For the YAML details, see [Configuration Guide](CONFIGURATION_GUIDE.md). For the repo runs that support the recommendations here, see [Best-Practice Evidence](BEST_PRACTICES_EVIDENCE.md).
 
+When this guide talks about areas you expect to be unchanged, it means surfaces such as roads, bedrock, or undisturbed terrain that should line up in both epochs.
+
 ## How To Use This Guide
 
 1. Pick the dataset type that matches your project.
@@ -29,7 +31,7 @@ Looks good when:
 
 - Most of the overlap is retained
 - The chosen M3C2 radius stays in the sub-meter to low-meter range
-- The M3C2 point output covers stable ground continuously
+- The M3C2 point output covers areas you expect to be unchanged continuously
 
 Change first if needed:
 
@@ -87,10 +89,10 @@ Use ICP whenever the two epochs come from different flights, sensors, or process
 Only skip ICP after a pilot shows that:
 
 - The transform is negligible
-- Stable ground looks the same with and without ICP
+- Areas you expect to be unchanged look the same with and without ICP
 - The change map does not materially change when ICP is disabled
 
-If disabling ICP changes stable areas or known features, the data were not aligned well enough to skip it.
+If disabling ICP changes areas you expect to be unchanged or known features, the data were not aligned well enough to skip it.
 
 ### How To Choose The ICP Sample Size
 
@@ -147,9 +149,9 @@ If changing the reference direction materially changes the answer, treat that as
 ### What "Good Enough" Looks Like After ICP
 
 - The same seed and same inputs reproduce the same result
-- The overlap filter does not discard an unexpectedly large share of stable ground
+- The overlap filter does not discard an unexpectedly large share of areas you expect to be unchanged
 - The alignment check stays broadly stable when you make a modest change to sample size
-- Stable ground looks aligned before you interpret terrain change
+- Areas you expect to be unchanged look aligned before you interpret terrain change
 - Switching the reference epoch does not materially change a pilot result
 
 ## M3C2 Best Practices
@@ -230,7 +232,7 @@ Use manual overrides to match a known feature scale, not as the first thing you 
 - Confirm the workflow selected the correct area and time periods
 - Confirm the overlap and alignment sample sizes make sense for the dataset
 - Record the chosen M3C2 radius, max depth, and core-point count from the log
-- Open the M3C2 point output or raster and inspect both stable ground and known change zones
+- Open the M3C2 point output or raster and inspect both areas you expect to be unchanged and known change zones
 - Repeat one pilot run with the same seed if the work needs a fixed baseline
 - Save the exact config and seed used for the accepted run
 
