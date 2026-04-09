@@ -15,6 +15,8 @@ def test_plotly_visualizer_falls_back_to_html_when_browser_is_unavailable(monkey
     monkeypatch.delenv("BROWSER", raising=False)
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.delenv("WSL_DISTRO_NAME", raising=False)
+    monkeypatch.delenv("WSL_INTEROP", raising=False)
 
     def fake_show(self, renderer=None):
         calls["show"] = True
