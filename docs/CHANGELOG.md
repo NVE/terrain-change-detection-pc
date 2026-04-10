@@ -1,5 +1,241 @@
 ﻿# Changelog and Implementation Notes
 
+## 2026-04-10 - Terrain Change Best Practice Guide
+
+### Summary
+Added a comprehensive best practice guide for terrain change detection workflows, covering data quality requirements, parameter selection, validation procedures, and independent verification strategies.
+
+### Key Changes
+
+**Best Practice Guide** (`docs/BEST_PRACTICES_GUIDE.md`):
+- Practical guidance for M3C2 parameter selection (normal scale, projection scale, cylinder radius)
+- Data quality checklist: point density, temporal consistency, coordinate system alignment
+- Validation workflow: unchanged-area statistics, CloudCompare cross-verification
+- Guidance on interpreting Level of Detection (LoD) and significance flags
+
+**Evidence Document** (`docs/BEST_PRACTICES_EVIDENCE.md`):
+- Supporting data and examples referenced by the guide
+- Independent verification methodology using CloudCompare
+
+**Documentation Updates**:
+- Updated `README.md` to reference the new guide
+- Updated `docs/CONFIGURATION_GUIDE.md` for consistency
+
+---
+
+## 2026-04-09 - Housekeeping: Archive Workflow Refactor Plan
+
+### Summary
+Moved the workflow refactor plan document to `docs/archive/` to keep the active docs directory clean. Fixed a WSL environment variable leak in the headless plotly test.
+
+### Key Changes
+- Moved `PLAN_REFACTOR_WORKFLOW.md` to `docs/archive/`
+- Fixed headless plotly test on WSL: cleared `WSL_DISTRO_NAME`/`WSL_INTEROP` env vars that caused the test to take the WSL branch instead of the truly-headless path
+
+---
+
+## 2026-03-25 - Workflow Refactoring
+
+### Summary
+Major refactoring of `run_workflow.py` from a monolithic 1800+ line script into a modular `workflow` package with dedicated modules for each pipeline stage. Also fixed reference epoch routing for ICP alignment.
+
+### Key Changes
+
+**New `workflow` Package** (`src/terrain_change_detection/workflow/`):
+- `cli.py`: Command-line argument parsing
+- `bootstrap.py`: Configuration loading and initialization
+- `data_loading.py`: Point cloud loading and discovery
+- `coordinate_setup.py`: Local coordinate transform setup
+- `alignment.py`: ICP alignment orchestration
+- `clipping.py`: Area clipping logic
+- `detection_dod.py`: DoD computation dispatch
+- `detection_c2c.py`: C2C computation dispatch
+- `detection_m3c2.py`: M3C2 computation dispatch
+- `export_helpers.py`: Output export utilities
+- `visualization_helpers.py`: Visualization dispatch
+- `runner.py`: Main pipeline runner
+- `types.py`: Shared dataclasses and type definitions
+
+**Reference Routing Fix**:
+- Fixed bug where `--reference t2` CLI argument was not correctly routed through the refactored workflow
+
+**Plotly Headless Fallback**:
+- Handle plotly rendering gracefully in headless WSL environments
+
+### Files Changed
+- `scripts/run_workflow.py`: Reduced from ~1800 to thin entry point
+- 14 new modules in `src/terrain_change_detection/workflow/`
+- New `tests/test_workflow_reference_routing.py` with 179 lines of reference routing tests
+
+---
+
+## 2026-03-17 - Simplify Configuration Layering and CLI Overrides
+
+### Summary
+Simplified the configuration system by making profile YAML files contain only overrides instead of full copies of all settings. Cleaned up alignment config defaults and improved ICP test assertions.
+
+### Key Changes
+
+**Config System** (`config.py`):
+- Implemented deep-merge layering: `default.yaml` → profile YAML → CLI overrides
+- Profiles now only specify values that differ from defaults
+- Removed ~870 lines of duplicated config across 6 profile files
+
+**Profile YAML Files**:
+- `config/default_clipped.yaml`: Reduced to clipping-specific overrides
+- `config/profiles/drone.yaml`: Reduced to drone-specific overrides
+- `config/profiles/large_scale.yaml`: Reduced to scale-specific overrides
+- `config/profiles/large_synthetic.yaml`: Reduced to synthetic-specific overrides
+- `config/profiles/large_synthetic_clipped.yaml`: Reduced to clipped synthetic overrides
+- `config/profiles/synthetic.yaml`: Reduced to synthetic-specific overrides
+
+**Alignment Defaults** (`default.yaml`):
+- Cleaned up ICP alignment default parameters for consistency
+
+**Tests** (`test_config_integration.py`):
+- Added 84-line integration test suite for config layering
+- ICP tests now use baseline comparison assertions with increased `max_iterations` and `max_correspondence_distance`
+
+### Migration Notes
+- **No breaking changes**: Existing workflows continue to work. Profile files are now much smaller and easier to maintain.
+
+---
+
+## 2026-03-11 - ICP Alignment Improvements
+
+### Summary
+Six improvements to ICP alignment addressing reproducibility, memory safety, overlap-aware subsampling, reference selection, aligned point cloud export, and Open3D cross-validation.
+
+### Key Changes
+
+**Deterministic Results** (`fine_registration.py`, `config.py`):
+- Seed all random operations via `np.random.default_rng` with configurable `random_seed` (default: 42)
+- Fixes critical non-reproducibility issue across runs
+
+**Percentage Subsampling**:
+- Added `subsample_mode` config (`count` or `percent`)
+- Safety cap via `max_subsample_size` (default: 500K) to prevent OOM on large datasets
+
+**Overlap-Aware Subsampling**:
+- Filter both clouds to XY bounding-box intersection before subsampling
+- ICP only uses points with valid correspondences, improving convergence
+
+**Reference/Target Selection**:
+- Added `reference` config (`t1` or `t2`) and `--reference` CLI argument
+- Choose which epoch is the fixed ICP reference
+
+**Export Aligned Point Cloud**:
+- Wired up the existing `export_aligned_pc` config option that was never implemented in the workflow
+
+**Open3D ICP Backend**:
+- Added `icp_backend` config (`custom` or `open3d`)
+- New `Open3DICP` wrapper class for cross-validation against a well-known library
+
+### Tests
+- 13 new tests added (15 total ICP tests)
+- Integration verification report in `docs/ICP_FIX_VERIFICATION_REPORT.md`
+
+---
+
+## 2026-02-26 - README Update: Conda Installation Instructions
+
+### Summary
+Updated README with conda installation instructions and usage examples to support users who prefer conda over pip/uv.
+
+---
+
+## 2026-01-15 - Run Input Logging and Pre-Alignment DEM Export
+
+### Summary
+Added structured logging of all run inputs at workflow start and the option to export DEM rasters before ICP alignment for quality inspection.
+
+### Key Changes
+
+**Run Input Logging** (`run_workflow.py`):
+- Logs all configuration values, file paths, and CLI arguments at the start of each run
+- Provides a clear record of inputs for reproducibility and debugging
+
+**Pre-Alignment DEM Export**:
+- New option to save DEM rasters before ICP alignment is applied
+- Enables visual comparison of pre- vs post-alignment terrain surfaces
+
+---
+
+## 2026-01-14 - Year Selection, Area Filtering, and CLI Enhancements
+
+### Summary
+Added support for selecting specific survey years and filtering by area name, along with CLI argument improvements and export directory restructuring.
+
+### Key Changes
+
+**Year Selection and Area Filtering** (`run_workflow.py`, `data_loading.py`):
+- Added `--years` CLI argument to select specific survey epochs (e.g., `--years 2015 2020`)
+- Added `--area` CLI argument to filter to a specific survey area
+
+**Area-Aware Data Discovery** (`preprocessing/loader.py`):
+- Enhanced `scan_areas()` method to filter by user-specified area name
+- Returns only matching areas when `--area` is provided
+
+**Export Directory Structure**:
+- Updated export paths to include the selected area name (e.g., `output/Doli/...`)
+- Prevents output from different areas overwriting each other
+
+**CLI Arguments** (`run_workflow.py`):
+- Added `--area` for area name filtering
+- Added `--no-plot` flag to suppress visualization (useful for batch/CI runs)
+
+**Type Checking**:
+- Added `ty` type checking rules to `pyproject.toml`
+
+---
+
+## 2025-12-18 - Local Coordinate Transform Merge & Client Delivery Prep
+
+### Summary
+Merged the `feature/local-coordinate-transform` branch into main. Rewrote README to reflect the current project state. Cleaned up code style and prepared repository for client delivery.
+
+### Key Changes
+
+**Local Coordinate Transform** (merged via PR #5):
+- Full local coordinate transformation support across all pipeline modules
+- See entries for 2025-12-12 and 2025-12-15 for detailed changes
+
+**README Rewrite** (`README.md`):
+- Complete rewrite to reflect current project capabilities and architecture
+- Removed references to deleted documentation files
+
+**Code Style**:
+- Applied ruff auto-fixes across the codebase
+- Fixed duplicate content in README after merge
+
+---
+
+## 2025-12-16 - Døli Benchmarking Data & M3C2 Histogram Comparison
+
+### Summary
+Added Døli raw survey data for client delivery and benchmarking. Created an M3C2 histogram comparison script for validating toolkit results against CloudCompare.
+
+### Key Changes
+
+**M3C2 Histogram Comparison** (`scripts/compare_m3c2_histograms.py`):
+- New script for comparing M3C2 distance distributions between CloudCompare and the toolkit
+- Publication-quality histograms with 256 bins
+
+**Configuration Updates**:
+- Updated `default.yaml` and `default_clipped.yaml` with fixed M3C2 params (radius=1.0, depth_factor=2.0)
+- Updated visualization colormap to use pale green for stable areas
+- Rewrote `docs/CONFIGURATION_GUIDE.md` to align with technical note Section 5
+
+**Døli Raw Data** (`data/raw/`):
+- Added Døli area 2015/2020 LAZ files and metadata
+- Added river polygon GeoJSON for clipping
+- Added CloudCompare M3C2 histogram CSV for benchmarking
+
+**Repository Cleanup**:
+- Updated `.gitignore` to include `data/raw/` (client sample data) and exclude generated/test data
+
+---
+
 ## 2025-12-15 - ICP Alignment Toggle Feature
 
 ### Summary
