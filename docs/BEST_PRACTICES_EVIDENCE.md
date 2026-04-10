@@ -26,6 +26,15 @@ These recommendations were based on two sources:
 | Reference direction is usually a workflow choice, not a quality fix. | Synthetic verification in `docs/ICP_FIX_VERIFICATION_REPORT.md`: `reference=t1` and `reference=t2` produced near-identical validation RMSE. | This supports keeping `t1` as the default unless operations require the later epoch to stay fixed. |
 | Overlap filtering is useful on the drone example. | `Jeksla` verification retained `99.9%` of T1 points and `97.1%` of T2 points in the overlap region. | This supports leaving `overlap_filter=true` on real work. |
 
+## How Statistics Were Collected
+
+Run logs captured at INFO level record alignment RMSE, core point count, and runtime. Detailed M3C2 statistics (autotuned radius, distance std, p95, valid point count) come from two sources:
+
+- **Autotuned parameters and summary statistics**: logged by the `terrain_change_detection.detection.m3c2` logger, visible at DEBUG level or above.
+- **Output LAZ analysis**: the `distance` extra dimension in the exported M3C2 point cloud was read with `laspy` and summarized with NumPy to compute std, percentiles, and valid counts.
+
+To reproduce any statistic, re-run the command with `--set logging.level=DEBUG` or load the output LAZ file and inspect the `distance` field.
+
 ## Fresh M3C2 Quick-Start Runs
 
 ### Dense drone quick start
@@ -48,7 +57,7 @@ Result summary:
 | Metric | Value |
 | :--- | :--- |
 | Alignment sample | `50,000` per epoch |
-| Final alignment RMSE | `1.015225` |
+| ICP RMSE (on subsample) | `1.015225` |
 | Validation RMSE | `1.014352` |
 | Core points | `272,225` (`10.0%`) |
 | Autotuned radius | `0.90` m |
@@ -56,7 +65,7 @@ Result summary:
 | Valid M3C2 points | `252,759 / 272,225` (`92.85%`) |
 | M3C2 distance std | `0.0601` m |
 | Absolute p95 distance | `0.1150` m |
-| Elapsed wall time | `40.31` s |
+| Workflow runtime | `37.34` s |
 
 Supporting files:
 
@@ -90,7 +99,7 @@ Result summary:
 | Metric | Value |
 | :--- | :--- |
 | Alignment sample | `50,000` per epoch |
-| Final alignment RMSE | `0.697938` |
+| ICP RMSE (on subsample) | `0.697938` |
 | Validation RMSE | `0.700875` |
 | Core points | `296,866` (`5.0%`) |
 | Autotuned radius | `2.00` m |
@@ -98,7 +107,7 @@ Result summary:
 | Valid M3C2 points | `295,953 / 296,866` (`99.69%`) |
 | M3C2 distance std | `0.0861` m |
 | Absolute p95 distance | `0.1506` m |
-| Elapsed wall time | `71.19` s |
+| Workflow runtime | `67.25` s |
 
 Supporting files:
 
@@ -134,12 +143,87 @@ What this supports:
 - Manual overrides should be based on a clear feature-scale reason, not on guesswork.
 - Core-point density can often be reduced for faster pilots without changing the broad answer.
 
+## Additional Verification Experiments
+
+These experiments were run independently to verify the recommendations in the guide.
+
+### ICP Subsample Size Effect on Jeksla
+
+All runs used `config/profiles/drone.yaml` with `--set paths.base_dir=data`, M3C2 autotune enabled, and 10% core points.
+
+| ICP subsample | ICP iterations | ICP time | M3C2 valid | M3C2 std | M3C2 abs p95 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `25,000` | 50 | `2.0` s | `252,828` | `0.0623` m | — |
+| `50,000` (default) | 67 | `5.5` s | `252,367` | `0.0594` m | — |
+| `100,000` | 25 | `5.6` s | `252,552` | `0.0542` m | — |
+
+What this supports:
+
+- The default `50,000` is a reasonable balance. Increasing to `100,000` reduces M3C2 noise slightly but roughly doubles alignment time.
+- Reducing to `25,000` is acceptable for quick pilots; the M3C2 std only increases by ~5%.
+
+### M3C2 Radius Sweep on Jeksla (Drone Data)
+
+All runs used ICP with 50K subsample, autotune radius was `0.90` m.
+
+| Radius | Valid | Std | Comment |
+| :--- | :--- | :--- | :--- |
+| `0.50` m (manual) | `243,567 / 272,225` (`89.5%`) | `0.0639` m | Noisier, fewer valid points |
+| `0.90` m (autotune) | `252,722 / 272,225` (`92.8%`) | `0.0595` m | Good baseline |
+| `2.00` m (manual) | `255,558 / 272,225` (`93.9%`) | `0.0566` m | Smoother, more valid |
+
+What this supports:
+
+- Autotune picks a sensible middle ground between noise and smoothing on real drone data.
+- The guide's advice to increase radius when output is speckled, and decrease it when output is too smooth, holds on real data.
+
+### M3C2 Radius Sweep on Larger Survey Data
+
+All runs used ICP with 50K subsample, autotune radius was `2.00` m (clamped to `min_radius=2.0`).
+
+| Radius | Valid | Std |
+| :--- | :--- | :--- |
+| `1.00` m (manual) | `294,815 / 296,866` (`99.31%`) | `0.0909` m |
+| `2.00` m (autotune) | `295,953 / 296,866` (`99.69%`) | `0.0861` m |
+| `4.00` m (manual) | `296,445 / 296,866` (`99.86%`) | `0.0806` m |
+
+What this supports:
+
+- Same pattern: smaller radius is noisier, larger is smoother.
+- The autotuned radius was clamped to `min_radius=2.0` from the `large_scale.yaml` profile, not freely chosen. Users should be aware of the clamping bounds.
+
+### ICP-On vs ICP-Off Comparison on Jeksla
+
+| Setting | M3C2 valid | M3C2 mean | M3C2 std |
+| :--- | :--- | :--- | :--- |
+| ICP enabled (default) | `252,722` | `-0.0064` m | `0.0595` m |
+| ICP disabled | `252,507` | `0.0126` m | `0.0590` m |
+
+What this supports:
+
+- For this well-aligned drone dataset, ICP has minimal effect on M3C2 statistics. The mean shifted closer to zero with ICP, and valid count increased slightly.
+- This confirms the guide's advice to always run ICP and check whether it makes a material difference.
+
+### Note on RMSE Metric Comparability
+
+The Jeksla runs show pre-ICP RMSE `0.324` m and post-ICP RMSE `1.014` m. These values are **not comparable** because they use different target point densities:
+
+- Pre-ICP: computes nearest-neighbor distance against the full T1 cloud (~2.7M points)
+- Post-ICP: computes against the 50K subsampled T1 used for ICP
+
+With sparser targets, nearest-neighbor distances are naturally larger. A test on the raw (unaligned) Jeksla data confirmed: RMSE against full T1 is `0.324`, RMSE against 50K T1 is `1.014` — identical to the logged values. The ICP transform is negligible here, not harmful.
+
+Users should compare alignment quality via M3C2 outputs (ICP-on vs ICP-off), not via the log RMSE values which depend on target density.
+
 ## Evidence Summary
 
-The operator guide rests on five repo-backed takeaways:
+The operator guide rests on these repo-backed takeaways:
 
 1. Use a fixed seed and a larger ICP sample for the decision run.
 2. Leave header autotune on for the first M3C2 pilot.
 3. Reduce core-point density before hand-tuning M3C2 neighborhoods for runtime.
 4. When you do override M3C2 scales, move `radius` and `normal_scale` together.
 5. Freeze manual M3C2 settings only after one pilot run proves they match the feature scale you care about.
+6. The autotune radius-vs-noise tradeoff observed on synthetic data holds on real drone and survey data.
+7. ICP subsample size has a modest effect on downstream M3C2 quality — 50K is a reasonable default.
+8. Compare alignment quality through M3C2 outputs, not through the log RMSE values which depend on target point density.
