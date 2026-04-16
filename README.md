@@ -159,8 +159,7 @@ data/raw/
 *   [**Known Issues**](docs/KNOWN_ISSUES.md): Current limitations and workarounds.
 *   [**Changelog**](docs/CHANGELOG.md): History of changes and updates.
 
-
-## License
+## License
 
 This project is licensed under the [MIT License](LICENSE).
 

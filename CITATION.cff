@@ -3,6 +3,9 @@ title: "Terrain Change Detection from Multi-temporal Point Clouds"
 message: "If you use this software, please cite it as below."
 type: software
 authors:
+  - name: "Norwegian Water Resources and Energy Directorate (NVE)"
+    website: "https://www.nve.no/"
+contact:
   - given-names: Yared
     family-names: Bekele
     email: Yared.Bekele@sintef.no
