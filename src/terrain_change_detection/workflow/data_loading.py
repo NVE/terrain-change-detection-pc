@@ -92,7 +92,7 @@ def discover(
     if not areas:
         msg = "No area directories found in the base directory.\n"
         msg += f"Data source type: {cfg.discovery.source_type}\n"
-        if cfg.discovery.source_type == 'hoydedata':
+        if cfg.discovery.source_type == "hoydedata":
             msg += f"Expected structure: {base_dir}/<area>/<time_period>/{cfg.discovery.data_dir_name}/*.laz\n"
             msg += "If your data doesn't have a 'data' subdirectory, set source_type: drone in config"
         else:
@@ -133,10 +133,13 @@ def discover(
     # ----------------------------------------------------------------
     if selected_years is not None and len(selected_years) > 1:
         if len(selected_years) > 2:
-            logger.warning("More than two selected years provided; only the first two will be used.")
+            logger.warning(
+                "More than two selected years provided; only the first two will be used."
+            )
 
         filtered = [
-            tp for tp in selected_area.time_periods
+            tp
+            for tp in selected_area.time_periods
             if any(str(year) in tp for year in selected_years)
         ]
 
@@ -146,11 +149,18 @@ def discover(
                 f"'{selected_area.area_name}'. Filtered: {filtered}"
             )
 
-        logger.info("Filtered time periods for area '%s': %s", selected_area.area_name, filtered)
+        logger.info(
+            "Filtered time periods for area '%s': %s", selected_area.area_name, filtered
+        )
         t1, t2 = filtered[:2]
     else:
         t1, t2 = selected_area.time_periods[:2]
-        logger.info("Selected time periods for area '%s': %s, %s", selected_area.area_name, t1, t2)
+        logger.info(
+            "Selected time periods for area '%s': %s, %s",
+            selected_area.area_name,
+            t1,
+            t2,
+        )
 
     ds1 = selected_area.datasets[t1]
     ds2 = selected_area.datasets[t2]
@@ -159,7 +169,7 @@ def discover(
     # Determine streaming vs in-memory
     # ----------------------------------------------------------------
     use_streaming = (
-        getattr(cfg, 'outofcore', None) is not None
+        getattr(cfg, "outofcore", None) is not None
         and cfg.outofcore.enabled
         and cfg.outofcore.streaming_mode
         and len(ds1.laz_files) > 0
@@ -198,8 +208,12 @@ def load_data(
     """
     logger.info("=== STEP 1: Data Preparation ===")
     logger.info("Selected area: %s", discovery.selected_area.area_name)
-    logger.info("Time period 1: %s (%d files)", discovery.t1, len(discovery.ds1.laz_files))
-    logger.info("Time period 2: %s (%d files)", discovery.t2, len(discovery.ds2.laz_files))
+    logger.info(
+        "Time period 1: %s (%d files)", discovery.t1, len(discovery.ds1.laz_files)
+    )
+    logger.info(
+        "Time period 2: %s (%d files)", discovery.t2, len(discovery.ds2.laz_files)
+    )
 
     loader = PointCloudLoader(
         ground_only=cfg.preprocessing.ground_only,
@@ -211,13 +225,24 @@ def load_data(
 
     if discovery.use_streaming:
         points1, points2, pc1_data, pc2_data = _load_streaming(
-            cfg, loader, discovery.ds1, discovery.ds2,
-            discovery.t1, discovery.t2, local_transform, rng,
+            cfg,
+            loader,
+            discovery.ds1,
+            discovery.ds2,
+            discovery.t1,
+            discovery.t2,
+            local_transform,
+            rng,
         )
     else:
         points1, points2, pc1_data, pc2_data = _load_inmemory(
-            cfg, loader, discovery.ds1, discovery.ds2,
-            discovery.t1, discovery.t2, local_transform,
+            cfg,
+            loader,
+            discovery.ds1,
+            discovery.ds2,
+            discovery.t1,
+            discovery.t2,
+            local_transform,
         )
 
     return PreparedData(
@@ -261,13 +286,17 @@ def discover_and_load(
 def _load_streaming(
     cfg: AppConfig,
     loader: PointCloudLoader,
-    ds1, ds2,
-    t1: str, t2: str,
+    ds1,
+    ds2,
+    t1: str,
+    t2: str,
     local_transform: LocalCoordinateTransform | None,
     rng: np.random.Generator,
 ) -> tuple[np.ndarray, np.ndarray, dict, dict]:
     """Load data in streaming/out-of-core mode."""
-    logger.info("--- Step 1: Preparing datasets for streaming/out-of-core processing ---")
+    logger.info(
+        "--- Step 1: Preparing datasets for streaming/out-of-core processing ---"
+    )
     batch_loader = BatchLoader(loader=loader, streaming_mode=True)
 
     pc1_data = batch_loader.load_dataset(ds1, streaming=True)
@@ -276,36 +305,43 @@ def _load_streaming(
     _seed = int(cfg.alignment.random_seed)
 
     # Log metadata
-    m1 = pc1_data['metadata']
-    m2 = pc2_data['metadata']
+    m1 = pc1_data["metadata"]
+    m2 = pc2_data["metadata"]
     logger.info(
         "Dataset 1 (%s): %d files, ~%.0f ground / %.0f total (%.1f%%)",
         t1,
-        len(pc1_data['file_paths']),
-        float(m1.get('total_points_ground') or 0),
-        float(m1.get('total_points_all') or 0),
-        float(m1.get('ground_percentage')) if m1.get('ground_percentage') is not None else float('nan'),
+        len(pc1_data["file_paths"]),
+        float(m1.get("total_points_ground") or 0),
+        float(m1.get("total_points_all") or 0),
+        float(m1.get("ground_percentage"))
+        if m1.get("ground_percentage") is not None
+        else float("nan"),
     )
     logger.info(
         "Dataset 2 (%s): %d files, ~%.0f ground / %.0f total (%.1f%%)",
         t2,
-        len(pc2_data['file_paths']),
-        float(m2.get('total_points_ground') or 0),
-        float(m2.get('total_points_all') or 0),
-        float(m2.get('ground_percentage')) if m2.get('ground_percentage') is not None else float('nan'),
+        len(pc2_data["file_paths"]),
+        float(m2.get("total_points_ground") or 0),
+        float(m2.get("total_points_all") or 0),
+        float(m2.get("ground_percentage"))
+        if m2.get("ground_percentage") is not None
+        else float("nan"),
     )
 
     # Subsample counts
-    est_ground1 = int(m1.get('total_points_ground') or m1.get('total_points_all') or 0)
-    est_ground2 = int(m2.get('total_points_ground') or m2.get('total_points_all') or 0)
+    est_ground1 = int(m1.get("total_points_ground") or m1.get("total_points_all") or 0)
+    est_ground2 = int(m2.get("total_points_ground") or m2.get("total_points_all") or 0)
     n_per_ds1 = resolve_subsample_count(max(est_ground1, 1), cfg.alignment)
     n_per_ds2 = resolve_subsample_count(max(est_ground2, 1), cfg.alignment)
-    logger.info("Loading subsampled data for alignment (T1→%d, T2→%d)...", n_per_ds1, n_per_ds2)
+    logger.info(
+        "Loading subsampled data for alignment (T1→%d, T2→%d)...", n_per_ds1, n_per_ds2
+    )
 
     # Overlap-aware bounding box
     overlap_bbox = None
     if cfg.alignment.overlap_filter:
         from terrain_change_detection.acceleration.tiling import intersection_bounds
+
         overlap_bbox = intersection_bounds(
             [str(p) for p in ds1.laz_files],
             [str(p) for p in ds2.laz_files],
@@ -314,8 +350,10 @@ def _load_streaming(
         if overlap_bbox is not None:
             logger.info(
                 "Streaming overlap bbox: x=[%.1f, %.1f], y=[%.1f, %.1f]",
-                overlap_bbox.min_x, overlap_bbox.max_x,
-                overlap_bbox.min_y, overlap_bbox.max_y,
+                overlap_bbox.min_x,
+                overlap_bbox.max_x,
+                overlap_bbox.min_y,
+                overlap_bbox.max_y,
             )
         else:
             logger.warning("No overlap found between datasets; sampling full extents.")
@@ -328,7 +366,9 @@ def _load_streaming(
         chunk_points=cfg.outofcore.chunk_points,
     )
     points1 = reader1.reservoir_sample(
-        n_per_ds1, transform=local_transform, bbox=overlap_bbox,
+        n_per_ds1,
+        transform=local_transform,
+        bbox=overlap_bbox,
         seed=_seed,
     )
 
@@ -340,7 +380,9 @@ def _load_streaming(
         chunk_points=cfg.outofcore.chunk_points,
     )
     points2 = reader2.reservoir_sample(
-        n_per_ds2, transform=local_transform, bbox=overlap_bbox,
+        n_per_ds2,
+        transform=local_transform,
+        bbox=overlap_bbox,
         seed=_seed + 1,
     )
 
@@ -353,8 +395,10 @@ def _load_streaming(
 def _load_inmemory(
     cfg: AppConfig,
     loader: PointCloudLoader,
-    ds1, ds2,
-    t1: str, t2: str,
+    ds1,
+    ds2,
+    t1: str,
+    t2: str,
     local_transform: LocalCoordinateTransform | None,
 ) -> tuple[np.ndarray, np.ndarray, dict, dict]:
     """Load data fully in memory."""
@@ -362,20 +406,28 @@ def _load_inmemory(
     batch_loader = BatchLoader(loader=loader)
 
     if len(ds1.laz_files) > 1:
-        logger.info("Batch loading %d files for time period %s...", len(ds1.laz_files), t1)
+        logger.info(
+            "Batch loading %d files for time period %s...", len(ds1.laz_files), t1
+        )
         pc1_data = batch_loader.load_dataset(ds1, transform=local_transform)
     else:
         logger.info("Loading single file for time period %s...", t1)
-        pc1_data = batch_loader.loader.load(str(ds1.laz_files[0]), transform=local_transform)
+        pc1_data = batch_loader.loader.load(
+            str(ds1.laz_files[0]), transform=local_transform
+        )
 
     if len(ds2.laz_files) > 1:
-        logger.info("Batch loading %d files for time period %s...", len(ds2.laz_files), t2)
+        logger.info(
+            "Batch loading %d files for time period %s...", len(ds2.laz_files), t2
+        )
         pc2_data = batch_loader.load_dataset(ds2, transform=local_transform)
     else:
         logger.info("Loading single file for time period %s...", t2)
-        pc2_data = batch_loader.loader.load(str(ds2.laz_files[0]), transform=local_transform)
+        pc2_data = batch_loader.loader.load(
+            str(ds2.laz_files[0]), transform=local_transform
+        )
 
-    logger.info("Dataset 1 (%s): %d points", t1, pc1_data['points'].shape[0])
-    logger.info("Dataset 2 (%s): %d points", t2, pc2_data['points'].shape[0])
+    logger.info("Dataset 1 (%s): %d points", t1, pc1_data["points"].shape[0])
+    logger.info("Dataset 2 (%s): %d points", t2, pc2_data["points"].shape[0])
 
-    return pc1_data['points'], pc2_data['points'], pc1_data, pc2_data
+    return pc1_data["points"], pc2_data["points"], pc1_data, pc2_data

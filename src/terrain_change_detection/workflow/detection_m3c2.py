@@ -85,7 +85,9 @@ def run_m3c2(
             max_core = max(1, int(total_ref_points * pct / 100.0))
             logger.info(
                 "M3C2 core points: %s (%.1f%% of %s reference ground points)",
-                f"{max_core:,}", pct, f"{total_ref_points:,}",
+                f"{max_core:,}",
+                pct,
+                f"{total_ref_points:,}",
             )
 
         # ----------------------------------------------------------------
@@ -97,7 +99,9 @@ def run_m3c2(
             args,
             max_core,
             reference_points=points_t1,
-            streaming_t1_files=(streaming_inputs["files_t1"] if streaming_inputs is not None else None),
+            streaming_t1_files=(
+                streaming_inputs["files_t1"] if streaming_inputs is not None else None
+            ),
         )
 
         # ----------------------------------------------------------------
@@ -139,11 +143,16 @@ def run_m3c2(
         # ----------------------------------------------------------------
         if show_plots and visualizer is not None:
             visualizer.visualize_distance_histogram(
-                m3c2_res.distances, title="M3C2 distances (m)", bins=60,
+                m3c2_res.distances,
+                title="M3C2 distances (m)",
+                bins=60,
             )
-            vis_core_points = to_global_for_vis(m3c2_res.core_points, data.local_transform)
+            vis_core_points = to_global_for_vis(
+                m3c2_res.core_points, data.local_transform
+            )
             visualizer.visualize_m3c2_corepoints(
-                vis_core_points, m3c2_res.distances,
+                vis_core_points,
+                m3c2_res.distances,
                 sample_size=cfg.visualization.sample_size,
                 title="M3C2 distances (m)",
             )
@@ -164,11 +173,11 @@ def run_m3c2(
 
 def _determine_ref_point_count(data: PreparedData, reference_points: np.ndarray) -> int:
     """Determine total reference ground points for core-point percentage."""
-    if data.use_streaming and data.pc1_data and 'metadata' in data.pc1_data:
-        m1 = data.pc1_data['metadata']
-        total = m1.get('total_points_ground')
+    if data.use_streaming and data.pc1_data and "metadata" in data.pc1_data:
+        m1 = data.pc1_data["metadata"]
+        total = m1.get("total_points_ground")
         if total is None or total == 0:
-            total = m1.get('total_points_all', 0)
+            total = m1.get("total_points_all", 0)
             if total > 0:
                 logger.warning(
                     "No ground point count in metadata; using total points (%s). "
@@ -205,13 +214,16 @@ def _select_core_points(
             logger.info("Loaded %d core points from %s", len(core_src), cores_path)
             return core_src
         except Exception as e:
-            logger.warning("Failed to load cores from %s: %s; falling back to selection", cores_path, e)
+            logger.warning(
+                "Failed to load cores from %s: %s; falling back to selection",
+                cores_path,
+                e,
+            )
             core_src = None
 
     # Select core points
-    use_parallel_streaming = (
-        streaming_t1_files is not None
-        and getattr(cfg.parallel, 'enabled', False)
+    use_parallel_streaming = streaming_t1_files is not None and getattr(
+        cfg.parallel, "enabled", False
     )
 
     if use_parallel_streaming:
@@ -221,15 +233,21 @@ def _select_core_points(
         )
         core_src = None
     elif streaming_t1_files is not None:
-        logger.info("Selecting %s core points via streaming from T1 files...", f"{max_core:,}")
+        logger.info(
+            "Selecting %s core points via streaming from T1 files...", f"{max_core:,}"
+        )
         core_reader = LaspyStreamReader(
             [str(p) for p in streaming_t1_files],
             ground_only=cfg.preprocessing.ground_only,
             classification_filter=cfg.preprocessing.classification_filter,
             chunk_points=cfg.outofcore.chunk_points,
         )
-        core_src = core_reader.reservoir_sample(max_core, transform=data.local_transform)
-        logger.info("Selected %s core points from T1 via streaming", f"{len(core_src):,}")
+        core_src = core_reader.reservoir_sample(
+            max_core, transform=data.local_transform
+        )
+        logger.info(
+            "Selected %s core points from T1 via streaming", f"{len(core_src):,}"
+        )
     else:
         if len(reference_points) > max_core:
             idx = np.random.choice(len(reference_points), max_core, replace=False)
@@ -260,8 +278,8 @@ def _resolve_m3c2_params(
     m3c2_cfg = cfg.detection.m3c2
 
     if (
-        getattr(m3c2_cfg, 'use_autotune', True) is False
-        and getattr(m3c2_cfg, 'fixed', None) is not None
+        getattr(m3c2_cfg, "use_autotune", True) is False
+        and getattr(m3c2_cfg, "fixed", None) is not None
         and m3c2_cfg.fixed.radius is not None
     ):
         r = float(m3c2_cfg.fixed.radius)
@@ -285,13 +303,16 @@ def _resolve_m3c2_params(
         )
         logger.info(
             "M3C2 fixed params from config: radius=%.2f, normal_scale=%.2f, max_depth=%.2f (factor=%.2f)",
-            r, normal_scale, r * depth_factor, depth_factor,
+            r,
+            normal_scale,
+            r * depth_factor,
+            depth_factor,
         )
         return params
 
     # Autotuning
     at = m3c2_cfg.autotune
-    use_header = getattr(at, 'source', 'header') == 'header'
+    use_header = getattr(at, "source", "header") == "header"
 
     if streaming_inputs is not None:
         files_t1 = streaming_inputs["files_t1"]
@@ -312,7 +333,9 @@ def _resolve_m3c2_params(
                 max_radius=at.max_radius,
             )
         except Exception as _e:
-            logger.warning("Header-based autotune failed (%s); falling back to sample-based.", _e)
+            logger.warning(
+                "Header-based autotune failed (%s); falling back to sample-based.", _e
+            )
 
         if params is None:
             params = autotune_m3c2_params(
@@ -350,7 +373,7 @@ def _compute_streaming_m3c2(
     files_t2 = streaming_inputs["files_t2"]
     transform_t2 = streaming_inputs["transform_t2"]
 
-    use_parallel = getattr(cfg.parallel, 'enabled', False)
+    use_parallel = getattr(cfg.parallel, "enabled", False)
     mode = "parallel" if use_parallel else "sequential"
     logger.info("Using streaming M3C2 (%s, tiled)...", mode)
 
@@ -368,7 +391,7 @@ def _compute_streaming_m3c2(
                 chunk_points=cfg.outofcore.chunk_points,
                 transform_t2=transform_t2,
                 n_workers=None,
-                threads_per_worker=getattr(cfg.parallel, 'threads_per_worker', 1),
+                threads_per_worker=getattr(cfg.parallel, "threads_per_worker", 1),
                 local_transform=data.local_transform,
             )
         else:
@@ -389,8 +412,10 @@ def _compute_streaming_m3c2(
         # Debug comparison
         if args.debug_m3c2_compare:
             _debug_m3c2_compare(
-                m3c2_res_stream, core_src,
-                points_t1, points_t2,
+                m3c2_res_stream,
+                core_src,
+                points_t1,
+                points_t2,
                 m3c2_params,
             )
 
@@ -417,18 +442,21 @@ def _resolve_streaming_m3c2_inputs(cfg, data, alignment):
     can_use_streaming = (
         data.use_streaming
         and data.pc1_data is not None
-        and 'file_paths' in data.pc1_data
+        and "file_paths" in data.pc1_data
         and data.pc2_data is not None
         and (
-            ('aligned_file_paths' in data.pc2_data and data.pc2_data['aligned_file_paths'])
-            or data.pc2_data.get('file_paths')
+            (
+                "aligned_file_paths" in data.pc2_data
+                and data.pc2_data["aligned_file_paths"]
+            )
+            or data.pc2_data.get("file_paths")
         )
     )
     if not can_use_streaming:
         return None
 
     if cfg.alignment.reference == "t2":
-        files_t1 = data.pc1_data.get('aligned_file_paths') if data.pc1_data else None
+        files_t1 = data.pc1_data.get("aligned_file_paths") if data.pc1_data else None
         if not files_t1:
             logger.info(
                 "Falling back to in-memory M3C2 because streaming M3C2 can only apply "
@@ -437,23 +465,26 @@ def _resolve_streaming_m3c2_inputs(cfg, data, alignment):
             return None
         return {
             "files_t1": files_t1,
-            "files_t2": data.pc2_data['file_paths'],
+            "files_t2": data.pc2_data["file_paths"],
             "transform_t2": None,
         }
 
     has_aligned_t2 = (
         data.pc2_data
-        and 'aligned_file_paths' in data.pc2_data
-        and data.pc2_data['aligned_file_paths']
+        and "aligned_file_paths" in data.pc2_data
+        and data.pc2_data["aligned_file_paths"]
     )
     return {
-        "files_t1": data.pc1_data['file_paths'],
-        "files_t2": data.pc2_data.get('aligned_file_paths') or data.pc2_data['file_paths'],
+        "files_t1": data.pc1_data["file_paths"],
+        "files_t2": data.pc2_data.get("aligned_file_paths")
+        or data.pc2_data["file_paths"],
         "transform_t2": None if has_aligned_t2 else alignment.transform_matrix,
     }
 
 
-def _debug_m3c2_compare(m3c2_res_stream, core_src, points1, points2_aligned, m3c2_params):
+def _debug_m3c2_compare(
+    m3c2_res_stream, core_src, points1, points2_aligned, m3c2_params
+):
     """Run in-memory M3C2 and compare with streaming results."""
     logger.info("Debug: also running in-memory M3C2 for comparison...")
     m3c2_res_mem = ChangeDetector.compute_m3c2_original(
@@ -468,17 +499,17 @@ def _debug_m3c2_compare(m3c2_res_stream, core_src, points1, points2_aligned, m3c
         b = np.asarray(b, dtype=float).ravel()
         m = np.isfinite(a) & np.isfinite(b)
         if not np.any(m):
-            return float('nan')
+            return float("nan")
         a, b = a[m], b[m]
         n = a.size
         if n < 2:
-            return float('nan')
+            return float("nan")
         a = a - a.mean()
         b = b - b.mean()
         sa, sb = a.std(), b.std()
         denom = sa * sb * n
         num = float(a.dot(b))
-        return float(num / denom) if denom > 0 else float('nan')
+        return float(num / denom) if denom > 0 else float("nan")
 
     def _summary(name: str, arr):
         d = np.asarray(arr, dtype=float).ravel()
@@ -495,17 +526,29 @@ def _debug_m3c2_compare(m3c2_res_stream, core_src, points1, points2_aligned, m3c
         a95 = float(np.percentile(np.abs(d), 95))
         logger.info(
             "Debug M3C2 summary (%s): n=%d, pos=%.1f%%, neg=%.1f%%, med=%.4f, p5=%.4f, p95=%.4f, abs_p95=%.4f",
-            name, n, pos, neg, med, p5, p95, a95,
+            name,
+            n,
+            pos,
+            neg,
+            med,
+            p5,
+            p95,
+            a95,
         )
 
     r_same = _pearson(m3c2_res_stream.distances, m3c2_res_mem.distances)
     r_flip = _pearson(m3c2_res_stream.distances, -np.asarray(m3c2_res_mem.distances))
-    logger.info("Debug M3C2: corr(stream, inmem)=%.6f, corr(stream, -inmem)=%.6f", r_same, r_flip)
+    logger.info(
+        "Debug M3C2: corr(stream, inmem)=%.6f, corr(stream, -inmem)=%.6f",
+        r_same,
+        r_flip,
+    )
 
     try:
         from sklearn.neighbors import NearestNeighbors as _NN
-        nn1 = _NN(n_neighbors=1, algorithm='kd_tree').fit(points1)
-        nn2 = _NN(n_neighbors=1, algorithm='kd_tree').fit(points2_aligned)
+
+        nn1 = _NN(n_neighbors=1, algorithm="kd_tree").fit(points1)
+        nn2 = _NN(n_neighbors=1, algorithm="kd_tree").fit(points2_aligned)
         i1 = nn1.kneighbors(core_src, return_distance=False).ravel()
         i2 = nn2.kneighbors(core_src, return_distance=False).ravel()
         dz = points2_aligned[i2, 2] - points1[i1, 2]
@@ -514,7 +557,9 @@ def _debug_m3c2_compare(m3c2_res_stream, core_src, points1, points2_aligned, m3c
         rz_mem_flip = _pearson(-np.asarray(m3c2_res_mem.distances), dz)
         logger.info(
             "Debug M3C2: corr(stream, dZ)=%.6f, corr(inmem, dZ)=%.6f, corr(-inmem, dZ)=%.6f",
-            rz_stream, rz_mem, rz_mem_flip,
+            rz_stream,
+            rz_mem,
+            rz_mem_flip,
         )
     except Exception as _e:
         logger.warning("Debug M3C2: dZ proxy check skipped (%s)", _e)
@@ -525,15 +570,17 @@ def _debug_m3c2_compare(m3c2_res_stream, core_src, points1, points2_aligned, m3c
 
 def _export_m3c2(cfg, data, m3c2_res):
     """Export M3C2 results as LAZ and/or GeoTIFF."""
-    export_m3c2_pc = getattr(cfg.detection.m3c2, 'export_pc', True)
-    export_m3c2_raster = getattr(cfg.detection.m3c2, 'export_raster', True)
+    export_m3c2_pc = getattr(cfg.detection.m3c2, "export_pc", True)
+    export_m3c2_raster = getattr(cfg.detection.m3c2, "export_raster", True)
 
     if not (export_m3c2_pc or export_m3c2_raster):
         return
 
     try:
         # M3C2 uses area-scoped output directory
-        export_dir = resolve_output_dir(cfg, data.selected_area.area_name, area_scoped=True)
+        export_dir = resolve_output_dir(
+            cfg, data.selected_area.area_name, area_scoped=True
+        )
         crs = detect_output_crs(cfg, str(data.ds1.laz_files[0]))
 
         area_prefix = data.selected_area.area_name
@@ -542,12 +589,15 @@ def _export_m3c2(cfg, data, m3c2_res):
             m3c2_laz = export_dir / f"m3c2_{area_prefix}_{data.t1}_{data.t2}.laz"
             extra_dims = {}
             if m3c2_res.uncertainty is not None:
-                extra_dims['uncertainty'] = m3c2_res.uncertainty
+                extra_dims["uncertainty"] = m3c2_res.uncertainty
             if m3c2_res.significant is not None:
-                extra_dims['significant'] = m3c2_res.significant
+                extra_dims["significant"] = m3c2_res.significant
             export_points_to_laz(
-                m3c2_res.core_points, m3c2_res.distances, str(m3c2_laz),
-                crs=crs, extra_dims=extra_dims if extra_dims else None,
+                m3c2_res.core_points,
+                m3c2_res.distances,
+                str(m3c2_laz),
+                crs=crs,
+                extra_dims=extra_dims if extra_dims else None,
                 source_laz_path=str(data.ds1.laz_files[0]),
                 local_transform=data.local_transform,
             )
@@ -556,8 +606,11 @@ def _export_m3c2(cfg, data, m3c2_res):
         if export_m3c2_raster:
             m3c2_tif = export_dir / f"m3c2_{area_prefix}_{data.t1}_{data.t2}.tif"
             export_distances_to_geotiff(
-                m3c2_res.core_points, m3c2_res.distances, str(m3c2_tif),
-                cell_size=cfg.detection.dod.cell_size, crs=crs,
+                m3c2_res.core_points,
+                m3c2_res.distances,
+                str(m3c2_tif),
+                cell_size=cfg.detection.dod.cell_size,
+                crs=crs,
                 local_transform=data.local_transform,
             )
             logger.info("Exported M3C2 raster: %s", m3c2_tif)

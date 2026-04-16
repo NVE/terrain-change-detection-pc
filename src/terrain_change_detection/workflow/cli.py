@@ -26,25 +26,31 @@ def build_cli_overrides(args: argparse.Namespace) -> list[str]:
         overrides.append(f"alignment.reference={args.reference}")
 
     if args.m3c2_radius is not None:
-        overrides.extend([
-            "detection.m3c2.use_autotune=false",
-            f"detection.m3c2.fixed.radius={args.m3c2_radius}",
-        ])
+        overrides.extend(
+            [
+                "detection.m3c2.use_autotune=false",
+                f"detection.m3c2.fixed.radius={args.m3c2_radius}",
+            ]
+        )
         if args.m3c2_normal_scale is None:
             overrides.append("detection.m3c2.fixed.normal_scale=null")
         if args.m3c2_depth_factor is None:
             overrides.append("detection.m3c2.fixed.depth_factor=null")
 
     if args.m3c2_normal_scale is not None:
-        overrides.extend([
-            "detection.m3c2.use_autotune=false",
-            f"detection.m3c2.fixed.normal_scale={args.m3c2_normal_scale}",
-        ])
+        overrides.extend(
+            [
+                "detection.m3c2.use_autotune=false",
+                f"detection.m3c2.fixed.normal_scale={args.m3c2_normal_scale}",
+            ]
+        )
     if args.m3c2_depth_factor is not None:
-        overrides.extend([
-            "detection.m3c2.use_autotune=false",
-            f"detection.m3c2.fixed.depth_factor={args.m3c2_depth_factor}",
-        ])
+        overrides.extend(
+            [
+                "detection.m3c2.use_autotune=false",
+                f"detection.m3c2.fixed.depth_factor={args.m3c2_depth_factor}",
+            ]
+        )
 
     return overrides
 
@@ -134,7 +140,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--years",
         type=int,
-        nargs='+',
+        nargs="+",
         default=None,
         help="List of years to select for processing (e.g., --years 2020 2021).",
     )
@@ -153,7 +159,9 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, AppConfig, list[str]]:
+def parse_args(
+    argv: list[str] | None = None,
+) -> tuple[argparse.Namespace, AppConfig, list[str]]:
     """Parse CLI arguments, load config, and return the resolved triple.
 
     Args:
@@ -167,8 +175,12 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, AppCo
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    if (args.m3c2_normal_scale is not None or args.m3c2_depth_factor is not None) and args.m3c2_radius is None:
-        parser.error("--m3c2-normal-scale and --m3c2-depth-factor require --m3c2-radius")
+    if (
+        args.m3c2_normal_scale is not None or args.m3c2_depth_factor is not None
+    ) and args.m3c2_radius is None:
+        parser.error(
+            "--m3c2-normal-scale and --m3c2-depth-factor require --m3c2-radius"
+        )
 
     cli_overrides = build_cli_overrides(args)
 

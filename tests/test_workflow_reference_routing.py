@@ -52,8 +52,12 @@ def _make_prepared_data(*, use_streaming: bool = False) -> PreparedData:
 
 def _make_alignment() -> AlignmentResult:
     return AlignmentResult(
-        points1_aligned=np.array([[100.0, 100.0, 100.0], [101.0, 101.0, 101.0]], dtype=float),
-        points2_aligned=np.array([[200.0, 200.0, 200.0], [201.0, 201.0, 201.0]], dtype=float),
+        points1_aligned=np.array(
+            [[100.0, 100.0, 100.0], [101.0, 101.0, 101.0]], dtype=float
+        ),
+        points2_aligned=np.array(
+            [[200.0, 200.0, 200.0], [201.0, 201.0, 201.0]], dtype=float
+        ),
         transform_matrix=np.eye(4),
         aligned_epoch="2015",
         alignment_error=0.0,
@@ -97,7 +101,9 @@ def test_dod_streaming_reference_t2_falls_back_without_aligned_t1(monkeypatch):
 
     def fail_if_streaming_called(**kwargs):
         captured["streaming_called"] = True
-        raise AssertionError("streaming path should not be used without aligned T1 files")
+        raise AssertionError(
+            "streaming path should not be used without aligned T1 files"
+        )
 
     def fake_compute_dod(*, points_t1, points_t2, cell_size, aggregator, config):
         captured["fallback_called"] = True
@@ -172,7 +178,13 @@ def test_m3c2_uses_aligned_t1_for_reference_t2(monkeypatch):
         fake_compute_m3c2_original,
     )
 
-    run_m3c2(cfg, data, alignment, SimpleNamespace(cores_file=None, debug_m3c2_compare=False), show_plots=False)
+    run_m3c2(
+        cfg,
+        data,
+        alignment,
+        SimpleNamespace(cores_file=None, debug_m3c2_compare=False),
+        show_plots=False,
+    )
 
     np.testing.assert_array_equal(captured["cloud_t1"], alignment.points1_aligned)
     np.testing.assert_array_equal(captured["cloud_t2"], alignment.points2_aligned)

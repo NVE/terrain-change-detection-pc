@@ -13,11 +13,7 @@ __version__ = "0.1.0"
 __author__ = "Yared Bekele"
 __email__ = "yared.bekele@sintef.no"
 
-from .preprocessing import *
-from .alignment import *
-from .detection import *
-from .utils import *
-from .visualization import *
+from . import preprocessing, alignment, detection, utils, visualization
 
 __all__ = [
     "preprocessing",

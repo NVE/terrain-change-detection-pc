@@ -79,12 +79,14 @@ class TestGridAccumulatorGPU:
         cell_size = 1.0
 
         # Create points mostly outside bounds
-        points = np.array([
-            [5.0, 5.0, 100.0],  # Outside
-            [15.0, 15.0, 50.0],  # Inside
-            [25.0, 25.0, 200.0],  # Outside
-            [12.0, 18.0, 75.0],  # Inside
-        ])
+        points = np.array(
+            [
+                [5.0, 5.0, 100.0],  # Outside
+                [15.0, 15.0, 50.0],  # Inside
+                [25.0, 25.0, 200.0],  # Outside
+                [12.0, 18.0, 75.0],  # Inside
+            ]
+        )
 
         acc_cpu = GridAccumulator(bounds, cell_size, use_gpu=False)
         acc_cpu.accumulate(points)
@@ -105,12 +107,14 @@ class TestGridAccumulatorGPU:
         cell_size = 2.0
 
         # Create multiple points in same cell
-        points = np.array([
-            [1.0, 1.0, 10.0],  # Cell (0,0)
-            [1.5, 1.5, 20.0],  # Cell (0,0)
-            [1.8, 1.2, 30.0],  # Cell (0,0)
-            [5.0, 5.0, 100.0],  # Cell (2,2)
-        ])
+        points = np.array(
+            [
+                [1.0, 1.0, 10.0],  # Cell (0,0)
+                [1.5, 1.5, 20.0],  # Cell (0,0)
+                [1.8, 1.2, 30.0],  # Cell (0,0)
+                [5.0, 5.0, 100.0],  # Cell (2,2)
+            ]
+        )
 
         acc_gpu = GridAccumulator(bounds, cell_size, use_gpu=True)
         acc_gpu.accumulate(points)
@@ -238,11 +242,13 @@ class TestDoDEdgeCases:
         acc_gpu = GridAccumulator(bounds, cell_size=1.0, use_gpu=True)
 
         # Points with extreme Z values
-        points = np.array([
-            [5.0, 5.0, 1e6],
-            [5.0, 5.0, -1e6],
-            [5.0, 5.0, 0.0],
-        ])
+        points = np.array(
+            [
+                [5.0, 5.0, 1e6],
+                [5.0, 5.0, -1e6],
+                [5.0, 5.0, 0.0],
+            ]
+        )
 
         acc_gpu.accumulate(points)
         dem = acc_gpu.finalize()
@@ -255,7 +261,7 @@ class TestDoDEdgeCases:
         """Test GPU accumulator with very sparse point distribution."""
         bounds = Bounds2D(min_x=0, min_y=0, max_x=1000, max_y=1000)
         cell_size = 10.0
-        
+
         # Only a few points scattered across large area
         np.random.seed(42)
         points = np.random.rand(10, 3) * 1000.0
@@ -274,7 +280,7 @@ class TestDoDEdgeCases:
         """Test GPU accumulator with very dense point distribution."""
         bounds = Bounds2D(min_x=0, min_y=0, max_x=10, max_y=10)
         cell_size = 0.1  # Small cells
-        
+
         # Many points in small area
         np.random.seed(42)
         points = np.random.rand(10000, 3) * 10.0
@@ -296,10 +302,12 @@ class TestDoDNumericalStability:
     def test_gpu_numerical_precision(self):
         """Test that GPU maintains numerical precision."""
         np.random.seed(42)
-        
+
         # Create points with values that could cause precision issues
         points = np.random.rand(1000, 3)
-        points[:, 2] = points[:, 2] * 1e-6 + 1e6  # Small variations around large baseline
+        points[:, 2] = (
+            points[:, 2] * 1e-6 + 1e6
+        )  # Small variations around large baseline
 
         bounds = Bounds2D(min_x=0, min_y=0, max_x=1, max_y=1)
         cell_size = 0.1
@@ -354,11 +362,9 @@ class TestDoDNumericalStability:
         acc_chunked = GridAccumulator(bounds, cell_size, use_gpu=True)
         chunk_size = 200
         for i in range(0, len(all_points), chunk_size):
-            chunk = all_points[i:i+chunk_size]
+            chunk = all_points[i : i + chunk_size]
             acc_chunked.accumulate(chunk)
         dem_chunked = acc_chunked.finalize()
 
         # Results should match exactly
-        np.testing.assert_allclose(
-            dem_batch, dem_chunked, rtol=1e-10, equal_nan=True
-        )
+        np.testing.assert_allclose(dem_batch, dem_chunked, rtol=1e-10, equal_nan=True)

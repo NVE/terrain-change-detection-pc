@@ -12,6 +12,7 @@ Generate two synthetic point clouds (LAZ) with controlled changes and misalignme
 Requires: laspy (already in pyproject). For LAZ writing, laspy needs lazrs or laszip.
 This script tries lazrs first. If neither is installed, it will raise a helpful error.
 """
+
 from __future__ import annotations
 
 import math
@@ -43,11 +44,15 @@ def ensure_laz_writing_possible():
 
 def make_surface(nx=400, ny=400, spacing=1.0, seed=42):
     rng = np.random.default_rng(seed)
-    x = (np.arange(nx) - nx/2) * spacing
-    y = (np.arange(ny) - ny/2) * spacing
+    x = (np.arange(nx) - nx / 2) * spacing
+    y = (np.arange(ny) - ny / 2) * spacing
     X, Y = np.meshgrid(x, y)
     # Base surface: gentle hills
-    Z = 1.5 * np.sin(0.02*X) * np.cos(0.02*Y) + 0.3 * np.sin(0.05*X + 0.3) + 0.2 * np.cos(0.04*Y - 0.7)
+    Z = (
+        1.5 * np.sin(0.02 * X) * np.cos(0.02 * Y)
+        + 0.3 * np.sin(0.05 * X + 0.3)
+        + 0.2 * np.cos(0.04 * Y - 0.7)
+    )
     # Add low-amplitude noise
     Z += 0.05 * rng.standard_normal(size=Z.shape)
     return X, Y, Z
@@ -57,7 +62,7 @@ def apply_change(X, Y, Z, centers_radii_heights):
     """Add gaussian bumps (positive or negative)."""
     Z2 = Z.copy()
     for cx, cy, r, h in centers_radii_heights:
-        R2 = (X - cx)**2 + (Y - cy)**2
+        R2 = (X - cx) ** 2 + (Y - cy) ** 2
         bump = h * np.exp(-R2 / (2 * r**2))
         Z2 += bump
     return Z2
@@ -66,7 +71,7 @@ def apply_change(X, Y, Z, centers_radii_heights):
 def to_points(X, Y, Z, keep_ratio=0.3, seed=123):
     rng = np.random.default_rng(seed)
     H, W = Z.shape
-    idx = rng.choice(H*W, size=int(keep_ratio*H*W), replace=False)
+    idx = rng.choice(H * W, size=int(keep_ratio * H * W), replace=False)
     xi = idx % W
     yi = idx // W
     pts = np.column_stack([X[yi, xi], Y[yi, xi], Z[yi, xi]])
@@ -76,9 +81,15 @@ def to_points(X, Y, Z, keep_ratio=0.3, seed=123):
 def transform_points(pts, translation=(0.5, -0.3, 0.2), rot_deg=(0.5, -0.3, 0.0)):
     rx, ry, rz = [math.radians(a) for a in rot_deg]
     # Rotation matrices (Rx, Ry, Rz)
-    Rx = np.array([[1, 0, 0], [0, math.cos(rx), -math.sin(rx)], [0, math.sin(rx), math.cos(rx)]])
-    Ry = np.array([[math.cos(ry), 0, math.sin(ry)], [0, 1, 0], [-math.sin(ry), 0, math.cos(ry)]])
-    Rz = np.array([[math.cos(rz), -math.sin(rz), 0], [math.sin(rz), math.cos(rz), 0], [0, 0, 1]])
+    Rx = np.array(
+        [[1, 0, 0], [0, math.cos(rx), -math.sin(rx)], [0, math.sin(rx), math.cos(rx)]]
+    )
+    Ry = np.array(
+        [[math.cos(ry), 0, math.sin(ry)], [0, 1, 0], [-math.sin(ry), 0, math.cos(ry)]]
+    )
+    Rz = np.array(
+        [[math.cos(rz), -math.sin(rz), 0], [math.sin(rz), math.cos(rz), 0], [0, 0, 1]]
+    )
     R = Rz @ Ry @ Rx
     t = np.array(translation)
     return (pts @ R.T) + t
@@ -114,7 +125,9 @@ def main():
 
     # T2 changes: deposition near (-50, 60), erosion near (40, -30)
     Z2 = apply_change(
-        X, Y, Z,
+        X,
+        Y,
+        Z,
         centers_radii_heights=[
             (-50.0, 60.0, 25.0, +0.6),  # mound
             (40.0, -30.0, 20.0, -0.5),  # pit
@@ -123,7 +136,9 @@ def main():
     pts_t2 = to_points(X, Y, Z2, keep_ratio=0.25, seed=3)
 
     # Apply a small rigid transform to T2 to simulate misalignment
-    pts_t2_misaligned = transform_points(pts_t2, translation=(0.7, -0.4, 0.25), rot_deg=(0.6, -0.4, 0.2))
+    pts_t2_misaligned = transform_points(
+        pts_t2, translation=(0.7, -0.4, 0.25), rot_deg=(0.6, -0.4, 0.2)
+    )
 
     # Write LAZ files
     write_laz(t1_dir / "synthetic_tile_01.laz", pts_t1)

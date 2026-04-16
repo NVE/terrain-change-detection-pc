@@ -21,6 +21,7 @@ import pytest
 @dataclass
 class MockDoDResult:
     """Mock DoD result for testing."""
+
     grid_x: np.ndarray
     grid_y: np.ndarray
     dem1: np.ndarray
@@ -50,12 +51,12 @@ def sample_dod():
     x = np.arange(0, n_cells) * cell_size
     y = np.arange(0, n_cells) * cell_size
     grid_x, grid_y = np.meshgrid(x, y)
-    
+
     # Create synthetic elevation grids
     dem1 = np.random.uniform(100, 110, (n_cells, n_cells))
     dem2 = dem1 + np.random.uniform(-1, 1, (n_cells, n_cells))
     dod = dem2 - dem1
-    
+
     return MockDoDResult(
         grid_x=grid_x,
         grid_y=grid_y,
@@ -79,18 +80,19 @@ class TestExportPointsToLaz:
     def test_basic_export(self, sample_points):
         """Test basic LAZ export with points and distances."""
         from terrain_change_detection.utils.export import export_points_to_laz
-        
+
         points, distances = sample_points
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "test_output.laz"
             result = export_points_to_laz(points, distances, str(output_path))
-            
+
             assert Path(result).exists()
             assert Path(result).suffix == ".laz"
-            
+
             # Verify file can be read with laspy
             import laspy
+
             with laspy.open(result) as reader:
                 las = reader.read()
                 assert len(las.points) == len(points)
@@ -99,51 +101,54 @@ class TestExportPointsToLaz:
                 np.testing.assert_allclose(las.y, points[:, 1], atol=0.01)
                 np.testing.assert_allclose(las.z, points[:, 2], atol=0.01)
                 # Check distance dimension exists
-                assert hasattr(las, 'distance')
+                assert hasattr(las, "distance")
                 np.testing.assert_allclose(las.distance, distances, atol=1e-6)
 
     def test_export_with_extra_dims(self, sample_points):
         """Test LAZ export with additional extra dimensions."""
         from terrain_change_detection.utils.export import export_points_to_laz
-        
+
         points, distances = sample_points
         uncertainty = np.random.uniform(0.1, 0.5, len(points))
         significant = np.random.choice([True, False], len(points))
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "test_extra.laz"
             result = export_points_to_laz(
-                points, distances, str(output_path),
-                extra_dims={"uncertainty": uncertainty, "significant": significant}
+                points,
+                distances,
+                str(output_path),
+                extra_dims={"uncertainty": uncertainty, "significant": significant},
             )
-            
+
             assert Path(result).exists()
-            
+
             import laspy
+
             with laspy.open(result) as reader:
                 las = reader.read()
-                assert hasattr(las, 'uncertainty')
-                assert hasattr(las, 'significant')
+                assert hasattr(las, "uncertainty")
+                assert hasattr(las, "significant")
 
     def test_creates_parent_directory(self, sample_points):
         """Test that parent directories are created if they don't exist."""
         from terrain_change_detection.utils.export import export_points_to_laz
-        
+
         points, distances = sample_points
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "nested" / "dirs" / "test.laz"
             result = export_points_to_laz(points, distances, str(output_path))
-            
+
             assert Path(result).exists()
 
     def test_invalid_points_shape(self, sample_points):
         """Test that invalid point shapes raise ValueError."""
         from terrain_change_detection.utils.export import export_points_to_laz
-        
+
         points, distances = sample_points
         invalid_points = points[:, :2]  # Only 2D
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "test.laz"
             with pytest.raises(ValueError, match="must be"):
@@ -167,13 +172,13 @@ class TestExportDoDToGeotiff:
         """Test basic DoD GeoTIFF export."""
         from terrain_change_detection.utils.export import export_dod_to_geotiff
         import rasterio
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "dod.tif"
             result = export_dod_to_geotiff(sample_dod, str(output_path))
-            
+
             assert Path(result).exists()
-            
+
             # Verify file can be read
             with rasterio.open(result) as src:
                 assert src.count == 1
@@ -186,13 +191,13 @@ class TestExportDoDToGeotiff:
         """Test that CRS is correctly set in output."""
         from terrain_change_detection.utils.export import export_dod_to_geotiff
         import rasterio
-        
+
         crs = "EPSG:25833"
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "dod_crs.tif"
             export_dod_to_geotiff(sample_dod, str(output_path), crs=crs)
-            
+
             with rasterio.open(output_path) as src:
                 assert src.crs is not None
                 assert src.crs.to_string() == crs
@@ -210,17 +215,17 @@ class TestExportDistancesToGeotiff:
         """Test basic point-to-raster interpolation."""
         from terrain_change_detection.utils.export import export_distances_to_geotiff
         import rasterio
-        
+
         points, distances = sample_points
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "distances.tif"
             result = export_distances_to_geotiff(
                 points, distances, str(output_path), cell_size=5.0
             )
-            
+
             assert Path(result).exists()
-            
+
             with rasterio.open(result) as src:
                 assert src.count == 1
                 data = src.read(1)
@@ -243,14 +248,14 @@ class TestDetectCrsFromLaz:
             export_points_to_laz,
             detect_crs_from_laz,
         )
-        
+
         points, distances = sample_points
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a LAZ file without CRS VLR (no crs= argument)
             laz_path = Path(tmpdir) / "no_crs.laz"
             export_points_to_laz(points, distances, str(laz_path))
-            
+
             # Should return None or the CRS we set
             result = detect_crs_from_laz(str(laz_path))
             # Result can be None or a valid CRS string depending on header
@@ -259,6 +264,6 @@ class TestDetectCrsFromLaz:
     def test_returns_none_for_nonexistent_file(self):
         """Test that None is returned for non-existent files."""
         from terrain_change_detection.utils.export import detect_crs_from_laz
-        
+
         result = detect_crs_from_laz("/nonexistent/path/file.laz")
         assert result is None

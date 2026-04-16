@@ -26,6 +26,7 @@ from terrain_change_detection.alignment.fine_registration import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_random_cloud(n: int = 5000, seed: int = 0) -> np.ndarray:
     rng = np.random.default_rng(seed)
     # Anisotropic spread to avoid degenerate covariance
@@ -34,22 +35,27 @@ def _make_random_cloud(n: int = 5000, seed: int = 0) -> np.ndarray:
     return base.astype(float)
 
 
-def _apply_rigid_transform(points: np.ndarray, R: np.ndarray, t: np.ndarray) -> np.ndarray:
+def _apply_rigid_transform(
+    points: np.ndarray, R: np.ndarray, t: np.ndarray
+) -> np.ndarray:
     return (points @ R.T) + t
 
 
 def _small_rotation_z(deg: float) -> np.ndarray:
     th = np.deg2rad(deg)
-    return np.array([
-        [np.cos(th), -np.sin(th), 0.0],
-        [np.sin(th),  np.cos(th), 0.0],
-        [0.0,         0.0,        1.0],
-    ])
+    return np.array(
+        [
+            [np.cos(th), -np.sin(th), 0.0],
+            [np.sin(th), np.cos(th), 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------
 # Existing tests
 # ---------------------------------------------------------------------------
+
 
 def test_icp_recovers_known_transform():
     """ICP should approximately recover a known rigid transform."""
@@ -75,7 +81,7 @@ def test_icp_recovers_known_transform():
 
     nn = NearestNeighbors(n_neighbors=1, algorithm="kd_tree").fit(tgt)
     d0, _ = nn.kneighbors(src)
-    baseline_rmse = float(np.sqrt(np.mean(d0 ** 2)))
+    baseline_rmse = float(np.sqrt(np.mean(d0**2)))
 
     # ICP should significantly reduce RMSE vs baseline
     assert final_err < baseline_rmse * 0.8
@@ -98,6 +104,7 @@ def test_icp_handles_empty_inputs_gracefully():
 # ---------------------------------------------------------------------------
 # Issue 3 – Determinism
 # ---------------------------------------------------------------------------
+
 
 def test_icp_deterministic_with_same_input():
     """Two ICP runs on the same data must produce identical transforms."""
@@ -149,9 +156,11 @@ def test_subsampling_different_seeds_differ():
 # Issue 4 – Percentage-based subsampling
 # ---------------------------------------------------------------------------
 
+
 def test_resolve_subsample_count_count_mode():
     """Count mode returns the configured subsample_size."""
     from types import SimpleNamespace
+
     cfg = SimpleNamespace(
         subsample_mode="count",
         subsample_size=5000,
@@ -166,6 +175,7 @@ def test_resolve_subsample_count_count_mode():
 def test_resolve_subsample_count_percent_mode():
     """Percent mode computes the right count."""
     from types import SimpleNamespace
+
     cfg = SimpleNamespace(
         subsample_mode="percent",
         subsample_size=5000,
@@ -180,6 +190,7 @@ def test_resolve_subsample_count_percent_mode():
 def test_resolve_subsample_count_respects_cap():
     """The safety cap should limit both modes."""
     from types import SimpleNamespace
+
     cfg = SimpleNamespace(
         subsample_mode="percent",
         subsample_size=5000,
@@ -195,6 +206,7 @@ def test_resolve_subsample_count_respects_cap():
 # ---------------------------------------------------------------------------
 # Issue 5 – Overlap filtering
 # ---------------------------------------------------------------------------
+
 
 def test_overlap_mask_full_overlap():
     """Two clouds with same extent should have all points pass."""
@@ -239,7 +251,9 @@ def test_overlap_mask_with_margin():
     cloud_a = rng.uniform(0, 10, size=(500, 3))
     cloud_b = rng.uniform(10, 20, size=(500, 3))  # Just touching at boundary
 
-    mask_no_margin_a, mask_no_margin_b = compute_overlap_mask(cloud_a, cloud_b, margin=0.0)
+    mask_no_margin_a, mask_no_margin_b = compute_overlap_mask(
+        cloud_a, cloud_b, margin=0.0
+    )
     mask_margin_a, mask_margin_b = compute_overlap_mask(cloud_a, cloud_b, margin=2.0)
 
     # With 2m margin, more points should pass
@@ -250,6 +264,7 @@ def test_overlap_mask_with_margin():
 # ---------------------------------------------------------------------------
 # Issue 2 – Reference swap
 # ---------------------------------------------------------------------------
+
 
 def test_reference_swap_produces_approximate_inverse():
     """Swapping source/target should produce approximately inverse transforms."""
@@ -304,9 +319,10 @@ def test_open3d_icp_recovers_known_transform():
     aligned, T_est, rmse = icp.align_point_clouds(source=src, target=tgt)
 
     from sklearn.neighbors import NearestNeighbors
+
     nn = NearestNeighbors(n_neighbors=1, algorithm="kd_tree").fit(tgt)
     d0, _ = nn.kneighbors(src)
-    baseline_rmse = float(np.sqrt(np.mean(d0 ** 2)))
+    baseline_rmse = float(np.sqrt(np.mean(d0**2)))
 
     assert rmse < baseline_rmse * 0.8
 
@@ -327,16 +343,25 @@ def test_backends_produce_similar_results():
         max_correspondence_distance=15.0,
     )
 
-    _, _, err_custom = ICPRegistration(**params).align_point_clouds(source=src, target=tgt)
+    _, _, err_custom = ICPRegistration(**params).align_point_clouds(
+        source=src, target=tgt
+    )
     _, _, err_open3d = Open3DICP(**params).align_point_clouds(source=src, target=tgt)
 
     # Both should converge well; compare against naive baseline
     from sklearn.neighbors import NearestNeighbors
+
     nn = NearestNeighbors(n_neighbors=1, algorithm="kd_tree").fit(tgt)
     d0, _ = nn.kneighbors(src)
-    baseline_rmse = float(np.sqrt(np.mean(d0 ** 2)))
+    baseline_rmse = float(np.sqrt(np.mean(d0**2)))
 
-    assert err_custom < baseline_rmse * 0.5, f"Custom ICP error too high: {err_custom} (baseline {baseline_rmse})"
-    assert err_open3d < baseline_rmse * 0.5, f"Open3D ICP error too high: {err_open3d} (baseline {baseline_rmse})"
+    assert err_custom < baseline_rmse * 0.5, (
+        f"Custom ICP error too high: {err_custom} (baseline {baseline_rmse})"
+    )
+    assert err_open3d < baseline_rmse * 0.5, (
+        f"Open3D ICP error too high: {err_open3d} (baseline {baseline_rmse})"
+    )
     rel_diff = abs(err_custom - err_open3d) / max(err_custom, err_open3d, 1e-12)
-    assert rel_diff < 0.5, f"Backends differ too much: custom={err_custom:.6f}, open3d={err_open3d:.6f}"
+    assert rel_diff < 0.5, (
+        f"Backends differ too much: custom={err_custom:.6f}, open3d={err_open3d:.6f}"
+    )

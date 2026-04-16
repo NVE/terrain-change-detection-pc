@@ -55,7 +55,9 @@ def detect_crs_from_laz(laz_path: str) -> Optional[str]:
                 if vlr.user_id == "LASF_Projection" and vlr.record_id == 34735:
                     # GeoKeyDirectoryTag - more complex to parse
                     # For now, just log that we found it
-                    logger.debug(f"Found GeoTIFF VLR in {laz_path}, but parsing not implemented")
+                    logger.debug(
+                        f"Found GeoTIFF VLR in {laz_path}, but parsing not implemented"
+                    )
 
     except Exception as e:
         logger.debug(f"Could not detect CRS from {laz_path}: {e}")
@@ -128,7 +130,9 @@ def export_points_to_laz(
     # Revert to global coordinates if transform was used
     if local_transform is not None:
         points = local_transform.to_global(points)
-        logger.info(f"Reverting {len(points):,} points from local to global coordinates for export")
+        logger.info(
+            f"Reverting {len(points):,} points from local to global coordinates for export"
+        )
 
     # Try to auto-detect CRS if not provided
     detected_crs = None
@@ -245,7 +249,6 @@ def export_dod_to_geotiff(
     # Get DoD array and dimensions
     dod = np.asarray(dod_result.dod, dtype=np.float32)
     min_x, min_y, max_x, max_y = dod_result.bounds
-    cell_size = dod_result.cell_size
 
     # Handle NaN values
     dod = np.where(np.isnan(dod), nodata, dod)
@@ -322,7 +325,9 @@ def export_distances_to_geotiff(
     # Revert to global coordinates if transform was used
     if local_transform is not None:
         points = local_transform.to_global(points)
-        logger.info(f"Reverting {len(points):,} points from local to global coordinates for raster export")
+        logger.info(
+            f"Reverting {len(points):,} points from local to global coordinates for raster export"
+        )
 
     # Use XY coordinates only for gridding
     xy = points[:, :2]
@@ -346,7 +351,9 @@ def export_distances_to_geotiff(
 
     # Create grid of cell centers
     x_centers = np.linspace(min_x + cell_size / 2, max_x - cell_size / 2, width)
-    y_centers = np.linspace(max_y - cell_size / 2, min_y + cell_size / 2, height)  # Top to bottom
+    y_centers = np.linspace(
+        max_y - cell_size / 2, min_y + cell_size / 2, height
+    )  # Top to bottom
     xx, yy = np.meshgrid(x_centers, y_centers)
     grid_points = np.column_stack([xx.ravel(), yy.ravel()])
 

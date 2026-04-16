@@ -66,10 +66,14 @@ class Open3DICP:
             return source.copy(), T, float("inf")
 
         src_pcd = o3d.geometry.PointCloud()
-        src_pcd.points = o3d.utility.Vector3dVector(np.ascontiguousarray(source, dtype=np.float64))
+        src_pcd.points = o3d.utility.Vector3dVector(
+            np.ascontiguousarray(source, dtype=np.float64)
+        )
 
         tgt_pcd = o3d.geometry.PointCloud()
-        tgt_pcd.points = o3d.utility.Vector3dVector(np.ascontiguousarray(target, dtype=np.float64))
+        tgt_pcd.points = o3d.utility.Vector3dVector(
+            np.ascontiguousarray(target, dtype=np.float64)
+        )
 
         init = initial_transform if initial_transform is not None else np.eye(4)
 

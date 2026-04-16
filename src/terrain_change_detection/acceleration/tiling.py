@@ -27,7 +27,12 @@ if TYPE_CHECKING:
     from ..utils.coordinate_transform import LocalCoordinateTransform
 
 from ..utils.point_cloud_filters import create_classification_mask
-from .gpu_array_ops import ArrayBackend, get_array_backend, ensure_cpu_array, is_gpu_array
+from .gpu_array_ops import (
+    ArrayBackend,
+    get_array_backend,
+    ensure_cpu_array,
+    is_gpu_array,
+)
 
 # Simple in-process cache for LAS/LAZ header bounds to avoid rescanning
 _BOUNDS_CACHE: Dict[str, Bounds2D] = {}
@@ -36,13 +41,14 @@ _BOUNDS_CACHE: Dict[str, Bounds2D] = {}
 @dataclass
 class Bounds2D:
     """2D bounding box defined by min/max coordinates.
-    
+
     Attributes:
         min_x: Minimum X coordinate
         min_y: Minimum Y coordinate
         max_x: Maximum X coordinate
         max_y: Maximum Y coordinate
     """
+
     min_x: float
     min_y: float
     max_x: float
@@ -107,8 +113,12 @@ class GridAccumulator:
         self.cnt = xp.zeros((self.ny, self.nx), dtype=xp.int64)
 
         # Precompute grid centers (always on CPU, small arrays)
-        x_edges = np.linspace(bounds.min_x, bounds.min_x + self.nx * self.cell, self.nx + 1)
-        y_edges = np.linspace(bounds.min_y, bounds.min_y + self.ny * self.cell, self.ny + 1)
+        x_edges = np.linspace(
+            bounds.min_x, bounds.min_x + self.nx * self.cell, self.nx + 1
+        )
+        y_edges = np.linspace(
+            bounds.min_y, bounds.min_y + self.ny * self.cell, self.ny + 1
+        )
         self.grid_x, self.grid_y = np.meshgrid(
             (x_edges[:-1] + x_edges[1:]) / 2.0,
             (y_edges[:-1] + y_edges[1:]) / 2.0,
@@ -133,7 +143,9 @@ class GridAccumulator:
         # This method assumes self.sum/self.cnt live on the same backend (NumPy or CuPy).
         if not self.use_gpu or self._backend is None or not self._backend.is_gpu:
             # Treat as CPU arrays
-            self._accumulate_cpu(ensure_cpu_array(row), ensure_cpu_array(col), ensure_cpu_array(z))
+            self._accumulate_cpu(
+                ensure_cpu_array(row), ensure_cpu_array(col), ensure_cpu_array(z)
+            )
             return
 
         try:
@@ -152,7 +164,9 @@ class GridAccumulator:
             self.cnt[uy, ux] += counts
         except Exception:
             # GPU operation failed, fall back to CPU
-            self._accumulate_cpu(ensure_cpu_array(row), ensure_cpu_array(col), ensure_cpu_array(z))
+            self._accumulate_cpu(
+                ensure_cpu_array(row), ensure_cpu_array(col), ensure_cpu_array(z)
+            )
 
     def accumulate(self, points: np.ndarray) -> None:
         """Accumulate a chunk of points into the grid.
@@ -197,7 +211,12 @@ class GridAccumulator:
             2D array (ny x nx) containing mean Z values per cell.
             Empty cells contain np.nan.
         """
-        if self.use_gpu and self._backend is not None and self._backend.is_gpu and is_gpu_array(self.sum):
+        if (
+            self.use_gpu
+            and self._backend is not None
+            and self._backend.is_gpu
+            and is_gpu_array(self.sum)
+        ):
             xp = self._backend.xp
             dem = xp.where(self.cnt > 0, self.sum / self.cnt, xp.nan)
             dem_cpu = ensure_cpu_array(dem).astype(np.float64)
@@ -213,14 +232,14 @@ class GridAccumulator:
 @dataclass
 class Tile:
     """Represents a single tile in a tiled processing scheme.
-    
+
     Each tile has:
     - 'inner' bounds: the actual tile area to be processed
     - 'outer' bounds: inner + halo region for edge handling
-    
+
     Grid alignment ensures tiles fit perfectly into a global grid
     with no gaps or misalignments at tile boundaries.
-    
+
     Attributes:
         i: Tile column index in the tile grid
         j: Tile row index in the tile grid
@@ -231,28 +250,29 @@ class Tile:
         nx: Number of columns in this tile's grid
         ny: Number of rows in this tile's grid
     """
+
     i: int
     j: int
     inner: Bounds2D
     outer: Bounds2D
     x0_idx: int  # starting column in global grid
     y0_idx: int  # starting row in global grid
-    nx: int      # columns in tile grid
-    ny: int      # rows in tile grid
+    nx: int  # columns in tile grid
+    ny: int  # rows in tile grid
 
 
 class Tiler:
     """Generate grid-aligned tiles with optional halo for out-of-core processing.
-    
+
     Divides a global spatial extent into smaller tiles that can be processed
     independently. Each tile includes:
     - An 'inner' region: the actual area to compute results for
     - An 'outer' region: inner + halo buffer to handle edge effects
-    
+
     The halo allows algorithms to access neighboring data without artifacts
     at tile boundaries. Tiles are aligned to a global grid to ensure seamless
     mosaicking of results.
-    
+
     Attributes:
         gb: Global bounding box covering the entire processing area
         cell: Grid cell size in data units
@@ -262,9 +282,11 @@ class Tiler:
         ny: Total rows in the global grid
     """
 
-    def __init__(self, global_bounds: Bounds2D, cell_size: float, tile_size: float, halo: float) -> None:
+    def __init__(
+        self, global_bounds: Bounds2D, cell_size: float, tile_size: float, halo: float
+    ) -> None:
         """Initialize the tiler.
-        
+
         Args:
             global_bounds: Bounding box covering the entire processing area
             cell_size: Size of grid cells in data units
@@ -281,11 +303,11 @@ class Tiler:
 
     def tiles(self) -> Iterator[Tile]:
         """Generate all tiles covering the global bounds.
-        
+
         Tiles are generated row-by-row (y first, then x) to enable
         sequential processing. Each tile is grid-aligned and includes
         both inner and outer bounds.
-        
+
         Yields:
             Tile objects with all necessary spatial information and
             grid alignment parameters for seamless mosaicking.
@@ -293,20 +315,20 @@ class Tiler:
         # Compute number of tiles needed in each direction
         tx = int(np.ceil((self.gb.max_x - self.gb.min_x) / self.tile))
         ty = int(np.ceil((self.gb.max_y - self.gb.min_y) / self.tile))
-        
+
         for j in range(ty):
             # Compute Y bounds for this tile row
             y0 = self.gb.min_y + j * self.tile
             y1 = min(self.gb.max_y, y0 + self.tile)
-            
+
             for i in range(tx):
                 # Compute X bounds for this tile column
                 x0 = self.gb.min_x + i * self.tile
                 x1 = min(self.gb.max_x, x0 + self.tile)
-                
+
                 # Define inner processing bounds
                 inner = Bounds2D(min_x=x0, min_y=y0, max_x=x1, max_y=y1)
-                
+
                 # Define outer bounds with halo, clipped to global extent
                 outer = Bounds2D(
                     min_x=max(self.gb.min_x, x0 - self.halo),
@@ -314,28 +336,37 @@ class Tiler:
                     max_x=min(self.gb.max_x, x1 + self.halo),
                     max_y=min(self.gb.max_y, y1 + self.halo),
                 )
-                
+
                 # Compute tile grid dimensions aligned to global grid
                 nx = int(np.ceil((inner.max_x - inner.min_x) / self.cell)) + 1
                 ny = int(np.ceil((inner.max_y - inner.min_y) / self.cell)) + 1
-                
+
                 # Compute starting indices in the global grid
                 x0_idx = int(round((inner.min_x - self.gb.min_x) / self.cell))
                 y0_idx = int(round((inner.min_y - self.gb.min_y) / self.cell))
-                
-                yield Tile(i=i, j=j, inner=inner, outer=outer, x0_idx=x0_idx, y0_idx=y0_idx, nx=nx, ny=ny)
+
+                yield Tile(
+                    i=i,
+                    j=j,
+                    inner=inner,
+                    outer=outer,
+                    x0_idx=x0_idx,
+                    y0_idx=y0_idx,
+                    nx=nx,
+                    ny=ny,
+                )
 
 
 class MosaicAccumulator:
     """Assemble tile DEMs into a global grid by averaging overlaps.
-    
+
     When tiles are processed with halos, they produce overlapping results.
     This class accumulates multiple tile DEMs into a single global grid,
     averaging values in overlapping regions to produce seamless output.
-    
+
     The accumulator maintains running sums and counts to handle arbitrary
     overlap patterns and variable numbers of contributing tiles per cell.
-    
+
     Attributes:
         gb: Global bounding box for the output grid
         cell: Grid cell size in data units
@@ -347,28 +378,41 @@ class MosaicAccumulator:
         grid_y: Y coordinates of cell centers (ny x nx)
     """
 
-    def __init__(self, global_bounds: Bounds2D, cell_size: float, *, memmap_dir: Optional[str | Path] = None) -> None:
+    def __init__(
+        self,
+        global_bounds: Bounds2D,
+        cell_size: float,
+        *,
+        memmap_dir: Optional[str | Path] = None,
+    ) -> None:
         """Initialize the mosaic accumulator.
-        
+
         Args:
             global_bounds: Bounding box for the output global grid
             cell_size: Size of grid cells in data units
         """
         from pathlib import Path as _Path
+
         self.gb = global_bounds
         self.cell = float(cell_size)
         self.nx = int(np.ceil((self.gb.max_x - self.gb.min_x) / self.cell)) + 1
         self.ny = int(np.ceil((self.gb.max_y - self.gb.min_y) / self.cell)) + 1
 
         # Optional on-disk backing for large outputs
-        self._memmap_dir: Optional[_Path] = _Path(memmap_dir) if memmap_dir is not None else None
+        self._memmap_dir: Optional[_Path] = (
+            _Path(memmap_dir) if memmap_dir is not None else None
+        )
         if self._memmap_dir is not None:
             self._memmap_dir.mkdir(parents=True, exist_ok=True)
             sum_path = self._memmap_dir / "mosaic_sum.float64.memmap"
             cnt_path = self._memmap_dir / "mosaic_cnt.int64.memmap"
             # Create/overwrite memmap files
-            self.sum = np.memmap(sum_path, mode="w+", dtype=np.float64, shape=(self.ny, self.nx))
-            self.cnt = np.memmap(cnt_path, mode="w+", dtype=np.int64, shape=(self.ny, self.nx))
+            self.sum = np.memmap(
+                sum_path, mode="w+", dtype=np.float64, shape=(self.ny, self.nx)
+            )
+            self.cnt = np.memmap(
+                cnt_path, mode="w+", dtype=np.int64, shape=(self.ny, self.nx)
+            )
             # Zero-initialize
             self.sum[...] = 0.0
             self.cnt[...] = 0
@@ -378,10 +422,14 @@ class MosaicAccumulator:
             # In-memory accumulators
             self.sum = np.zeros((self.ny, self.nx), dtype=np.float64)
             self.cnt = np.zeros((self.ny, self.nx), dtype=np.int64)
-        
+
         # Precompute grid cell centers for output
-        x_edges = np.linspace(self.gb.min_x, self.gb.min_x + self.nx * self.cell, self.nx + 1)
-        y_edges = np.linspace(self.gb.min_y, self.gb.min_y + self.ny * self.cell, self.ny + 1)
+        x_edges = np.linspace(
+            self.gb.min_x, self.gb.min_x + self.nx * self.cell, self.nx + 1
+        )
+        y_edges = np.linspace(
+            self.gb.min_y, self.gb.min_y + self.ny * self.cell, self.ny + 1
+        )
         self.grid_x, self.grid_y = np.meshgrid(
             (x_edges[:-1] + x_edges[1:]) / 2.0,
             (y_edges[:-1] + y_edges[1:]) / 2.0,
@@ -389,25 +437,25 @@ class MosaicAccumulator:
 
     def add_tile(self, tile: Tile, dem_tile: np.ndarray) -> None:
         """Add a tile DEM to the global accumulator.
-        
+
         The tile DEM is placed into the global grid at the appropriate location
         based on the tile's grid alignment parameters. Valid (non-NaN) values
         are accumulated for later averaging.
-        
+
         Args:
             tile: Tile object containing grid alignment information
             dem_tile: 2D array (ny x nx) of DEM values for this tile
-        
+
         Raises:
             AssertionError: If dem_tile shape doesn't match tile dimensions
         """
         h, w = dem_tile.shape
         assert h == tile.ny and w == tile.nx
-        
+
         # Determine slice in global grid for this tile
-        y_slice = slice(tile.y0_idx, tile.y0_idx + tile.ny)
-        x_slice = slice(tile.x0_idx, tile.x0_idx + tile.nx)
-        
+        _y_slice = slice(tile.y0_idx, tile.y0_idx + tile.ny)  # noqa: F841
+        _x_slice = slice(tile.x0_idx, tile.x0_idx + tile.nx)  # noqa: F841
+
         # Only accumulate valid (finite) values
         valid = np.isfinite(dem_tile)
         if not np.any(valid):
@@ -419,7 +467,7 @@ class MosaicAccumulator:
 
     def finalize(self) -> np.ndarray:
         """Compute the final global DEM by averaging accumulated tiles.
-        
+
         Returns:
             2D array (ny x nx) containing the mosaicked DEM.
             Cells with no contributing tiles contain np.nan.
@@ -432,14 +480,14 @@ class MosaicAccumulator:
 
 class LaspyStreamReader:
     """Chunked LAS/LAZ iterator with bbox and classification filtering.
-    
+
     Enables memory-efficient streaming of point cloud data from one or more
     LAZ/LAS files. Supports filtering by spatial extent and point classification
     to reduce memory usage and processing time.
-    
+
     Points are yielded in chunks to enable incremental processing without
     loading entire files into memory.
-    
+
     Attributes:
         files: List of file paths to stream from
         ground_only: If True, only return ground points (class 2)
@@ -456,7 +504,7 @@ class LaspyStreamReader:
         chunk_points: int = 1_000_000,
     ) -> None:
         """Initialize the streaming reader.
-        
+
         Args:
             files: Iterable of file paths to LAS/LAZ files
             ground_only: If True, only stream ground points (class 2).
@@ -472,18 +520,20 @@ class LaspyStreamReader:
 
     def _mask_classes(self, las) -> np.ndarray:
         """Create a boolean mask for point classification filtering.
-        
+
         Args:
             las: Laspy LAS/LAZ data object
-            
+
         Returns:
             Boolean array indicating which points pass the classification filter
         """
         n = len(las)  # laspy 2.x: len() works directly on point record
         if hasattr(las, "classification"):
             classes = np.asarray(las.classification)
-            return create_classification_mask(classes, self.ground_only, self.classification_filter)
-        
+            return create_classification_mask(
+                classes, self.ground_only, self.classification_filter
+            )
+
         # No classification attribute: accept all points
         return np.ones(n, dtype=bool)
 
@@ -494,16 +544,16 @@ class LaspyStreamReader:
         transform: Optional["LocalCoordinateTransform"] = None,
     ) -> Iterator[np.ndarray]:
         """Stream point coordinates from all files with optional spatial filtering.
-        
+
         Points are read in chunks, filtered by classification and optionally by
         bounding box, then yielded as Nx3 numpy arrays [X, Y, Z].
-        
+
         Args:
             bbox: Optional bounding box to filter points spatially.
                 Only points within bbox are yielded.
             transform: Optional LocalCoordinateTransform to apply to points.
                 If provided, points are transformed to local coordinates.
-                
+
         Yields:
             Nx3 arrays of filtered point coordinates [X, Y, Z]
         """
@@ -514,12 +564,12 @@ class LaspyStreamReader:
                 for chunk in reader.chunk_iterator(self.chunk_points):
                     # Apply classification filter
                     mask = self._mask_classes(chunk)
-                    
+
                     # Extract coordinates
                     x = np.asarray(chunk.x, dtype=np.float64)
                     y = np.asarray(chunk.y, dtype=np.float64)
                     z = np.asarray(chunk.z, dtype=np.float64)
-                    
+
                     # Apply spatial filter if bbox is provided
                     if bbox is not None:
                         mask &= (
@@ -528,18 +578,18 @@ class LaspyStreamReader:
                             & (y >= bbox.min_y)
                             & (y <= bbox.max_y)
                         )
-                    
+
                     # Skip empty chunks
                     if not np.any(mask):
                         continue
-                    
+
                     # Yield filtered points as Nx3 array
                     pts = np.column_stack([x[mask], y[mask], z[mask]])
-                    
+
                     # Apply local coordinate transform if provided
                     if transform is not None:
                         pts = transform.to_local(pts)
-                    
+
                     yield pts
 
     def reservoir_sample(
@@ -580,7 +630,7 @@ class LaspyStreamReader:
             # Fill reservoir first
             take = min(n - filled, m)
             if take > 0:
-                reservoir[filled:filled + take] = chunk[:take]
+                reservoir[filled : filled + take] = chunk[:take]
                 filled += take
                 seen += take
                 start = take
@@ -593,7 +643,7 @@ class LaspyStreamReader:
                 r = rng.integers(0, j + 1)
                 if r < n:
                     reservoir[r] = chunk[k]
-            seen += (m - start)
+            seen += m - start
 
         if reservoir is None:
             return np.empty((0, 3), dtype=np.float64)
@@ -602,16 +652,18 @@ class LaspyStreamReader:
         return reservoir[:filled] if filled < n else reservoir
 
 
-def union_bounds(files_a: Iterable[str | Path], files_b: Iterable[str | Path]) -> Bounds2D:
+def union_bounds(
+    files_a: Iterable[str | Path], files_b: Iterable[str | Path]
+) -> Bounds2D:
     """Compute the union of bounding boxes from two sets of LAS/LAZ files.
-    
+
     This is useful for determining the global extent when processing multiple
     point cloud datasets that need to be aligned or compared.
-    
+
     Args:
         files_a: First set of LAS/LAZ file paths
         files_b: Second set of LAS/LAZ file paths
-        
+
     Returns:
         Bounds2D covering the union of all input file extents
     """
@@ -619,10 +671,10 @@ def union_bounds(files_a: Iterable[str | Path], files_b: Iterable[str | Path]) -
 
     def scan(files: Iterable[str | Path]) -> Tuple[float, float, float, float]:
         """Scan file headers to find the overall bounding box.
-        
+
         Args:
             files: Iterable of LAS/LAZ file paths
-            
+
         Returns:
             Tuple of (min_x, min_y, max_x, max_y) covering all files
         """
@@ -640,7 +692,7 @@ def union_bounds(files_a: Iterable[str | Path], files_b: Iterable[str | Path]) -
     # Scan both file sets
     ax0, ay0, ax1, ay1 = scan(files_a)
     bx0, by0, bx1, by1 = scan(files_b)
-    
+
     # Return union bounds
     return Bounds2D(
         min_x=min(ax0, bx0),
@@ -728,4 +780,6 @@ def scan_las_bounds(files: Iterable[str | Path]) -> List[Tuple[Path, Bounds2D]]:
 
 def bounds_intersect(a: Bounds2D, b: Bounds2D) -> bool:
     """Check if two 2D bounding boxes intersect (inclusive edges)."""
-    return not (a.max_x < b.min_x or a.min_x > b.max_x or a.max_y < b.min_y or a.min_y > b.max_y)
+    return not (
+        a.max_x < b.min_x or a.min_x > b.max_x or a.max_y < b.min_y or a.min_y > b.max_y
+    )

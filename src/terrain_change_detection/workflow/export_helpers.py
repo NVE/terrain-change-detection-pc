@@ -61,7 +61,9 @@ def reset_crs_cache() -> None:
 # ---------------------------------------------------------------------------
 
 
-def resolve_output_dir(cfg: AppConfig, area_name: str, *, area_scoped: bool = True) -> Path:
+def resolve_output_dir(
+    cfg: AppConfig, area_name: str, *, area_scoped: bool = True
+) -> Path:
     """Resolve the output directory, preserving current per-method conventions.
 
     Args:
@@ -121,8 +123,11 @@ def export_dem_rasters(
             dem_tif = export_dir / f"dem_{label}_{suffix}.tif"
             try:
                 export_distances_to_geotiff(
-                    pc[:, :2], pc[:, 2], str(dem_tif),
-                    cell_size=cfg.detection.dod.cell_size, crs=crs,
+                    pc[:, :2],
+                    pc[:, 2],
+                    str(dem_tif),
+                    cell_size=cfg.detection.dod.cell_size,
+                    crs=crs,
                     local_transform=None,
                 )
                 logger.info("Exported DEM raster: %s", dem_tif)
@@ -154,7 +159,7 @@ def write_run_inputs(
 
     output_path = base_dir / "logs" / filename
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, 'w') as f:
+    with open(output_path, "w") as f:
         f.write("=== Command Line Arguments ===\n")
         for arg, value in vars(args).items():
             f.write(f"{arg}: {value}\n")

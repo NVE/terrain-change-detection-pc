@@ -86,10 +86,12 @@ class DoDDetector:
         """
         if points_t1.size == 0 or points_t2.size == 0:
             raise ValueError("Input point arrays must be non-empty.")
-        
+
         # Note: In-memory DoD uses bucket-based aggregation which only supports CPU
         # For GPU-accelerated DoD, use streaming methods (compute_dod_streaming_files*)
-        logger.info(f"DoD (in-memory) using CPU-only backend (aggregator: {aggregator}, GPU not supported for in-memory DoD)")
+        logger.info(
+            f"DoD (in-memory) using CPU-only backend (aggregator: {aggregator}, GPU not supported for in-memory DoD)"
+        )
 
         if bounds is None:
             min_x = float(min(points_t1[:, 0].min(), points_t2[:, 0].min()))
@@ -127,9 +129,14 @@ class DoDDetector:
             elif aggregator == "median":
                 reducer = np.median
             elif aggregator == "p95":
-                reducer = lambda zs: np.percentile(zs, 95)
+
+                def reducer(zs):
+                    return np.percentile(zs, 95)
+
             elif aggregator == "p5":
-                reducer = lambda zs: np.percentile(zs, 5)
+
+                def reducer(zs):
+                    return np.percentile(zs, 5)
             else:
                 raise ValueError(f"Unknown aggregator: {aggregator}")
 
@@ -212,13 +219,15 @@ class DoDDetector:
         - bounds defaults to the union of LAS headers.
         """
         if not files_t1 or not files_t2:
-            raise ValueError("compute_dod_streaming_files requires non-empty file lists")
+            raise ValueError(
+                "compute_dod_streaming_files requires non-empty file lists"
+            )
 
         # Determine if we should use GPU (config-driven)
         use_gpu = False
         if config is not None and hasattr(config, "gpu"):
             use_gpu = config.gpu.enabled and config.gpu.use_for_dod
-        
+
         # Log which backend is being used with clear explanation
         if use_gpu:
             logger.info("DoD streaming files using GPU-accelerated grid accumulation")
@@ -239,23 +248,44 @@ class DoDDetector:
                 )
             else:
                 bounds2d = bounds2d_global
-            bounds_tuple = (bounds2d.min_x, bounds2d.min_y, bounds2d.max_x, bounds2d.max_y)
+            bounds_tuple = (
+                bounds2d.min_x,
+                bounds2d.min_y,
+                bounds2d.max_x,
+                bounds2d.max_y,
+            )
         else:
             min_x, min_y, max_x, max_y = bounds
             bounds2d = Bounds2D(min_x, min_y, max_x, max_y)
-            bounds2d_global = bounds2d  # Assume bounds are already in appropriate coords
+            bounds2d_global = (
+                bounds2d  # Assume bounds are already in appropriate coords
+            )
             bounds_tuple = bounds
 
         acc1 = GridAccumulator(bounds2d, cell_size, use_gpu=use_gpu)
         acc2 = GridAccumulator(bounds2d, cell_size, use_gpu=use_gpu)
 
-        reader1 = LaspyStreamReader(files_t1, ground_only=ground_only, classification_filter=classification_filter, chunk_points=chunk_points)
-        reader2 = LaspyStreamReader(files_t2, ground_only=ground_only, classification_filter=classification_filter, chunk_points=chunk_points)
+        reader1 = LaspyStreamReader(
+            files_t1,
+            ground_only=ground_only,
+            classification_filter=classification_filter,
+            chunk_points=chunk_points,
+        )
+        reader2 = LaspyStreamReader(
+            files_t2,
+            ground_only=ground_only,
+            classification_filter=classification_filter,
+            chunk_points=chunk_points,
+        )
 
         # Use global bounds for file bbox filtering, apply local_transform to points
-        for pts in reader1.stream_points(bounds2d_global if local_transform else bounds2d, transform=local_transform):
+        for pts in reader1.stream_points(
+            bounds2d_global if local_transform else bounds2d, transform=local_transform
+        ):
             acc1.accumulate(pts)
-        for pts in reader2.stream_points(bounds2d_global if local_transform else bounds2d, transform=local_transform):
+        for pts in reader2.stream_points(
+            bounds2d_global if local_transform else bounds2d, transform=local_transform
+        ):
             acc2.accumulate(pts)
 
         dem1 = acc1.finalize()
@@ -317,13 +347,15 @@ class DoDDetector:
         from ..acceleration.tiling import LaspyStreamReader
 
         if not files_t1 or not files_t2:
-            raise ValueError("compute_dod_streaming_files_tiled requires non-empty file lists")
-        
+            raise ValueError(
+                "compute_dod_streaming_files_tiled requires non-empty file lists"
+            )
+
         # Determine if we should use GPU (config-driven)
         use_gpu = False
         if config is not None and hasattr(config, "gpu"):
             use_gpu = config.gpu.enabled and config.gpu.use_for_dod
-        
+
         # Log which backend is being used with clear explanation
         if use_gpu:
             logger.info("DoD tiled streaming using GPU-accelerated grid accumulation")
@@ -331,9 +363,9 @@ class DoDDetector:
             logger.info(
                 "DoD tiled streaming using CPU grid accumulation (GPU disabled or not available)"
             )
-        
+
         gb_global = union_bounds(files_t1, files_t2)
-        
+
         # Transform bounds to local coordinates if transform is provided
         if local_transform is not None:
             gb = Bounds2D(
@@ -354,7 +386,10 @@ class DoDDetector:
         dy = float(gb.max_y - gb.min_y)
         logger.info(
             "Global extent: dX=%.1fm (%.3f km), dY=%.1fm (%.3f km)",
-            dx, dx / 1000.0, dy, dy / 1000.0,
+            dx,
+            dx / 1000.0,
+            dy,
+            dy / 1000.0,
         )
 
         def _make_tile(i: int, j: int) -> Tile:
@@ -377,12 +412,16 @@ class DoDDetector:
             ny_tile = int(np.ceil((inner.max_y - inner.min_y) / cell_size)) + 1
             x0_idx = int(np.floor((inner.min_x - gb.min_x) / cell_size))
             y0_idx = int(np.floor((inner.min_y - gb.min_y) / cell_size))
-            
+
             return Tile(
-                i=i, j=j,
-                inner=inner, outer=outer,
-                x0_idx=x0_idx, y0_idx=y0_idx,
-                nx=nx_tile, ny=ny_tile
+                i=i,
+                j=j,
+                inner=inner,
+                outer=outer,
+                x0_idx=x0_idx,
+                y0_idx=y0_idx,
+                nx=nx_tile,
+                ny=ny_tile,
             )
 
         def _accumulate_files(
@@ -422,7 +461,9 @@ class DoDDetector:
                         )
                     else:
                         tile_outer_global = tile.outer
-                    for chunk in reader.stream_points(bbox=tile_outer_global, transform=local_transform):
+                    for chunk in reader.stream_points(
+                        bbox=tile_outer_global, transform=local_transform
+                    ):
                         if transform is not None:
                             chunk = apply_transform(chunk, transform)
                         acc.accumulate(chunk)
@@ -446,15 +487,21 @@ class DoDDetector:
         t0 = time.time()
         tiles1, accs1, npts1, stats1 = _accumulate_files(files_t1)
         t1 = time.time()
-        logger.info("T1 streamed: %d points into %d tiles in %.2fs", npts1, len(accs1), t1 - t0)
+        logger.info(
+            "T1 streamed: %d points into %d tiles in %.2fs", npts1, len(accs1), t1 - t0
+        )
         for (i, j), (pts_total, chunks) in stats1.items():
             logger.info(
                 "T1 tile (%d,%d): %d points in %d chunks", i, j, pts_total, chunks
             )
 
-        tiles2, accs2, npts2, stats2 = _accumulate_files(files_t2, transform=transform_t2)
+        tiles2, accs2, npts2, stats2 = _accumulate_files(
+            files_t2, transform=transform_t2
+        )
         t2 = time.time()
-        logger.info("T2 streamed: %d points into %d tiles in %.2fs", npts2, len(accs2), t2 - t1)
+        logger.info(
+            "T2 streamed: %d points into %d tiles in %.2fs", npts2, len(accs2), t2 - t1
+        )
         for (i, j), (pts_total, chunks) in stats2.items():
             logger.info(
                 "T2 tile (%d,%d): %d points in %d chunks", i, j, pts_total, chunks
@@ -531,10 +578,10 @@ class DoDDetector:
     ) -> DoDResult:
         """
         Parallel version of out-of-core tiled DoD.
-        
+
         Processes tiles in parallel using multiple CPU cores for significant speedup.
         Each tile is processed independently by a worker process.
-        
+
         Args:
             files_t1: Epoch 1 file paths
             files_t2: Epoch 2 file paths
@@ -549,22 +596,24 @@ class DoDDetector:
             n_workers: Number of parallel workers (None = auto-detect)
             clip_bounds: Optional (minx, miny, maxx, maxy) to restrict processing
                          to tiles overlapping this region of interest
-        
+
         Returns:
             DoDResult with DEMs, DoD grid, and statistics
         """
         from ..acceleration import TileParallelExecutor, process_dod_tile
         from pathlib import Path
-        
+
         if not files_t1 or not files_t2:
-            raise ValueError("compute_dod_streaming_files_tiled_parallel requires non-empty file lists")
-        
+            raise ValueError(
+                "compute_dod_streaming_files_tiled_parallel requires non-empty file lists"
+            )
+
         # Note: File header bounds are scanned below and filtered per tile.
         # Paths are passed per-tile to workers to avoid redundant I/O.
-        
+
         # Get global bounds from file headers
         gb_global = union_bounds(files_t1, files_t2)
-        
+
         # Transform bounds to local coordinates if transform is provided
         if local_transform is not None:
             gb = Bounds2D(
@@ -575,28 +624,31 @@ class DoDDetector:
             )
         else:
             gb = gb_global
-        
+
         # Calculate tile grid
         tx = int(np.ceil((gb.max_x - gb.min_x) / tile_size))
         ty = int(np.ceil((gb.max_y - gb.min_y) / tile_size))
-        
+
         # Log extent info
         dx = float(gb.max_x - gb.min_x)
         dy = float(gb.max_y - gb.min_y)
         logger.info(
             "Global extent: dX=%.1fm (%.3f km), dY=%.1fm (%.3f km)",
-            dx, dx / 1000.0, dy, dy / 1000.0,
+            dx,
+            dx / 1000.0,
+            dy,
+            dy / 1000.0,
         )
-        
+
         # Create tiler
         tiler = Tiler(gb, cell_size, tile_size, halo)
         tiles = list(tiler.tiles())
         n_tiles_total = len(tiles)
-        
+
         # Filter tiles by clip_bounds if provided
         if clip_bounds is not None:
             clip_minx, clip_miny, clip_maxx, clip_maxy = clip_bounds
-            
+
             def tile_intersects_clip(tile) -> bool:
                 """Check if tile overlaps the clip region."""
                 t_minx = tile.inner.min_x
@@ -604,34 +656,47 @@ class DoDDetector:
                 t_maxx = tile.inner.max_x
                 t_maxy = tile.inner.max_y
                 # Check for intersection (not disjoint)
-                return not (t_maxx < clip_minx or t_minx > clip_maxx or
-                           t_maxy < clip_miny or t_miny > clip_maxy)
-            
+                return not (
+                    t_maxx < clip_minx
+                    or t_minx > clip_maxx
+                    or t_maxy < clip_miny
+                    or t_miny > clip_maxy
+                )
+
             tiles = [t for t in tiles if tile_intersects_clip(t)]
             n_tiles = len(tiles)
             logger.info(
                 f"Clip bounds filter: {n_tiles}/{n_tiles_total} tiles overlap region of interest"
             )
-            
+
             if n_tiles == 0:
-                logger.warning("No tiles overlap the clip bounds - returning empty result")
+                logger.warning(
+                    "No tiles overlap the clip bounds - returning empty result"
+                )
                 # Return empty result
                 return DoDResult(
-                    dem_t1=np.array([]),
-                    dem_t2=np.array([]),
+                    grid_x=np.array([]),
+                    grid_y=np.array([]),
+                    dem1=np.array([]),
+                    dem2=np.array([]),
                     dod=np.array([]),
                     cell_size=cell_size,
-                    origin=(gb.min_x, gb.min_y),
+                    bounds=gb,
                     stats={},
                 )
         else:
             n_tiles = n_tiles_total
-        
+
         logger.info(
             "Parallel tiled DoD: tiles=%dx%d (%d total), tile=%.1fm, halo=%.1fm, chunk_points=%d",
-            tx, ty, n_tiles, tile_size, halo, chunk_points,
+            tx,
+            ty,
+            n_tiles,
+            tile_size,
+            halo,
+            chunk_points,
         )
-        
+
         # Determine whether to use GPU for grid accumulation (configuration-driven)
         use_gpu = False
         if config is not None and hasattr(config, "gpu"):
@@ -646,20 +711,24 @@ class DoDDetector:
             )
 
         # Create parallel executor
-        executor = TileParallelExecutor(n_workers=n_workers, threads_per_worker=threads_per_worker)
-        
+        executor = TileParallelExecutor(
+            n_workers=n_workers, threads_per_worker=threads_per_worker
+        )
+
         # Log worker info
         from ..acceleration import estimate_speedup_factor
+
         eff_workers = min(executor.n_workers, n_tiles)
         expected_speedup = estimate_speedup_factor(eff_workers, n_tiles)
         logger.info(
             f"Using {eff_workers} workers for {n_tiles} tiles "
             f"(expected speedup: {expected_speedup:.1f}x)"
         )
-        
+
         # Pre-filter files per tile using LAS/LAZ header bounds to avoid
         # rescanning non-overlapping files in each worker
         from ..acceleration import scan_las_bounds, bounds_intersect
+
         t1_bounds = scan_las_bounds(files_t1)
         t2_bounds = scan_las_bounds(files_t2)
 
@@ -676,23 +745,29 @@ class DoDDetector:
                 )
             else:
                 tile_outer_global = tile.outer
-            
-            files_t1_tile = [str(f) for f, b in t1_bounds if bounds_intersect(tile_outer_global, b)]
-            files_t2_tile = [str(f) for f, b in t2_bounds if bounds_intersect(tile_outer_global, b)]
-            per_tile_kwargs.append({
-                'files_t1': [Path(f) for f in files_t1_tile],
-                'files_t2': [Path(f) for f in files_t2_tile],
-            })
+
+            files_t1_tile = [
+                str(f) for f, b in t1_bounds if bounds_intersect(tile_outer_global, b)
+            ]
+            files_t2_tile = [
+                str(f) for f, b in t2_bounds if bounds_intersect(tile_outer_global, b)
+            ]
+            per_tile_kwargs.append(
+                {
+                    "files_t1": [Path(f) for f in files_t1_tile],
+                    "files_t2": [Path(f) for f in files_t2_tile],
+                }
+            )
 
         # Process tiles in parallel (with per-tile file lists)
         worker_kwargs = {
-            'cell_size': cell_size,
-            'chunk_points': chunk_points,
-            'classification_filter': classification_filter,
-            'transform_matrix': transform_t2,
-            'ground_only': ground_only,
-            'use_gpu': use_gpu,
-            'local_transform': local_transform,
+            "cell_size": cell_size,
+            "chunk_points": chunk_points,
+            "classification_filter": classification_filter,
+            "transform_matrix": transform_t2,
+            "ground_only": ground_only,
+            "use_gpu": use_gpu,
+            "local_transform": local_transform,
         }
 
         t0 = time.time()
@@ -703,26 +778,28 @@ class DoDDetector:
             per_tile_kwargs=per_tile_kwargs,
         )
         t1 = time.time()
-        
+
         logger.info(
             "Parallel tile processing complete: %d tiles in %.2fs (%.2f tiles/s)",
-            n_tiles, t1 - t0, n_tiles / (t1 - t0)
+            n_tiles,
+            t1 - t0,
+            n_tiles / (t1 - t0),
         )
-        
+
         # Build mosaics from results (optionally memmap-backed)
         mosaic1 = MosaicAccumulator(gb, cell_size, memmap_dir=memmap_dir)
         mosaic2 = MosaicAccumulator(gb, cell_size, memmap_dir=memmap_dir)
-        
+
         for tile, dem1, dem2 in results:
             mosaic1.add_tile(tile, dem1)
             mosaic2.add_tile(tile, dem2)
-        
+
         dem1_global = mosaic1.finalize()
         dem2_global = mosaic2.finalize()
         t2 = time.time()
-        
+
         logger.info("Mosaics finalized in %.2fs", t2 - t1)
-        
+
         # Compute DoD and statistics
         dod = dem2_global - dem1_global
         valid = np.isfinite(dod)
@@ -734,13 +811,15 @@ class DoDDetector:
             "min_change": float(np.nanmin(dod)),
             "max_change": float(np.nanmax(dod)),
         }
-        
+
         total_time = t2 - t0
         logger.info(
             "Total parallel DoD time: %.2fs (processing: %.2fs, mosaicking: %.2fs)",
-            total_time, t1 - t0, t2 - t1
+            total_time,
+            t1 - t0,
+            t2 - t1,
         )
-        
+
         # Log completion with statistics
         logger.info(
             "DoD completed: n_cells=%d, mean=%.4f m, median=%.4f m, rmse=%.4f m, range=[%.4f, %.4f] m",
@@ -751,7 +830,7 @@ class DoDDetector:
             stats["min_change"],
             stats["max_change"],
         )
-        
+
         return DoDResult(
             grid_x=mosaic1.grid_x,
             grid_y=mosaic1.grid_y,
@@ -761,5 +840,10 @@ class DoDDetector:
             cell_size=float(cell_size),
             bounds=(gb.min_x, gb.min_y, gb.max_x, gb.max_y),
             stats=stats,
-            metadata={"aggregator": "mean", "streaming": True, "tiled": True, "parallel": True},
+            metadata={
+                "aggregator": "mean",
+                "streaming": True,
+                "tiled": True,
+                "parallel": True,
+            },
         )

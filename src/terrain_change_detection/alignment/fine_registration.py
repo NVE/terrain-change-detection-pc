@@ -56,7 +56,9 @@ class ICPRegistration:
         self.use_gpu = use_gpu
         self.convergence_translation_epsilon = convergence_translation_epsilon
         # Store rotation epsilon in radians for internal use
-        self.convergence_rotation_epsilon_rad = np.deg2rad(convergence_rotation_epsilon_deg)
+        self.convergence_rotation_epsilon_rad = np.deg2rad(
+            convergence_rotation_epsilon_deg
+        )
         # Runtime metadata (e.g., which NN backend was used)
         self._last_nn_backend: str = "none"
 
@@ -268,7 +270,9 @@ class ICPRegistration:
 
             previous_error = current_error
         else:
-            logger.info("ICP did not converge after %d iterations.", self.max_iterations)
+            logger.info(
+                "ICP did not converge after %d iterations.", self.max_iterations
+            )
 
         icp_end = time.time()
 
@@ -276,7 +280,9 @@ class ICPRegistration:
         final_error = self.compute_registration_error(current_source, target, nbrs)
 
         total_time = icp_end - icp_start
-        mean_iter_time = (sum(iter_durations) / len(iter_durations)) if iter_durations else 0.0
+        mean_iter_time = (
+            (sum(iter_durations) / len(iter_durations)) if iter_durations else 0.0
+        )
         logger.info(
             "ICP finished in %.4f s (%d iterations, mean iter %.4f s). "
             "Final RMSE on %d alignment points: %.6f",
@@ -309,7 +315,9 @@ class ICPRegistration:
         """
         if nbrs is None:
             if target is None:
-                raise ValueError("Either 'target' or a pre-built 'nbrs' must be provided.")
+                raise ValueError(
+                    "Either 'target' or a pre-built 'nbrs' must be provided."
+                )
             nbrs = NearestNeighbors(n_neighbors=1, algorithm="kd_tree").fit(target)
 
         # Some GPU backends may be fitted on float32 targets; convert queries
@@ -469,12 +477,16 @@ def compute_overlap_mask(
     max_y = min(cloud_a[:, 1].max(), cloud_b[:, 1].max()) + margin
 
     mask_a = (
-        (cloud_a[:, 0] >= min_x) & (cloud_a[:, 0] <= max_x)
-        & (cloud_a[:, 1] >= min_y) & (cloud_a[:, 1] <= max_y)
+        (cloud_a[:, 0] >= min_x)
+        & (cloud_a[:, 0] <= max_x)
+        & (cloud_a[:, 1] >= min_y)
+        & (cloud_a[:, 1] <= max_y)
     )
     mask_b = (
-        (cloud_b[:, 0] >= min_x) & (cloud_b[:, 0] <= max_x)
-        & (cloud_b[:, 1] >= min_y) & (cloud_b[:, 1] <= max_y)
+        (cloud_b[:, 0] >= min_x)
+        & (cloud_b[:, 0] <= max_x)
+        & (cloud_b[:, 1] >= min_y)
+        & (cloud_b[:, 1] <= max_y)
     )
 
     return mask_a, mask_b

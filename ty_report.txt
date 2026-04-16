@@ -1,0 +1,2304 @@
+warning[unresolved-import]: Cannot resolve imported module `plyfile`
+   --> exploration/cloudcompare_cli_pipeline.py:415:18
+    |
+413 |     elif suffix == ".ply":
+414 |         try:
+415 |             from plyfile import PlyData
+    |                  ^^^^^^^
+416 |             import numpy as np
+    |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+warning[unresolved-import]: Cannot resolve imported module `pycc`
+  --> exploration/cloudcompare_python_plugin_pipeline.py:43:12
+   |
+42 | try:
+43 |     import pycc
+   |            ^^^^
+44 |     import cccorelib
+45 | except ImportError as e:
+   |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+warning[unresolved-import]: Cannot resolve imported module `cccorelib`
+  --> exploration/cloudcompare_python_plugin_pipeline.py:44:12
+   |
+42 | try:
+43 |     import pycc
+44 |     import cccorelib
+   |            ^^^^^^^^^
+45 | except ImportError as e:
+46 |     raise RuntimeError(
+   |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+warning[unresolved-import]: Cannot resolve imported module `pycc.plugins`
+  --> exploration/cloudcompare_python_plugin_pipeline.py:53:10
+   |
+51 | # Check if qM3C2 plugin is available
+52 | try:
+53 |     from pycc.plugins import qM3C2
+   |          ^^^^^^^^^^^^
+54 |
+55 |     HAS_QM3C2 = True
+   |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+warning[invalid-argument-type]: Argument to bound method `__init__` is incorrect
+  --> scripts/explore_data.py:38:31
+   |
+37 |     # Discover data
+38 |     discovery = DataDiscovery(base_dir)
+   |                               ^^^^^^^^ Expected `str`, found `Path`
+39 |     areas = discovery.scan_areas()
+   |
+info: Method defined here
+  --> src/terrain_change_detection/preprocessing/data_discovery.py:85:9
+   |
+83 |     """
+84 |
+85 |     def __init__(
+   |         ^^^^^^^^
+86 |         self,
+87 |         base_dir: str,
+   |         ------------- Parameter declared here
+88 |         *,
+89 |         data_dir_name: str = "data",
+   |
+
+warning[unresolved-import]: Cannot resolve imported module `cupy`
+  --> src/terrain_change_detection/acceleration/gpu_array_ops.py:56:20
+   |
+55 |         try:
+56 |             import cupy as cp
+   |                    ^^^^^^^^^^
+57 |
+58 |             self._cp = cp
+   |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+error[unresolved-attribute]: Attribute `asarray` is not defined on `None` in union `None | Unknown`
+   --> src/terrain_change_detection/acceleration/gpu_array_ops.py:123:16
+    |
+121 |             return arr
+122 |
+123 |         return self._cp.asarray(arr)
+    |                ^^^^^^^^^^^^^^^^
+124 |
+125 |     def zeros(self, shape, dtype=np.float64) -> ArrayType:
+    |
+
+warning[unresolved-import]: Cannot resolve imported module `cuml`
+   --> src/terrain_change_detection/acceleration/gpu_neighbors.py:104:20
+    |
+102 |         # Try to import cuML (Linux only)
+103 |         try:
+104 |             import cuml  # noqa: F401
+    |                    ^^^^
+105 |             from cuml.neighbors import NearestNeighbors as CuMLNN
+    |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+warning[unresolved-import]: Cannot resolve imported module `cuml.neighbors`
+   --> src/terrain_change_detection/acceleration/gpu_neighbors.py:105:18
+    |
+103 |         try:
+104 |             import cuml  # noqa: F401
+105 |             from cuml.neighbors import NearestNeighbors as CuMLNN
+    |                  ^^^^^^^^^^^^^^
+106 |
+107 |             self.backend_ = "cuml"
+    |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+warning[unresolved-import]: Cannot resolve imported module `cupy`
+   --> src/terrain_change_detection/acceleration/gpu_neighbors.py:163:20
+    |
+161 |         elif self.backend_ == "cuml":
+162 |             # cuML path: convert to CuPy and fit
+163 |             import cupy as cp
+    |                    ^^^^^^^^^^
+164 |
+165 |             X_gpu = cp.asarray(X)
+    |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+error[unresolved-attribute]: Attribute `fit` is not defined on `None` in union `None | Unknown | NearestNeighbors`
+   --> src/terrain_change_detection/acceleration/gpu_neighbors.py:166:13
+    |
+165 |             X_gpu = cp.asarray(X)
+166 |             self._model.fit(X_gpu)
+    |             ^^^^^^^^^^^^^^^
+167 |             # Optionally keep a CPU copy to support radius_neighbors fallback
+168 |             # Controlled by env var TCD_STORE_CPU_COPY_MAX_SAMPLES (default 300k)
+    |
+
+error[unresolved-attribute]: Attribute `fit` is not defined on `None` in union `None | Unknown | NearestNeighbors`
+   --> src/terrain_change_detection/acceleration/gpu_neighbors.py:192:13
+    |
+190 |             # sklearn + CuPy path: fit on CPU (sklearn doesn't accept CuPy directly)
+191 |             # The benefit comes from keeping data on GPU for queries
+192 |             self._model.fit(X)
+    |             ^^^^^^^^^^^^^^^
+193 |
+194 |         self._is_fitted = True
+    |
+
+error[invalid-return-type]: Function can implicitly return `None`, which is not assignable to return type `tuple[ndarray[Unknown, Unknown], ndarray[Unknown, Unknown]] | ndarray[Unknown, Unknown]`
+   --> src/terrain_change_detection/acceleration/gpu_neighbors.py:202:10
+    |
+200 |         n_neighbors: Optional[int] = None,
+201 |         return_distance: bool = True,
+202 |     ) -> Tuple[np.ndarray, np.ndarray] | np.ndarray:
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+203 |         """
+204 |         Find the K-neighbors of a point.
+    |
+
+error[unresolved-attribute]: Attribute `kneighbors` is not defined on `None` in union `None | Unknown | NearestNeighbors`
+   --> src/terrain_change_detection/acceleration/gpu_neighbors.py:231:20
+    |
+229 |         if self.backend_ == "sklearn-cpu":
+230 |             # CPU path
+231 |             return self._model.kneighbors(X, n_neighbors, return_distance)
+    |                    ^^^^^^^^^^^^^^^^^^^^^^
+232 |
+233 |         elif self.backend_ == "cuml":
+    |
+
+warning[unresolved-import]: Cannot resolve imported module `cupy`
+   --> src/terrain_change_detection/acceleration/gpu_neighbors.py:235:20
+    |
+233 |         elif self.backend_ == "cuml":
+234 |             # cuML path: convert to CuPy, query, convert back
+235 |             import cupy as cp
+    |                    ^^^^^^^^^^
+236 |
+237 |             if X is not None:
+    |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+error[unresolved-attribute]: Attribute `kneighbors` is not defined on `None` in union `None | Unknown | NearestNeighbors`
+   --> src/terrain_change_detection/acceleration/gpu_neighbors.py:242:22
+    |
+240 |                 X_gpu = None
+241 |
+242 |             result = self._model.kneighbors(X_gpu, n_neighbors, return_distance)
+    |                      ^^^^^^^^^^^^^^^^^^^^^^
+243 |
+244 |             if return_distance:
+    |
+
+error[unresolved-attribute]: Attribute `kneighbors` is not defined on `None` in union `None | Unknown | NearestNeighbors`
+   --> src/terrain_change_detection/acceleration/gpu_neighbors.py:253:20
+    |
+251 |             # sklearn + CuPy path: query on CPU (sklearn limitation)
+252 |             # Still faster due to better cache usage and vectorization
+253 |             return self._model.kneighbors(X, n_neighbors, return_distance)
+    |                    ^^^^^^^^^^^^^^^^^^^^^^
+254 |
+255 |     def radius_neighbors(
+    |
+
+error[unresolved-attribute]: Attribute `radius_neighbors` is not defined on `None` in union `None | Unknown | NearestNeighbors`
+   --> src/terrain_change_detection/acceleration/gpu_neighbors.py:293:20
+    |
+292 |         if self.backend_ == "sklearn-cpu":
+293 |             return self._model.radius_neighbors(
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+294 |                 X, radius, return_distance, sort_results
+295 |             )
+    |
+
+error[unresolved-attribute]: Attribute `radius_neighbors` is not defined on `None` in union `None | Unknown | NearestNeighbors`
+   --> src/terrain_change_detection/acceleration/gpu_neighbors.py:322:20
+    |
+321 |         elif self.backend_ == "sklearn-gpu":
+322 |             return self._model.radius_neighbors(
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+323 |                 X, radius, return_distance, sort_results
+324 |             )
+    |
+
+error[unresolved-attribute]: Attribute `n_samples_fit_` is not defined on `None` in union `None | Unknown | NearestNeighbors`
+   --> src/terrain_change_detection/acceleration/gpu_neighbors.py:331:16
+    |
+329 |         if not self._is_fitted:
+330 |             raise ValueError("Model not fitted")
+331 |         return self._model.n_samples_fit_
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+
+warning[invalid-argument-type]: Argument to bound method `__init__` is incorrect
+   --> src/terrain_change_detection/acceleration/gpu_neighbors.py:371:9
+    |
+369 |         n_neighbors=n_neighbors,
+370 |         radius=radius,
+371 |         algorithm=algorithm,
+    |         ^^^^^^^^^^^^^^^^^^^ Expected `Literal["auto", "ball_tree", "kd_tree", "brute"]`, found `str`
+372 |         metric=metric,
+373 |         use_gpu=use_gpu,
+    |
+info: Method defined here
+  --> src/terrain_change_detection/acceleration/gpu_neighbors.py:60:9
+   |
+58 |     """
+59 |
+60 |     def __init__(
+   |         ^^^^^^^^
+61 |         self,
+62 |         n_neighbors: int = 5,
+63 |         radius: Optional[float] = None,
+64 |         algorithm: Literal["auto", "ball_tree", "kd_tree", "brute"] = "auto",
+   |         -------------------------------------------------------------------- Parameter declared here
+65 |         leaf_size: int = 30,
+66 |         metric: str = "euclidean",
+   |
+
+warning[unresolved-import]: Cannot resolve imported module `cupy`
+  --> src/terrain_change_detection/acceleration/hardware_detection.py:47:16
+   |
+45 |     """
+46 |     try:
+47 |         import cupy as cp
+   |                ^^^^^^^^^^
+48 |
+49 |         if not cp.cuda.is_available():
+   |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+error[not-subscriptable]: Cannot subscript object of type `None` with no `__getitem__` method
+  --> src/terrain_change_detection/acceleration/hardware_detection.py:93:24
+   |
+91 |             f"GPU detected: {info.device_name} "
+92 |             f"({info.memory_gb:.1f} GB, "
+93 |             f"compute {info.compute_capability[0]}.{info.compute_capability[1]})"
+   |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+94 |         )
+   |
+
+error[not-subscriptable]: Cannot subscript object of type `None` with no `__getitem__` method
+  --> src/terrain_change_detection/acceleration/hardware_detection.py:93:53
+   |
+91 |             f"GPU detected: {info.device_name} "
+92 |             f"({info.memory_gb:.1f} GB, "
+93 |             f"compute {info.compute_capability[0]}.{info.compute_capability[1]})"
+   |                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+94 |         )
+   |
+
+warning[unresolved-import]: Cannot resolve imported module `cupy`
+   --> src/terrain_change_detection/acceleration/hardware_detection.py:127:16
+    |
+125 |     """
+126 |     try:
+127 |         import cupy as cp
+    |                ^^^^^^^^^^
+128 |
+129 |         if not cp.cuda.is_available():
+    |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+warning[unresolved-import]: Cannot resolve imported module `cupy`
+   --> src/terrain_change_detection/acceleration/hardware_detection.py:174:16
+    |
+172 |     """
+173 |     try:
+174 |         import cupy as cp
+    |                ^^^^^^^^^^
+175 |
+176 |         if not cp.cuda.is_available():
+    |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+warning[unresolved-import]: Cannot resolve imported module `numba`
+  --> src/terrain_change_detection/acceleration/jit_kernels.py:14:12
+   |
+13 | try:
+14 |     import numba
+   |            ^^^^^
+15 | except Exception:  # pragma: no cover - numba is optional
+16 |     numba = None  # type: ignore
+   |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+warning[unused-type-ignore-comment]: Unused blanket `type: ignore` directive
+  --> src/terrain_change_detection/acceleration/jit_kernels.py:16:19
+   |
+14 |     import numba
+15 | except Exception:  # pragma: no cover - numba is optional
+16 |     numba = None  # type: ignore
+   |                   ^^^^^^^^^^^^^^
+   |
+help: Remove the unused suppression comment
+13 | try:
+14 |     import numba
+15 | except Exception:  # pragma: no cover - numba is optional
+   -     numba = None  # type: ignore
+16 +     numba = None
+17 |
+18 |
+19 | def _jit(nopython: bool = True, parallel: bool = False):
+
+error[invalid-assignment]: Object of type `None` is not assignable to `<class 'Open3DICP'>`
+  --> src/terrain_change_detection/alignment/__init__.py:21:5
+   |
+19 |     from .open3d_icp import Open3DICP
+20 | except ImportError:
+21 |     Open3DICP = None  # type: ignore[assignment,misc]
+   |     ---------   ^^^^ Incompatible value of type `None`
+   |     |
+   |     Declared type `<class 'Open3DICP'>`
+22 |
+23 | __all__ = [
+   |
+info: Implicit shadowing of class `Open3DICP`. Add an annotation to make it explicit if this is intentional
+
+warning[unused-type-ignore-comment]: Unused blanket `type: ignore` directive
+   --> src/terrain_change_detection/alignment/coarse_registration.py:332:61
+    |
+330 |         A1 = self.apply_transformation(A, T)
+331 |         try:
+332 |             from sklearn.neighbors import NearestNeighbors  # type: ignore
+    |                                                             ^^^^^^^^^^^^^^
+333 |
+334 |             nn = NearestNeighbors(n_neighbors=1, algorithm="kd_tree")
+    |
+help: Remove the unused suppression comment
+329 |         # apply transform to sampled source
+330 |         A1 = self.apply_transformation(A, T)
+331 |         try:
+    -             from sklearn.neighbors import NearestNeighbors  # type: ignore
+332 +             from sklearn.neighbors import NearestNeighbors
+333 |
+334 |             nn = NearestNeighbors(n_neighbors=1, algorithm="kd_tree")
+335 |             nn.fit(B)
+
+warning[unused-type-ignore-comment]: Unused blanket `type: ignore` directive
+   --> src/terrain_change_detection/alignment/fine_registration.py:121:80
+    |
+119 |         if self.use_gpu:
+120 |             try:
+121 |                 from ..acceleration.gpu_neighbors import create_gpu_neighbors  # type: ignore
+    |                                                                                ^^^^^^^^^^^^^^
+122 |
+123 |                 nbrs_gpu = create_gpu_neighbors(
+    |
+help: Remove the unused suppression comment
+118 |
+119 |         if self.use_gpu:
+120 |             try:
+    -                 from ..acceleration.gpu_neighbors import create_gpu_neighbors  # type: ignore
+121 +                 from ..acceleration.gpu_neighbors import create_gpu_neighbors
+122 |
+123 |                 nbrs_gpu = create_gpu_neighbors(
+124 |                     n_neighbors=1,
+
+warning[invalid-argument-type]: Argument to bound method `find_correspondences` is incorrect
+   --> src/terrain_change_detection/alignment/fine_registration.py:172:17
+    |
+170 |                 source=current_source,
+171 |                 target=target,
+172 |                 nbrs=nbrs,
+    |                 ^^^^^^^^^ Expected `NearestNeighbors | None`, found `GPUNearestNeighbors | Unknown`
+173 |             )
+    |
+info: Element `GPUNearestNeighbors` of this union is not assignable to `NearestNeighbors | None`
+info: Method defined here
+   --> src/terrain_change_detection/alignment/fine_registration.py:298:9
+    |
+296 |         return current_source, transform, final_error
+297 |
+298 |     def find_correspondences(
+    |         ^^^^^^^^^^^^^^^^^^^^
+299 |         self,
+300 |         source: np.ndarray,
+301 |         target: Optional[np.ndarray] = None,
+302 |         nbrs: Optional[NearestNeighbors] = None,
+    |         --------------------------------------- Parameter declared here
+303 |     ) -> Tuple[np.ndarray, np.ndarray]:
+304 |         """
+    |
+
+warning[invalid-argument-type]: Argument to bound method `compute_registration_error` is incorrect
+   --> src/terrain_change_detection/alignment/fine_registration.py:280:79
+    |
+279 |         # Pass the pre-built tree to the final error calculation
+280 |         final_error = self.compute_registration_error(current_source, target, nbrs)
+    |                                                                               ^^^^ Expected `NearestNeighbors | None`, found `GPUNearestNeighbors | Unknown`
+281 |
+282 |         total_time = icp_end - icp_start
+    |
+info: Element `GPUNearestNeighbors` of this union is not assignable to `NearestNeighbors | None`
+info: Method defined here
+   --> src/terrain_change_detection/alignment/fine_registration.py:412:9
+    |
+410 |         return points @ R.T + t
+411 |
+412 |     def compute_registration_error(
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+413 |         self,
+414 |         source: np.ndarray,
+415 |         target: np.ndarray,
+416 |         nbrs: Optional[NearestNeighbors] = None,
+    |         --------------------------------------- Parameter declared here
+417 |     ) -> float:
+418 |         """
+    |
+
+warning[unresolved-import]: Cannot resolve imported module `open3d`
+  --> src/terrain_change_detection/alignment/open3d_icp.py:29:16
+   |
+27 |         convergence_rotation_epsilon_deg: float = 0.1,
+28 |     ):
+29 |         import open3d  # noqa: F401 – fail fast if missing
+   |                ^^^^^^
+30 |
+31 |         self.max_iterations = max_iterations
+   |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+warning[unresolved-import]: Cannot resolve imported module `open3d`
+  --> src/terrain_change_detection/alignment/open3d_icp.py:48:16
+   |
+46 |             Tuple of (aligned_source_points, transformation_matrix, final_rmse).
+47 |         """
+48 |         import open3d as o3d
+   |                ^^^^^^^^^^^^^
+49 |
+50 |         n_src = len(source)
+   |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+error[invalid-assignment]: Object of type `Path` is not assignable to `str`
+  --> src/terrain_change_detection/alignment/streaming_alignment.py:58:5
+   |
+56 |         raise ValueError(f"Transform must be 4x4 matrix, got {transform.shape}")
+57 |
+58 |     output_dir = Path(output_dir)
+   |     ----------   ^^^^^^^^^^^^^^^^ Incompatible value of type `Path`
+   |     |
+   |     Declared type `str`
+59 |     output_dir.mkdir(parents=True, exist_ok=True)
+   |
+
+error[unresolved-attribute]: Object of type `str` has no attribute `mkdir`
+  --> src/terrain_change_detection/alignment/streaming_alignment.py:59:5
+   |
+58 |     output_dir = Path(output_dir)
+59 |     output_dir.mkdir(parents=True, exist_ok=True)
+   |     ^^^^^^^^^^^^^^^^
+60 |
+61 |     output_files = []
+   |
+
+error[unsupported-operator]: Unsupported `/` operation
+  --> src/terrain_change_detection/alignment/streaming_alignment.py:73:23
+   |
+71 |     for input_file in input_files:
+72 |         input_path = Path(input_file)
+73 |         output_path = output_dir / f"{input_path.stem}_aligned{input_path.suffix}"
+   |                       ----------^^^-----------------------------------------------
+   |                       |
+   |                       Both operands have type `str`
+74 |         output_files.append(str(output_path))
+   |
+
+warning[invalid-argument-type]: Argument to function `create_gpu_neighbors` is incorrect
+   --> src/terrain_change_detection/detection/c2c.py:243:21
+    |
+241 |             try:
+242 |                 nbrs = create_gpu_neighbors(
+243 |                     n_neighbors=k_neighbors if radius is None else None,
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Expected `int`, found `int | None`
+244 |                     radius=radius,
+245 |                     use_gpu=True,
+    |
+info: Element `None` of this union is not assignable to `int`
+info: Function defined here
+   --> src/terrain_change_detection/acceleration/gpu_neighbors.py:334:5
+    |
+334 | def create_gpu_neighbors(
+    |     ^^^^^^^^^^^^^^^^^^^^
+335 |     n_neighbors: int = 5,
+    |     -------------------- Parameter declared here
+336 |     radius: Optional[float] = None,
+337 |     algorithm: str = "auto",
+    |
+
+warning[invalid-argument-type]: Method `__getitem__` of type `Overload[(index: SupportsIndex, /) -> ndarray[Unknown, Unknown], (index: slice[Any, Any, Any], /) -> tuple[ndarray[Unknown, Unknown], ...]]` cannot be called with key of type `tuple[int, slice[None, None, None]]` on object of type `tuple[ndarray[Unknown, Unknown], ndarray[Unknown, Unknown]]`
+   --> src/terrain_change_detection/detection/c2c.py:321:24
+    |
+319 |                 idx_matrix = ensure_cpu_array(idx_matrix)
+320 |             for i in range(N):
+321 |                 inds = idx_matrix[i, :]
+    |                        ^^^^^^^^^^
+322 |                 if len(inds) < min_neighbors:
+323 |                     continue
+    |
+
+error[missing-argument]: No arguments provided for required parameters `indices`, `rmse`, `mean`, `median`, `n`
+   --> src/terrain_change_detection/detection/c2c.py:792:24
+    |
+790 |                   )
+791 |                   # Return empty result
+792 |                   return C2CResult(
+    |  ________________________^
+793 | |                     src_points=np.array([]).reshape(0, 3),
+794 | |                     distances=np.array([]),
+795 | |                     stats={},
+796 | |                 )
+    | |_________________^
+797 |           else:
+798 |               n_tiles = n_tiles_total
+    |
+
+error[unknown-argument]: Argument `src_points` does not match any known parameter
+   --> src/terrain_change_detection/detection/c2c.py:793:21
+    |
+791 |                 # Return empty result
+792 |                 return C2CResult(
+793 |                     src_points=np.array([]).reshape(0, 3),
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+794 |                     distances=np.array([]),
+795 |                     stats={},
+    |
+
+error[unknown-argument]: Argument `stats` does not match any known parameter
+   --> src/terrain_change_detection/detection/c2c.py:795:21
+    |
+793 |                     src_points=np.array([]).reshape(0, 3),
+794 |                     distances=np.array([]),
+795 |                     stats={},
+    |                     ^^^^^^^^
+796 |                 )
+797 |         else:
+    |
+
+error[missing-argument]: No arguments provided for required parameters `grid_x`, `grid_y`, `dem1`, `dem2`, `bounds`
+   --> src/terrain_change_detection/detection/dod.py:677:24
+    |
+675 |                   )
+676 |                   # Return empty result
+677 |                   return DoDResult(
+    |  ________________________^
+678 | |                     dem_t1=np.array([]),
+679 | |                     dem_t2=np.array([]),
+680 | |                     dod=np.array([]),
+681 | |                     cell_size=cell_size,
+682 | |                     origin=(gb.min_x, gb.min_y),
+683 | |                     stats={},
+684 | |                 )
+    | |_________________^
+685 |           else:
+686 |               n_tiles = n_tiles_total
+    |
+
+error[unknown-argument]: Argument `dem_t1` does not match any known parameter
+   --> src/terrain_change_detection/detection/dod.py:678:21
+    |
+676 |                 # Return empty result
+677 |                 return DoDResult(
+678 |                     dem_t1=np.array([]),
+    |                     ^^^^^^^^^^^^^^^^^^^
+679 |                     dem_t2=np.array([]),
+680 |                     dod=np.array([]),
+    |
+
+error[unknown-argument]: Argument `dem_t2` does not match any known parameter
+   --> src/terrain_change_detection/detection/dod.py:679:21
+    |
+677 |                 return DoDResult(
+678 |                     dem_t1=np.array([]),
+679 |                     dem_t2=np.array([]),
+    |                     ^^^^^^^^^^^^^^^^^^^
+680 |                     dod=np.array([]),
+681 |                     cell_size=cell_size,
+    |
+
+error[unknown-argument]: Argument `origin` does not match any known parameter
+   --> src/terrain_change_detection/detection/dod.py:682:21
+    |
+680 |                     dod=np.array([]),
+681 |                     cell_size=cell_size,
+682 |                     origin=(gb.min_x, gb.min_y),
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+683 |                     stats={},
+684 |                 )
+    |
+
+warning[invalid-argument-type]: Argument to function `__new__` is incorrect
+   --> src/terrain_change_detection/detection/m3c2.py:415:19
+    |
+413 |         # Determine halo
+414 |         normal_r = (
+415 |             float(params.normal_scale)
+    |                   ^^^^^^^^^^^^^^^^^^^ Expected `str | Buffer | SupportsFloat | SupportsIndex`, found `int | float | None`
+416 |             if getattr(params, "normal_scale", None) is not None
+417 |             else float(params.projection_scale)
+    |
+info: Element `None` of this union is not assignable to `str | Buffer | SupportsFloat | SupportsIndex`
+info: Function defined here
+   --> stdlib/builtins.pyi:664:9
+    |
+662 |     """Convert a string or number to a floating-point number, if possible."""
+663 |
+664 |     def __new__(cls, x: ConvertibleToFloat = 0, /) -> Self: ...
+    |         ^^^^^^^      ------------------------- Parameter declared here
+665 |     def as_integer_ratio(self) -> tuple[int, int]:
+666 |         """Return a pair of integers, whose ratio is exactly equal to the original float.
+    |
+
+warning[invalid-argument-type]: Argument to function `__new__` is incorrect
+   --> src/terrain_change_detection/detection/m3c2.py:664:19
+    |
+662 |         # Halo must cover all XY neighborhoods used by M3C2: cylinder_radius and normal radius.
+663 |         normal_r = (
+664 |             float(params.normal_scale)
+    |                   ^^^^^^^^^^^^^^^^^^^ Expected `str | Buffer | SupportsFloat | SupportsIndex`, found `int | float | None`
+665 |             if getattr(params, "normal_scale", None) is not None
+666 |             else float(params.projection_scale)
+    |
+info: Element `None` of this union is not assignable to `str | Buffer | SupportsFloat | SupportsIndex`
+info: Function defined here
+   --> stdlib/builtins.pyi:664:9
+    |
+662 |     """Convert a string or number to a floating-point number, if possible."""
+663 |
+664 |     def __new__(cls, x: ConvertibleToFloat = 0, /) -> Self: ...
+    |         ^^^^^^^      ------------------------- Parameter declared here
+665 |     def as_integer_ratio(self) -> tuple[int, int]:
+666 |         """Return a pair of integers, whose ratio is exactly equal to the original float.
+    |
+
+warning[invalid-argument-type]: Argument to function `__new__` is incorrect
+   --> src/terrain_change_detection/detection/m3c2.py:919:19
+    |
+917 |         # Determine halo (must cover M3C2 neighborhoods)
+918 |         normal_r = (
+919 |             float(params.normal_scale)
+    |                   ^^^^^^^^^^^^^^^^^^^ Expected `str | Buffer | SupportsFloat | SupportsIndex`, found `int | float | None`
+920 |             if getattr(params, "normal_scale", None) is not None
+921 |             else float(params.projection_scale)
+    |
+info: Element `None` of this union is not assignable to `str | Buffer | SupportsFloat | SupportsIndex`
+info: Function defined here
+   --> stdlib/builtins.pyi:664:9
+    |
+662 |     """Convert a string or number to a floating-point number, if possible."""
+663 |
+664 |     def __new__(cls, x: ConvertibleToFloat = 0, /) -> Self: ...
+    |         ^^^^^^^      ------------------------- Parameter declared here
+665 |     def as_integer_ratio(self) -> tuple[int, int]:
+666 |         """Return a pair of integers, whose ratio is exactly equal to the original float.
+    |
+
+warning[unresolved-import]: Cannot resolve imported module `fiona`
+  --> src/terrain_change_detection/preprocessing/clipping.py:37:12
+   |
+36 | try:
+37 |     import fiona
+   |            ^^^^^
+38 |
+39 |     FIONA_AVAILABLE = True
+   |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+error[invalid-assignment]: Invalid subscript assignment with key of type `Literal["local_transform"]` and value of type `LocalCoordinateTransform` on object of type `dict[str, str | int | list[Unknown] | dict[Unknown, Unknown] | DatasetInfo]`
+   --> src/terrain_change_detection/preprocessing/data_discovery.py:430:13
+    |
+428 |         # Include transform in metadata if provided
+429 |         if transform is not None:
+430 |             combined_metadata["local_transform"] = transform
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^---------
+    |                                                    |
+    |                                                    Expected value of type `str | int | list[Unknown] | dict[Unknown, Unknown] | DatasetInfo`, got `LocalCoordinateTransform`
+431 |
+432 |         logger.info(
+    |
+
+error[invalid-assignment]: Object of type `Path` is not assignable to `str`
+  --> src/terrain_change_detection/preprocessing/loader.py:73:9
+   |
+71 |             ValueError: If the file format is unsupported or invalid
+72 |         """
+73 |         file_path = Path(file_path)
+   |         ---------   ^^^^^^^^^^^^^^^ Incompatible value of type `Path`
+   |         |
+   |         Declared type `str`
+74 |
+75 |         if not file_path.exists():
+   |
+
+error[unresolved-attribute]: Object of type `str` has no attribute `exists`
+  --> src/terrain_change_detection/preprocessing/loader.py:75:16
+   |
+73 |         file_path = Path(file_path)
+74 |
+75 |         if not file_path.exists():
+   |                ^^^^^^^^^^^^^^^^
+76 |             raise FileNotFoundError(f"File not found: {file_path}")
+   |
+
+error[unresolved-attribute]: Object of type `str` has no attribute `suffix`
+  --> src/terrain_change_detection/preprocessing/loader.py:78:12
+   |
+76 |             raise FileNotFoundError(f"File not found: {file_path}")
+77 |
+78 |         if file_path.suffix.lower() not in [".las", ".laz"]:
+   |            ^^^^^^^^^^^^^^^^
+79 |             raise ValueError(f"Unsupported file format: {file_path.suffix}")
+   |
+
+error[unresolved-attribute]: Object of type `str` has no attribute `suffix`
+  --> src/terrain_change_detection/preprocessing/loader.py:79:58
+   |
+78 |         if file_path.suffix.lower() not in [".las", ".laz"]:
+79 |             raise ValueError(f"Unsupported file format: {file_path.suffix}")
+   |                                                          ^^^^^^^^^^^^^^^^
+80 |
+81 |         logger.info(f"Loading point cloud data from {file_path}")
+   |
+
+error[invalid-assignment]: Object of type `Path` is not assignable to `str`
+   --> src/terrain_change_detection/preprocessing/loader.py:221:13
+    |
+219 |         """
+220 |         try:
+221 |             file_path = Path(file_path)
+    |             ---------   ^^^^^^^^^^^^^^^ Incompatible value of type `Path`
+    |             |
+    |             Declared type `str`
+222 |
+223 |             # Check if file exists
+    |
+
+error[unresolved-attribute]: Object of type `str` has no attribute `exists`
+   --> src/terrain_change_detection/preprocessing/loader.py:224:20
+    |
+223 |             # Check if file exists
+224 |             if not file_path.exists():
+    |                    ^^^^^^^^^^^^^^^^
+225 |                 logger.warning(f"File not found: {file_path}")
+226 |                 return False
+    |
+
+error[unresolved-attribute]: Object of type `str` has no attribute `suffix`
+   --> src/terrain_change_detection/preprocessing/loader.py:229:16
+    |
+228 |             # Check file extension
+229 |             if file_path.suffix.lower() not in [".las", ".laz"]:
+    |                ^^^^^^^^^^^^^^^^
+230 |                 logger.warning(f"Unsupported file format: {file_path.suffix}")
+231 |                 return False
+    |
+
+error[unresolved-attribute]: Object of type `str` has no attribute `suffix`
+   --> src/terrain_change_detection/preprocessing/loader.py:230:60
+    |
+228 |             # Check file extension
+229 |             if file_path.suffix.lower() not in [".las", ".laz"]:
+230 |                 logger.warning(f"Unsupported file format: {file_path.suffix}")
+    |                                                            ^^^^^^^^^^^^^^^^
+231 |                 return False
+    |
+
+error[invalid-assignment]: Object of type `Path` is not assignable to `str`
+   --> src/terrain_change_detection/preprocessing/loader.py:272:9
+    |
+270 |             Dictionary containing metadata information
+271 |         """
+272 |         file_path = Path(file_path)
+    |         ---------   ^^^^^^^^^^^^^^^ Incompatible value of type `Path`
+    |         |
+    |         Declared type `str`
+273 |
+274 |         if not file_path.exists():
+    |
+
+error[unresolved-attribute]: Object of type `str` has no attribute `exists`
+   --> src/terrain_change_detection/preprocessing/loader.py:274:16
+    |
+272 |         file_path = Path(file_path)
+273 |
+274 |         if not file_path.exists():
+    |                ^^^^^^^^^^^^^^^^
+275 |             raise FileNotFoundError(f"File not found: {file_path}")
+    |
+
+error[unresolved-attribute]: Object of type `str` has no attribute `name`
+   --> src/terrain_change_detection/preprocessing/loader.py:328:37
+    |
+327 |                     metadata = {
+328 |                         "filename": file_path.name,
+    |                                     ^^^^^^^^^^^^^^
+329 |                         "file_size_mb": file_path.stat().st_size / (1024 * 1024),
+330 |                         "num_points": num_points,
+    |
+
+error[unresolved-attribute]: Object of type `str` has no attribute `stat`
+   --> src/terrain_change_detection/preprocessing/loader.py:329:41
+    |
+327 |                     metadata = {
+328 |                         "filename": file_path.name,
+329 |                         "file_size_mb": file_path.stat().st_size / (1024 * 1024),
+    |                                         ^^^^^^^^^^^^^^
+330 |                         "num_points": num_points,
+331 |                         "point_format": getattr(
+    |
+
+error[unresolved-attribute]: Object of type `str` has no attribute `name`
+   --> src/terrain_change_detection/preprocessing/loader.py:378:29
+    |
+377 |             metadata = {
+378 |                 "filename": file_path.name,
+    |                             ^^^^^^^^^^^^^^
+379 |                 "file_size_mb": file_path.stat().st_size / (1024 * 1024),
+380 |                 "num_points": len(laz_file.points),
+    |
+
+error[unresolved-attribute]: Object of type `str` has no attribute `stat`
+   --> src/terrain_change_detection/preprocessing/loader.py:379:33
+    |
+377 |             metadata = {
+378 |                 "filename": file_path.name,
+379 |                 "file_size_mb": file_path.stat().st_size / (1024 * 1024),
+    |                                 ^^^^^^^^^^^^^^
+380 |                 "num_points": len(laz_file.points),
+381 |                 "point_format": getattr(
+    |
+
+error[unsupported-operator]: Unsupported `>` operation
+   --> src/terrain_change_detection/preprocessing/loader.py:447:16
+    |
+446 |             # Add statistics for ground points only
+447 |             if classification_stats.get("ground_points", 0) > 0:
+    |                --------------------------------------------^^^-
+    |                |                                              |
+    |                |                                              Has type `Literal[0]`
+    |                Has type `Unknown | dict[Unknown, Unknown] | int | float`
+448 |                 ground_mask = np.array(laz_file.classification) == 2
+449 |                 x_array = np.array(laz_file.x)[ground_mask]
+    |
+info: Operation fails because operator `>` is not supported between objects of type `dict[Unknown, Unknown]` and `Literal[0]`
+
+error[unsupported-operator]: Unsupported `>` operation
+   --> src/terrain_change_detection/preprocessing/loader.py:471:20
+    |
+469 |                 ],
+470 |                 "points_used_for_stats": "ground_points_only"
+471 |                 if classification_stats.get("ground_points", 0) > 0
+    |                    --------------------------------------------^^^-
+    |                    |                                              |
+    |                    |                                              Has type `Literal[0]`
+    |                    Has type `Unknown | dict[Unknown, Unknown] | int | float`
+472 |                 else "all_points",
+473 |             }
+    |
+info: Operation fails because operator `>` is not supported between objects of type `dict[Unknown, Unknown]` and `Literal[0]`
+
+error[invalid-assignment]: Object of type `Path` is not assignable to `str`
+   --> src/terrain_change_detection/utils/export.py:116:5
+    |
+114 |     import laspy
+115 |
+116 |     output_path = Path(output_path)
+    |     -----------   ^^^^^^^^^^^^^^^^^ Incompatible value of type `Path`
+    |     |
+    |     Declared type `str`
+117 |     output_path.parent.mkdir(parents=True, exist_ok=True)
+    |
+
+error[unresolved-attribute]: Object of type `str` has no attribute `parent`
+   --> src/terrain_change_detection/utils/export.py:117:5
+    |
+116 |     output_path = Path(output_path)
+117 |     output_path.parent.mkdir(parents=True, exist_ok=True)
+    |     ^^^^^^^^^^^^^^^^^^
+118 |
+119 |     points = np.asarray(points, dtype=np.float64)
+    |
+
+warning[invalid-argument-type]: Argument to bound method `__init__` is incorrect
+   --> src/terrain_change_detection/utils/export.py:151:70
+    |
+149 |     # Add distance as extra dimension (only if distances provided)
+150 |     if has_distances:
+151 |         header.add_extra_dim(laspy.ExtraBytesParams(name="distance", type=np.float64))
+    |                                                                      ^^^^^^^^^^^^^^^ Expected `str | dtype[Unknown] | type[unsignedinteger[_8Bit]]`, found `<class 'float64'>`
+152 |
+153 |     # Add any additional extra dimensions
+    |
+info: Method defined here
+  --> .venv/lib/python3.13/site-packages/laspy/point/format.py:15:9
+   |
+13 |     """All parameters needed to create extra bytes"""
+14 |
+15 |     def __init__(
+   |         ^^^^^^^^
+16 |         self,
+17 |         name: str,
+18 |         type: Union[str, np.dtype, Type[np.uint8]],
+   |         ------------------------------------------ Parameter declared here
+19 |         description: str = "",
+20 |         offsets: Optional[Iterable[Number]] = None,
+   |
+
+warning[unresolved-import]: Cannot resolve imported module `pyproj`
+   --> src/terrain_change_detection/utils/export.py:209:14
+    |
+207 |     """Convert EPSG string to WKT using pyproj if available."""
+208 |     try:
+209 |         from pyproj import CRS
+    |              ^^^^^^
+210 |
+211 |         crs = CRS.from_string(epsg_str)
+    |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+error[invalid-assignment]: Object of type `Path` is not assignable to `str`
+   --> src/terrain_change_detection/utils/export.py:246:5
+    |
+244 |     from rasterio.transform import from_bounds
+245 |
+246 |     output_path = Path(output_path)
+    |     -----------   ^^^^^^^^^^^^^^^^^ Incompatible value of type `Path`
+    |     |
+    |     Declared type `str`
+247 |     output_path.parent.mkdir(parents=True, exist_ok=True)
+    |
+
+error[unresolved-attribute]: Object of type `str` has no attribute `parent`
+   --> src/terrain_change_detection/utils/export.py:247:5
+    |
+246 |     output_path = Path(output_path)
+247 |     output_path.parent.mkdir(parents=True, exist_ok=True)
+    |     ^^^^^^^^^^^^^^^^^^
+248 |
+249 |     # Get DoD array and dimensions
+    |
+
+warning[unresolved-import]: Module `scipy.spatial` has no member `cKDTree`
+   --> src/terrain_change_detection/utils/export.py:314:31
+    |
+312 |     import rasterio
+313 |     from rasterio.transform import from_bounds
+314 |     from scipy.spatial import cKDTree
+    |                               ^^^^^^^
+315 |
+316 |     output_path = Path(output_path)
+    |
+
+error[invalid-assignment]: Object of type `Path` is not assignable to `str`
+   --> src/terrain_change_detection/utils/export.py:316:5
+    |
+314 |     from scipy.spatial import cKDTree
+315 |
+316 |     output_path = Path(output_path)
+    |     -----------   ^^^^^^^^^^^^^^^^^ Incompatible value of type `Path`
+    |     |
+    |     Declared type `str`
+317 |     output_path.parent.mkdir(parents=True, exist_ok=True)
+    |
+
+error[unresolved-attribute]: Object of type `str` has no attribute `parent`
+   --> src/terrain_change_detection/utils/export.py:317:5
+    |
+316 |     output_path = Path(output_path)
+317 |     output_path.parent.mkdir(parents=True, exist_ok=True)
+    |     ^^^^^^^^^^^^^^^^^^
+318 |
+319 |     points = np.asarray(points, dtype=np.float64)
+    |
+
+warning[unused-type-ignore-comment]: Unused blanket `type: ignore` directive
+  --> src/terrain_change_detection/visualization/point_cloud.py:19:46
+   |
+17 | # Optional Qt-based interactive plotter
+18 | try:
+19 |     from pyvistaqt import BackgroundPlotter  # type: ignore
+   |                                              ^^^^^^^^^^^^^^
+20 | except Exception:  # pragma: no cover
+21 |     BackgroundPlotter = None  # type: ignore
+   |
+help: Remove the unused suppression comment
+16 |
+17 | # Optional Qt-based interactive plotter
+18 | try:
+   -     from pyvistaqt import BackgroundPlotter  # type: ignore
+19 +     from pyvistaqt import BackgroundPlotter
+20 | except Exception:  # pragma: no cover
+21 |     BackgroundPlotter = None  # type: ignore
+22 |
+
+error[unresolved-attribute]: Object of type `object` has no attribute `laz_files`
+   --> src/terrain_change_detection/workflow/alignment.py:383:38
+    |
+381 | ) -> None:
+382 |     """Export the aligned point cloud as a LAZ file."""
+383 |     crs = detect_output_crs(cfg, str(data.ds1.laz_files[0]))
+    |                                      ^^^^^^^^^^^^^^^^^^
+384 |     export_dir = resolve_output_dir(cfg, data.selected_area.area_name)
+    |
+
+error[unresolved-attribute]: Object of type `object` has no attribute `area_name`
+   --> src/terrain_change_detection/workflow/alignment.py:384:42
+    |
+382 |     """Export the aligned point cloud as a LAZ file."""
+383 |     crs = detect_output_crs(cfg, str(data.ds1.laz_files[0]))
+384 |     export_dir = resolve_output_dir(cfg, data.selected_area.area_name)
+    |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+385 |
+386 |     aligned_pc_path = export_dir / f"aligned_{aligned_epoch}.laz"
+    |
+
+error[unresolved-attribute]: Object of type `object` has no attribute `laz_files`
+   --> src/terrain_change_detection/workflow/alignment.py:393:9
+    |
+391 |     )
+392 |     source_laz = (
+393 |         data.ds1.laz_files[0]
+    |         ^^^^^^^^^^^^^^^^^^
+394 |         if cfg.alignment.reference == "t2"
+395 |         else data.ds2.laz_files[0]
+    |
+
+error[unresolved-attribute]: Object of type `object` has no attribute `laz_files`
+   --> src/terrain_change_detection/workflow/alignment.py:395:14
+    |
+393 |         data.ds1.laz_files[0]
+394 |         if cfg.alignment.reference == "t2"
+395 |         else data.ds2.laz_files[0]
+    |              ^^^^^^^^^^^^^^^^^^
+396 |     )
+397 |     export_points_to_laz(
+    |
+
+error[not-subscriptable]: Cannot subscript object of type `None` with no `__getitem__` method
+   --> src/terrain_change_detection/workflow/alignment.py:416:30
+    |
+415 |     if cfg.alignment.reference == "t2":
+416 |         files_to_transform = data.pc1_data["file_paths"]
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+417 |         aligned_label = f"{data.t1}_aligned"
+418 |     else:
+    |
+
+error[not-subscriptable]: Cannot subscript object of type `None` with no `__getitem__` method
+   --> src/terrain_change_detection/workflow/alignment.py:419:30
+    |
+417 |         aligned_label = f"{data.t1}_aligned"
+418 |     else:
+419 |         files_to_transform = data.pc2_data["file_paths"]
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+420 |         aligned_label = f"{data.t2}_aligned"
+    |
+
+error[unresolved-attribute]: Object of type `object` has no attribute `area_name`
+   --> src/terrain_change_detection/workflow/alignment.py:425:15
+    |
+423 |         output_dir = (
+424 |             Path(cfg.outofcore.output_dir)
+425 |             / data.selected_area.area_name
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+426 |             / aligned_label
+427 |         )
+    |
+
+error[unresolved-attribute]: Object of type `object` has no attribute `area_name`
+   --> src/terrain_change_detection/workflow/alignment.py:432:15
+    |
+430 |             Path(cfg.paths.base_dir).parent
+431 |             / "processed"
+432 |             / data.selected_area.area_name
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+433 |             / aligned_label
+434 |         )
+    |
+
+error[invalid-assignment]: Cannot assign to a subscript on an object of type `None`
+   --> src/terrain_change_detection/workflow/alignment.py:446:13
+    |
+444 |         )
+445 |         if cfg.alignment.reference == "t2":
+446 |             data.pc1_data["aligned_file_paths"] = aligned_files
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+447 |         else:
+448 |             data.pc2_data["aligned_file_paths"] = aligned_files
+    |
+info: The full type of the subscripted object is `dict[Unknown, Unknown] | None`
+info: `None` does not have a `__setitem__` method.
+
+error[invalid-assignment]: Cannot assign to a subscript on an object of type `None`
+   --> src/terrain_change_detection/workflow/alignment.py:448:13
+    |
+446 |             data.pc1_data["aligned_file_paths"] = aligned_files
+447 |         else:
+448 |             data.pc2_data["aligned_file_paths"] = aligned_files
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+449 |
+450 |         transform_file = output_dir / "transformation_matrix.txt"
+    |
+info: The full type of the subscripted object is `dict[Unknown, Unknown] | None`
+info: `None` does not have a `__setitem__` method.
+
+warning[unresolved-import]: Cannot resolve imported module `cupy`
+  --> src/terrain_change_detection/workflow/bootstrap.py:90:20
+   |
+89 |         try:
+90 |             import cupy as cp  # noqa: F401
+   |                    ^^^^^^^^^^
+91 |
+92 |             cupy_available = True
+   |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+warning[unresolved-import]: Cannot resolve imported module `cuml`
+  --> src/terrain_change_detection/workflow/bootstrap.py:97:20
+   |
+96 |         try:
+97 |             import cuml  # noqa: F401
+   |                    ^^^^
+98 |
+99 |             cuml_available = True
+   |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+error[invalid-assignment]: Object of type `ndarray[Unknown, Unknown] | tuple[ndarray[Unknown, Unknown], ndarray[Unknown, Unknown]]` is not assignable to `ndarray[Unknown, Unknown]`
+  --> src/terrain_change_detection/workflow/clipping.py:95:9
+   |
+93 |         original_count_2 = len(points2)
+94 |
+95 |         points1 = clipper.clip(points1)
+   |         -------   ^^^^^^^^^^^^^^^^^^^^^ Incompatible value of type `ndarray[Unknown, Unknown] | tuple[ndarray[Unknown, Unknown], ndarray[Unknown, Unknown]]`
+   |         |
+   |         Declared type `ndarray[Unknown, Unknown]`
+96 |         points2 = clipper.clip(points2)
+   |
+
+error[invalid-assignment]: Object of type `ndarray[Unknown, Unknown] | tuple[ndarray[Unknown, Unknown], ndarray[Unknown, Unknown]]` is not assignable to `ndarray[Unknown, Unknown]`
+  --> src/terrain_change_detection/workflow/clipping.py:96:9
+   |
+95 |         points1 = clipper.clip(points1)
+96 |         points2 = clipper.clip(points2)
+   |         -------   ^^^^^^^^^^^^^^^^^^^^^ Incompatible value of type `ndarray[Unknown, Unknown] | tuple[ndarray[Unknown, Unknown], ndarray[Unknown, Unknown]]`
+   |         |
+   |         Declared type `ndarray[Unknown, Unknown]`
+97 |
+98 |         pct1 = 100.0 * len(points1) / original_count_1 if original_count_1 > 0 else 0
+   |
+
+warning[invalid-argument-type]: Argument to bound method `__init__` is incorrect
+  --> src/terrain_change_detection/workflow/data_loading.py:84:9
+   |
+82 |     )
+83 |     data_discovery = DataDiscovery(
+84 |         base_dir,
+   |         ^^^^^^^^ Expected `str`, found `Path`
+85 |         source_type=cfg.discovery.source_type,
+86 |         data_dir_name=cfg.discovery.data_dir_name,
+   |
+info: Method defined here
+  --> src/terrain_change_detection/preprocessing/data_discovery.py:85:9
+   |
+83 |     """
+84 |
+85 |     def __init__(
+   |         ^^^^^^^^
+86 |         self,
+87 |         base_dir: str,
+   |         ------------- Parameter declared here
+88 |         *,
+89 |         data_dir_name: str = "data",
+   |
+
+error[unresolved-attribute]: Object of type `object` has no attribute `area_name`
+   --> src/terrain_change_detection/workflow/data_loading.py:210:38
+    |
+208 |     """
+209 |     logger.info("=== STEP 1: Data Preparation ===")
+210 |     logger.info("Selected area: %s", discovery.selected_area.area_name)
+    |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+211 |     logger.info(
+212 |         "Time period 1: %s (%d files)", discovery.t1, len(discovery.ds1.laz_files)
+    |
+
+error[unresolved-attribute]: Object of type `object` has no attribute `laz_files`
+   --> src/terrain_change_detection/workflow/data_loading.py:212:59
+    |
+210 |     logger.info("Selected area: %s", discovery.selected_area.area_name)
+211 |     logger.info(
+212 |         "Time period 1: %s (%d files)", discovery.t1, len(discovery.ds1.laz_files)
+    |                                                           ^^^^^^^^^^^^^^^^^^^^^^^
+213 |     )
+214 |     logger.info(
+    |
+
+error[unresolved-attribute]: Object of type `object` has no attribute `laz_files`
+   --> src/terrain_change_detection/workflow/data_loading.py:215:59
+    |
+213 |     )
+214 |     logger.info(
+215 |         "Time period 2: %s (%d files)", discovery.t2, len(discovery.ds2.laz_files)
+    |                                                           ^^^^^^^^^^^^^^^^^^^^^^^
+216 |     )
+    |
+
+warning[invalid-argument-type]: Argument is incorrect
+   --> src/terrain_change_detection/workflow/detection_m3c2.py:135:17
+    |
+133 |             logger.info("Using in-memory M3C2...")
+134 |             m3c2_res = ChangeDetector.compute_m3c2_original(
+135 |                 core_points=core_src,
+    |                 ^^^^^^^^^^^^^^^^^^^^ Expected `ndarray[Unknown, Unknown]`, found `ndarray[Unknown, Unknown] | None`
+136 |                 cloud_t1=points_t1,
+137 |                 cloud_t2=points_t2,
+    |
+info: Element `None` of this union is not assignable to `ndarray[Unknown, Unknown]`
+
+error[unresolved-attribute]: Object of type `object` has no attribute `laz_files`
+   --> src/terrain_change_detection/workflow/detection_m3c2.py:321:37
+    |
+319 |         files_t2 = streaming_inputs["files_t2"]
+320 |     else:
+321 |         files_t1 = [str(p) for p in data.ds1.laz_files]
+    |                                     ^^^^^^^^^^^^^^^^^^
+322 |         files_t2 = [str(p) for p in data.ds2.laz_files]
+    |
+
+error[unresolved-attribute]: Object of type `object` has no attribute `laz_files`
+   --> src/terrain_change_detection/workflow/detection_m3c2.py:322:37
+    |
+320 |     else:
+321 |         files_t1 = [str(p) for p in data.ds1.laz_files]
+322 |         files_t2 = [str(p) for p in data.ds2.laz_files]
+    |                                     ^^^^^^^^^^^^^^^^^^
+323 |
+324 |     if use_header and files_t1:
+    |
+
+error[unresolved-attribute]: Object of type `object` has no attribute `bounds`
+  --> src/terrain_change_detection/workflow/runner.py:83:54
+   |
+82 |         # Setup local coordinate transform from T1 bounds
+83 |         local_transform = setup_local_transform(cfg, discovery.ds1.bounds)
+   |                                                      ^^^^^^^^^^^^^^^^^^^^
+84 |
+85 |         # Load point-cloud data (expensive I/O — done once with transform)
+   |
+
+error[unresolved-attribute]: Object of type `object` has no attribute `area_name`
+   --> src/terrain_change_detection/workflow/runner.py:121:27
+    |
+119 |                 time_labels=[data.t1, data.t2],
+120 |                 point_clouds=[vis_points1, vis_points2],
+121 |                 area_name=data.selected_area.area_name,
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+122 |                 laz_file=str(data.ds1.laz_files[0]),
+123 |                 suffix="raw",
+    |
+
+error[unresolved-attribute]: Object of type `object` has no attribute `laz_files`
+   --> src/terrain_change_detection/workflow/runner.py:122:30
+    |
+120 |                 point_clouds=[vis_points1, vis_points2],
+121 |                 area_name=data.selected_area.area_name,
+122 |                 laz_file=str(data.ds1.laz_files[0]),
+    |                              ^^^^^^^^^^^^^^^^^^
+123 |                 suffix="raw",
+124 |             )
+    |
+
+error[unresolved-attribute]: Object of type `object` has no attribute `area_name`
+   --> src/terrain_change_detection/workflow/runner.py:151:27
+    |
+149 |                 time_labels=[data.t1, data.t2],
+150 |                 point_clouds=[vis_p1_aligned, vis_p2_aligned],
+151 |                 area_name=data.selected_area.area_name,
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+152 |                 laz_file=str(data.ds1.laz_files[0]),
+153 |                 suffix="icp",
+    |
+
+error[unresolved-attribute]: Object of type `object` has no attribute `laz_files`
+   --> src/terrain_change_detection/workflow/runner.py:152:30
+    |
+150 |                 point_clouds=[vis_p1_aligned, vis_p2_aligned],
+151 |                 area_name=data.selected_area.area_name,
+152 |                 laz_file=str(data.ds1.laz_files[0]),
+    |                              ^^^^^^^^^^^^^^^^^^
+153 |                 suffix="icp",
+154 |             )
+    |
+
+error[unresolved-attribute]: Object of type `object` has no attribute `area_name`
+   --> src/terrain_change_detection/workflow/runner.py:170:46
+    |
+168 |         # Write run manifest
+169 |         # ----------------------------------------------------------------
+170 |         export_dir = resolve_output_dir(cfg, data.selected_area.area_name)
+    |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+171 |         write_run_inputs(
+172 |             export_dir,
+    |
+
+error[unresolved-attribute]: Object of type `object` has no attribute `area_name`
+   --> src/terrain_change_detection/workflow/runner.py:183:27
+    |
+182 |         return WorkflowResult(
+183 |             selected_area=data.selected_area.area_name,
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+184 |             epochs=(data.t1, data.t2),
+185 |             streaming_used=data.use_streaming,
+    |
+
+warning[invalid-argument-type]: Argument to bound method `from_polygon` is incorrect
+  --> tests/test_clipping.py:49:44
+   |
+47 |         """Test creating clipper from a simple rectangular polygon."""
+48 |         coords = [(0, 0), (100, 0), (100, 100), (0, 100), (0, 0)]
+49 |         clipper = AreaClipper.from_polygon(coords)
+   |                                            ^^^^^^ Expected `list[tuple[int | float, int | float]]`, found `list[tuple[int, int]]`
+50 |
+51 |         assert clipper is not None
+   |
+info: Method defined here
+   --> src/terrain_change_detection/preprocessing/clipping.py:294:9
+    |
+293 |     @classmethod
+294 |     def from_polygon(
+    |         ^^^^^^^^^^^^
+295 |         cls,
+296 |         exterior_coords: list[tuple[float, float]],
+    |         ------------------------------------------ Parameter declared here
+297 |         holes: Optional[list[list[tuple[float, float]]]] = None,
+298 |     ) -> "AreaClipper":
+    |
+info: `list` is invariant in its type parameter
+info: Consider using the covariant supertype `collections.abc.Sequence`
+info: For more information, see https://docs.astral.sh/ty/reference/typing-faq/#invariant-generics
+
+warning[invalid-argument-type]: Argument to bound method `from_polygon` is incorrect
+  --> tests/test_clipping.py:59:44
+   |
+57 |         exterior = [(0, 0), (100, 0), (100, 100), (0, 100), (0, 0)]
+58 |         hole = [(25, 25), (75, 25), (75, 75), (25, 75), (25, 25)]
+59 |         clipper = AreaClipper.from_polygon(exterior, holes=[hole])
+   |                                            ^^^^^^^^ Expected `list[tuple[int | float, int | float]]`, found `list[tuple[int, int]]`
+60 |
+61 |         assert clipper is not None
+   |
+info: Method defined here
+   --> src/terrain_change_detection/preprocessing/clipping.py:294:9
+    |
+293 |     @classmethod
+294 |     def from_polygon(
+    |         ^^^^^^^^^^^^
+295 |         cls,
+296 |         exterior_coords: list[tuple[float, float]],
+    |         ------------------------------------------ Parameter declared here
+297 |         holes: Optional[list[list[tuple[float, float]]]] = None,
+298 |     ) -> "AreaClipper":
+    |
+info: `list` is invariant in its type parameter
+info: Consider using the covariant supertype `collections.abc.Sequence`
+info: For more information, see https://docs.astral.sh/ty/reference/typing-faq/#invariant-generics
+
+warning[invalid-argument-type]: Argument to bound method `from_polygon` is incorrect
+  --> tests/test_clipping.py:59:54
+   |
+57 |         exterior = [(0, 0), (100, 0), (100, 100), (0, 100), (0, 0)]
+58 |         hole = [(25, 25), (75, 25), (75, 75), (25, 75), (25, 25)]
+59 |         clipper = AreaClipper.from_polygon(exterior, holes=[hole])
+   |                                                      ^^^^^^^^^^^^ Expected `list[list[tuple[int | float, int | float]]] | None`, found `list[list[tuple[int | float, int | float]] | list[tuple[int, int]]]`
+60 |
+61 |         assert clipper is not None
+   |
+info: Method defined here
+   --> src/terrain_change_detection/preprocessing/clipping.py:294:9
+    |
+293 |     @classmethod
+294 |     def from_polygon(
+    |         ^^^^^^^^^^^^
+295 |         cls,
+296 |         exterior_coords: list[tuple[float, float]],
+297 |         holes: Optional[list[list[tuple[float, float]]]] = None,
+    |         ------------------------------------------------------- Parameter declared here
+298 |     ) -> "AreaClipper":
+299 |         """
+    |
+
+warning[invalid-argument-type]: Argument to bound method `from_polygon` is incorrect
+   --> tests/test_clipping.py:231:44
+    |
+229 |         # Triangle
+230 |         triangle = [(0, 0), (100, 0), (50, 100), (0, 0)]
+231 |         clipper = AreaClipper.from_polygon(triangle)
+    |                                            ^^^^^^^^ Expected `list[tuple[int | float, int | float]]`, found `list[tuple[int, int]]`
+232 |
+233 |         # Create points
+    |
+info: Method defined here
+   --> src/terrain_change_detection/preprocessing/clipping.py:294:9
+    |
+293 |     @classmethod
+294 |     def from_polygon(
+    |         ^^^^^^^^^^^^
+295 |         cls,
+296 |         exterior_coords: list[tuple[float, float]],
+    |         ------------------------------------------ Parameter declared here
+297 |         holes: Optional[list[list[tuple[float, float]]]] = None,
+298 |     ) -> "AreaClipper":
+    |
+info: `list` is invariant in its type parameter
+info: Consider using the covariant supertype `collections.abc.Sequence`
+info: For more information, see https://docs.astral.sh/ty/reference/typing-faq/#invariant-generics
+
+warning[invalid-argument-type]: Argument to bound method `from_polygon` is incorrect
+   --> tests/test_clipping.py:329:44
+    |
+327 |         """Test exporting clipper to GeoJSON dictionary."""
+328 |         coords = [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)]
+329 |         clipper = AreaClipper.from_polygon(coords)
+    |                                            ^^^^^^ Expected `list[tuple[int | float, int | float]]`, found `list[tuple[int, int]]`
+330 |
+331 |         geojson = clipper.to_geojson()
+    |
+info: Method defined here
+   --> src/terrain_change_detection/preprocessing/clipping.py:294:9
+    |
+293 |     @classmethod
+294 |     def from_polygon(
+    |         ^^^^^^^^^^^^
+295 |         cls,
+296 |         exterior_coords: list[tuple[float, float]],
+    |         ------------------------------------------ Parameter declared here
+297 |         holes: Optional[list[list[tuple[float, float]]]] = None,
+298 |     ) -> "AreaClipper":
+    |
+info: `list` is invariant in its type parameter
+info: Consider using the covariant supertype `collections.abc.Sequence`
+info: For more information, see https://docs.astral.sh/ty/reference/typing-faq/#invariant-generics
+
+warning[invalid-argument-type]: Argument to bound method `from_polygon` is incorrect
+   --> tests/test_clipping.py:340:44
+    |
+338 |         """Test saving clipper to GeoJSON file."""
+339 |         coords = [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)]
+340 |         clipper = AreaClipper.from_polygon(coords)
+    |                                            ^^^^^^ Expected `list[tuple[int | float, int | float]]`, found `list[tuple[int, int]]`
+341 |
+342 |         with tempfile.TemporaryDirectory() as tmpdir:
+    |
+info: Method defined here
+   --> src/terrain_change_detection/preprocessing/clipping.py:294:9
+    |
+293 |     @classmethod
+294 |     def from_polygon(
+    |         ^^^^^^^^^^^^
+295 |         cls,
+296 |         exterior_coords: list[tuple[float, float]],
+    |         ------------------------------------------ Parameter declared here
+297 |         holes: Optional[list[list[tuple[float, float]]]] = None,
+298 |     ) -> "AreaClipper":
+    |
+info: `list` is invariant in its type parameter
+info: Consider using the covariant supertype `collections.abc.Sequence`
+info: For more information, see https://docs.astral.sh/ty/reference/typing-faq/#invariant-generics
+
+warning[unused-type-ignore-comment]: Unused blanket `type: ignore` directive
+  --> tests/test_coarse_registration.py:17:57
+   |
+15 | def _nn_rmse(A: np.ndarray, B: np.ndarray) -> float:
+16 |     try:
+17 |         from sklearn.neighbors import NearestNeighbors  # type: ignore
+   |                                                         ^^^^^^^^^^^^^^
+18 |
+19 |         nbrs = NearestNeighbors(n_neighbors=1, algorithm="kd_tree").fit(B)
+   |
+help: Remove the unused suppression comment
+14 |
+15 | def _nn_rmse(A: np.ndarray, B: np.ndarray) -> float:
+16 |     try:
+   -         from sklearn.neighbors import NearestNeighbors  # type: ignore
+17 +         from sklearn.neighbors import NearestNeighbors
+18 |
+19 |         nbrs = NearestNeighbors(n_neighbors=1, algorithm="kd_tree").fit(B)
+20 |         d, _ = nbrs.kneighbors(A)
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+  --> tests/test_drone_data_support.py:28:25
+   |
+26 |         # Should find areas if data exists
+27 |         if not Path(drone_data_dir).exists():
+28 |             pytest.skip("Drone scanning data not available")
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+29 |
+30 |         assert isinstance(areas, dict)
+   |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+  --> tests/test_drone_data_support.py:67:25
+   |
+65 |         """Test loading drone dataset with BatchLoader."""
+66 |         if not Path(drone_data_dir).exists():
+67 |             pytest.skip("Drone scanning data not available")
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+68 |
+69 |         discovery = DataDiscovery(drone_data_dir, source_type="drone")
+   |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+  --> tests/test_drone_data_support.py:73:25
+   |
+72 |         if not areas:
+73 |             pytest.skip("No drone data found")
+   |                         ^^^^^^^^^^^^^^^^^^^^^
+74 |
+75 |         # Get first dataset
+   |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+  --> tests/test_drone_data_support.py:91:25
+   |
+89 |         """Test streaming mode with drone data."""
+90 |         if not Path(drone_data_dir).exists():
+91 |             pytest.skip("Drone scanning data not available")
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+92 |
+93 |         discovery = DataDiscovery(drone_data_dir, source_type="drone")
+   |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+  --> tests/test_drone_data_support.py:97:25
+   |
+96 |         if not areas:
+97 |             pytest.skip("No drone data found")
+   |                         ^^^^^^^^^^^^^^^^^^^^^
+98 |
+99 |         # Get first dataset
+   |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+   --> tests/test_drone_data_support.py:120:25
+    |
+119 |         if not Path(hoydedata_dir).exists():
+120 |             pytest.skip("Hoydedata not available")
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^
+121 |
+122 |         discovery = DataDiscovery(hoydedata_dir, source_type="hoydedata")
+    |
+
+error[invalid-assignment]: Object of type `ArrayBackend` is not assignable to `FixtureFunctionDefinition`
+   --> tests/test_gpu_array_ops.py:327:5
+    |
+325 |     print("Testing GPU array operations...")
+326 |     reset_array_backend()
+327 |     backend = get_array_backend()
+    |     -------   ^^^^^^^^^^^^^^^^^^^ Incompatible value of type `ArrayBackend`
+    |     |
+    |     Declared type `FixtureFunctionDefinition`
+328 |
+329 |     print(f"Backend initialized: {'GPU' if backend.is_gpu else 'CPU'}")
+    |
+
+error[unresolved-attribute]: Object of type `FixtureFunctionDefinition` has no attribute `is_gpu`
+   --> tests/test_gpu_array_ops.py:329:44
+    |
+327 |     backend = get_array_backend()
+328 |
+329 |     print(f"Backend initialized: {'GPU' if backend.is_gpu else 'CPU'}")
+    |                                            ^^^^^^^^^^^^^^
+330 |
+331 |     test_backend_initialization(backend)
+    |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+  --> tests/test_gpu_c2c_integration.py:71:25
+   |
+69 |         """Verify GPU and CPU produce identical results for basic C2C."""
+70 |         if not gpu_available:
+71 |             pytest.skip("GPU not available")
+   |                         ^^^^^^^^^^^^^^^^^^^
+72 |
+73 |         source, target = sample_clouds
+   |
+
+error[unresolved-attribute]: Attribute `get` is not defined on `None` in union `dict[Unknown, Unknown] | None`
+  --> tests/test_gpu_c2c_integration.py:82:16
+   |
+81 |         # Check metadata
+82 |         assert cpu_result.metadata.get("gpu_used") is False
+   |                ^^^^^^^^^^^^^^^^^^^^^^^
+83 |         assert gpu_result.metadata.get("gpu_used") is True
+   |
+
+error[unresolved-attribute]: Attribute `get` is not defined on `None` in union `dict[Unknown, Unknown] | None`
+  --> tests/test_gpu_c2c_integration.py:83:16
+   |
+81 |         # Check metadata
+82 |         assert cpu_result.metadata.get("gpu_used") is False
+83 |         assert gpu_result.metadata.get("gpu_used") is True
+   |                ^^^^^^^^^^^^^^^^^^^^^^^
+84 |
+85 |         # Check numerical parity (distances should match within floating point tolerance)
+   |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+   --> tests/test_gpu_c2c_integration.py:99:25
+    |
+ 97 |         """Test GPU C2C with distance filtering."""
+ 98 |         if not gpu_available:
+ 99 |             pytest.skip("GPU not available")
+    |                         ^^^^^^^^^^^^^^^^^^^
+100 |
+101 |         source, target = sample_clouds
+    |
+
+error[unresolved-attribute]: Attribute `get` is not defined on `None` in union `dict[Unknown, Unknown] | None`
+   --> tests/test_gpu_c2c_integration.py:108:16
+    |
+106 |         )
+107 |
+108 |         assert result.metadata.get("gpu_used") is True
+    |                ^^^^^^^^^^^^^^^^^^^
+109 |         assert result.metadata.get("max_distance") == max_distance
+    |
+
+error[unresolved-attribute]: Attribute `get` is not defined on `None` in union `dict[Unknown, Unknown] | None`
+   --> tests/test_gpu_c2c_integration.py:109:16
+    |
+108 |         assert result.metadata.get("gpu_used") is True
+109 |         assert result.metadata.get("max_distance") == max_distance
+    |                ^^^^^^^^^^^^^^^^^^^
+110 |
+111 |         # The function returns all distances, but statistics only count those within threshold
+    |
+
+error[unresolved-attribute]: Attribute `get` is not defined on `None` in union `dict[Unknown, Unknown] | None`
+   --> tests/test_gpu_c2c_integration.py:122:16
+    |
+120 |         result = ChangeDetector.compute_c2c(source, target, config=cpu_config)
+121 |
+122 |         assert result.metadata.get("gpu_used") is False
+    |                ^^^^^^^^^^^^^^^^^^^
+123 |         assert result.distances.shape[0] == source.shape[0]
+124 |         assert np.all(np.isfinite(result.distances))
+    |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+   --> tests/test_gpu_c2c_integration.py:129:25
+    |
+127 |         """Test GPU C2C handles empty clouds gracefully."""
+128 |         if not gpu_available:
+129 |             pytest.skip("GPU not available")
+    |                         ^^^^^^^^^^^^^^^^^^^
+130 |
+131 |         source = np.random.rand(100, 3)
+    |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+   --> tests/test_gpu_c2c_integration.py:146:25
+    |
+144 |         """Verify GPU and CPU produce identical results for vertical plane C2C."""
+145 |         if not gpu_available:
+146 |             pytest.skip("GPU not available")
+    |                         ^^^^^^^^^^^^^^^^^^^
+147 |
+148 |         source, target = sample_clouds
+    |
+
+error[unresolved-attribute]: Attribute `get` is not defined on `None` in union `dict[Unknown, Unknown] | None`
+   --> tests/test_gpu_c2c_integration.py:161:16
+    |
+160 |         # Check metadata
+161 |         assert cpu_result.metadata.get("gpu_used") is False
+    |                ^^^^^^^^^^^^^^^^^^^^^^^
+162 |         assert gpu_result.metadata.get("gpu_used") is True
+163 |         assert cpu_result.metadata.get("mode") == "vertical_plane"
+    |
+
+error[unresolved-attribute]: Attribute `get` is not defined on `None` in union `dict[Unknown, Unknown] | None`
+   --> tests/test_gpu_c2c_integration.py:162:16
+    |
+160 |         # Check metadata
+161 |         assert cpu_result.metadata.get("gpu_used") is False
+162 |         assert gpu_result.metadata.get("gpu_used") is True
+    |                ^^^^^^^^^^^^^^^^^^^^^^^
+163 |         assert cpu_result.metadata.get("mode") == "vertical_plane"
+164 |         assert gpu_result.metadata.get("mode") == "vertical_plane"
+    |
+
+error[unresolved-attribute]: Attribute `get` is not defined on `None` in union `dict[Unknown, Unknown] | None`
+   --> tests/test_gpu_c2c_integration.py:163:16
+    |
+161 |         assert cpu_result.metadata.get("gpu_used") is False
+162 |         assert gpu_result.metadata.get("gpu_used") is True
+163 |         assert cpu_result.metadata.get("mode") == "vertical_plane"
+    |                ^^^^^^^^^^^^^^^^^^^^^^^
+164 |         assert gpu_result.metadata.get("mode") == "vertical_plane"
+    |
+
+error[unresolved-attribute]: Attribute `get` is not defined on `None` in union `dict[Unknown, Unknown] | None`
+   --> tests/test_gpu_c2c_integration.py:164:16
+    |
+162 |         assert gpu_result.metadata.get("gpu_used") is True
+163 |         assert cpu_result.metadata.get("mode") == "vertical_plane"
+164 |         assert gpu_result.metadata.get("mode") == "vertical_plane"
+    |                ^^^^^^^^^^^^^^^^^^^^^^^
+165 |
+166 |         # Check numerical parity (vertical distances should match)
+    |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+   --> tests/test_gpu_c2c_integration.py:188:25
+    |
+186 |         """Test GPU vertical plane C2C with radius neighborhoods."""
+187 |         if not gpu_available:
+188 |             pytest.skip("GPU not available")
+    |                         ^^^^^^^^^^^^^^^^^^^
+189 |
+190 |         source, target = sample_clouds
+    |
+
+error[unresolved-attribute]: Attribute `get` is not defined on `None` in union `dict[Unknown, Unknown] | None`
+   --> tests/test_gpu_c2c_integration.py:197:16
+    |
+195 |         )
+196 |
+197 |         assert result.metadata.get("gpu_used") is True
+    |                ^^^^^^^^^^^^^^^^^^^
+198 |         assert result.metadata.get("radius") == radius
+199 |         assert result.distances.shape[0] == source.shape[0]
+    |
+
+error[unresolved-attribute]: Attribute `get` is not defined on `None` in union `dict[Unknown, Unknown] | None`
+   --> tests/test_gpu_c2c_integration.py:198:16
+    |
+197 |         assert result.metadata.get("gpu_used") is True
+198 |         assert result.metadata.get("radius") == radius
+    |                ^^^^^^^^^^^^^^^^^^^
+199 |         assert result.distances.shape[0] == source.shape[0]
+    |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+   --> tests/test_gpu_c2c_integration.py:204:25
+    |
+202 |         """Test GPU vertical plane C2C with k-NN neighborhoods."""
+203 |         if not gpu_available:
+204 |             pytest.skip("GPU not available")
+    |                         ^^^^^^^^^^^^^^^^^^^
+205 |
+206 |         source, target = sample_clouds
+    |
+
+error[unresolved-attribute]: Attribute `get` is not defined on `None` in union `dict[Unknown, Unknown] | None`
+   --> tests/test_gpu_c2c_integration.py:213:16
+    |
+211 |         )
+212 |
+213 |         assert result.metadata.get("gpu_used") is True
+    |                ^^^^^^^^^^^^^^^^^^^
+214 |         assert result.metadata.get("k_neighbors") == k_neighbors
+215 |         assert result.distances.shape[0] == source.shape[0]
+    |
+
+error[unresolved-attribute]: Attribute `get` is not defined on `None` in union `dict[Unknown, Unknown] | None`
+   --> tests/test_gpu_c2c_integration.py:214:16
+    |
+213 |         assert result.metadata.get("gpu_used") is True
+214 |         assert result.metadata.get("k_neighbors") == k_neighbors
+    |                ^^^^^^^^^^^^^^^^^^^
+215 |         assert result.distances.shape[0] == source.shape[0]
+    |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+   --> tests/test_gpu_c2c_integration.py:226:25
+    |
+224 |         """Benchmark GPU speedup for basic C2C (informational, not a strict test)."""
+225 |         if not gpu_available:
+226 |             pytest.skip("GPU not available")
+    |                         ^^^^^^^^^^^^^^^^^^^
+227 |
+228 |         source, target = large_sample_clouds
+    |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+   --> tests/test_gpu_c2c_integration.py:263:25
+    |
+261 |         """Test that GPU handles various point cloud sizes."""
+262 |         if not gpu_available:
+263 |             pytest.skip("GPU not available")
+    |                         ^^^^^^^^^^^^^^^^^^^
+264 |
+265 |         from terrain_change_detection.acceleration import get_gpu_info
+    |
+
+error[unresolved-attribute]: Attribute `get` is not defined on `None` in union `dict[Unknown, Unknown] | None`
+   --> tests/test_gpu_c2c_integration.py:279:20
+    |
+277 |             result = ChangeDetector.compute_c2c(source, target, config=config)
+278 |
+279 |             assert result.metadata.get("gpu_used") is True
+    |                    ^^^^^^^^^^^^^^^^^^^
+280 |             assert result.distances.shape[0] == size
+281 |             print(f"  ✓ Processed {size:,} points successfully on GPU")
+    |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+   --> tests/test_gpu_c2c_integration.py:290:25
+    |
+288 |         """Test GPU C2C with single-point clouds."""
+289 |         if not gpu_available:
+290 |             pytest.skip("GPU not available")
+    |                         ^^^^^^^^^^^^^^^^^^^
+291 |
+292 |         source = np.array([[1.0, 2.0, 3.0]])
+    |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+   --> tests/test_gpu_c2c_integration.py:303:25
+    |
+301 |         """Test GPU C2C with identical source and target."""
+302 |         if not gpu_available:
+303 |             pytest.skip("GPU not available")
+    |                         ^^^^^^^^^^^^^^^^^^^
+304 |
+305 |         source, _ = sample_clouds
+    |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+   --> tests/test_gpu_c2c_integration.py:316:25
+    |
+314 |         """Test GPU C2C when no neighbors within max_distance."""
+315 |         if not gpu_available:
+316 |             pytest.skip("GPU not available")
+    |                         ^^^^^^^^^^^^^^^^^^^
+317 |
+318 |         # Clouds far apart
+    |
+
+error[unresolved-attribute]: Attribute `get` is not defined on `None` in union `dict[Unknown, Unknown] | None`
+   --> tests/test_gpu_c2c_integration.py:342:16
+    |
+340 |         result = ChangeDetector.compute_c2c(source, target, config=config)
+341 |
+342 |         assert result.metadata.get("gpu_used") is True
+    |                ^^^^^^^^^^^^^^^^^^^
+343 |
+344 |     def test_config_disables_gpu(self, sample_clouds):
+    |
+
+error[unresolved-attribute]: Attribute `get` is not defined on `None` in union `dict[Unknown, Unknown] | None`
+   --> tests/test_gpu_c2c_integration.py:351:16
+    |
+349 |         result = ChangeDetector.compute_c2c(source, target, config=config)
+350 |
+351 |         assert result.metadata.get("gpu_used") is False
+    |                ^^^^^^^^^^^^^^^^^^^
+352 |
+353 |     def test_config_use_for_c2c_flag(self, sample_clouds):
+    |
+
+error[unresolved-attribute]: Attribute `get` is not defined on `None` in union `dict[Unknown, Unknown] | None`
+   --> tests/test_gpu_c2c_integration.py:361:16
+    |
+359 |         result = ChangeDetector.compute_c2c(source, target, config=config)
+360 |
+361 |         assert result.metadata.get("gpu_used") is False
+    |                ^^^^^^^^^^^^^^^^^^^
+362 |
+363 |     def test_no_config_defaults_to_cpu(self, sample_clouds):
+    |
+
+error[unresolved-attribute]: Attribute `get` is not defined on `None` in union `dict[Unknown, Unknown] | None`
+   --> tests/test_gpu_c2c_integration.py:369:16
+    |
+367 |         result = ChangeDetector.compute_c2c(source, target, config=None)
+368 |
+369 |         assert result.metadata.get("gpu_used") is False
+    |                ^^^^^^^^^^^^^^^^^^^
+    |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+   --> tests/test_gpu_dod.py:155:21
+    |
+153 |         """Test streaming DoD GPU/CPU parity."""
+154 |         # Create synthetic LAZ files
+155 |         pytest.skip("Requires LAZ file generation - integration test")
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+156 |
+157 |     def test_config_disables_gpu(self):
+    |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+   --> tests/test_gpu_dod.py:183:21
+    |
+181 |         # This is a unit test for the API
+182 |         # Full integration test would require actual LAZ files
+183 |         pytest.skip("Requires LAZ files - integration test")
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+   --> tests/test_gpu_dod.py:192:21
+    |
+190 |     def test_gpu_faster_than_cpu_large_dataset(self):
+191 |         """Test that GPU is faster than CPU for large point clouds."""
+192 |         pytest.skip("Performance test - run separately with actual hardware")
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+193 |
+194 |     def test_gpu_memory_efficiency(self):
+    |
+
+error[too-many-positional-arguments]: Too many positional arguments: expected 0, got 1
+   --> tests/test_gpu_dod.py:206:25
+    |
+204 |             assert acc_gpu is not None
+205 |         except MemoryError:
+206 |             pytest.skip("Insufficient GPU memory for test")
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+
+warning[unresolved-import]: Cannot resolve imported module `cuml`
+  --> tests/test_gpu_neighbors.py:53:20
+   |
+51 |         # If cuML is available (Linux/WSL), backend should be 'cuml'
+52 |         try:
+53 |             import cuml  # noqa: F401
+   |                    ^^^^
+54 |
+55 |             assert nn.gpu_available_ and nn.backend_ == "cuml"
+   |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+warning[invalid-argument-type]: Argument to bound method `__init__` is incorrect
+   --> tests/test_gpu_neighbors.py:160:49
+    |
+159 |     for algo in algorithms:
+160 |         nn = GPUNearestNeighbors(n_neighbors=5, algorithm=algo, use_gpu=False)
+    |                                                 ^^^^^^^^^^^^^^ Expected `Literal["auto", "ball_tree", "kd_tree", "brute"]`, found `str`
+161 |         nn.fit(X_train)
+162 |         distances, indices = nn.kneighbors(X_query[:10])
+    |
+info: Method defined here
+  --> src/terrain_change_detection/acceleration/gpu_neighbors.py:60:9
+   |
+58 |     """
+59 |
+60 |     def __init__(
+   |         ^^^^^^^^
+61 |         self,
+62 |         n_neighbors: int = 5,
+63 |         radius: Optional[float] = None,
+64 |         algorithm: Literal["auto", "ball_tree", "kd_tree", "brute"] = "auto",
+   |         -------------------------------------------------------------------- Parameter declared here
+65 |         leaf_size: int = 30,
+66 |         metric: str = "euclidean",
+   |
+
+warning[unused-type-ignore-comment]: Unused blanket `type: ignore` directive
+  --> tests/test_icp_registration.py:80:53
+   |
+79 |     # Compare against a naive identity-transform baseline using NN RMSE
+80 |     from sklearn.neighbors import NearestNeighbors  # type: ignore
+   |                                                     ^^^^^^^^^^^^^^
+81 |
+82 |     nn = NearestNeighbors(n_neighbors=1, algorithm="kd_tree").fit(tgt)
+   |
+help: Remove the unused suppression comment
+77 |     aligned, T_est, final_err = icp.align_point_clouds(source=src, target=tgt)
+78 |
+79 |     # Compare against a naive identity-transform baseline using NN RMSE
+   -     from sklearn.neighbors import NearestNeighbors  # type: ignore
+80 +     from sklearn.neighbors import NearestNeighbors
+81 |
+82 |     nn = NearestNeighbors(n_neighbors=1, algorithm="kd_tree").fit(tgt)
+83 |     d0, _ = nn.kneighbors(src)
+
+warning[unresolved-import]: Cannot resolve imported module `open3d`
+   --> tests/test_icp_registration.py:298:12
+    |
+296 | _has_open3d = True
+297 | try:
+298 |     import open3d as _o3d  # noqa: F401
+    |            ^^^^^^^^^^^^^^
+299 | except ImportError:
+300 |     _has_open3d = False
+    |
+info: Searched in the following paths during module resolution:
+info:   1. /home/yaredwb/terrain-change-detection-pc/src (first-party code)
+info:   2. /home/yaredwb/terrain-change-detection-pc (first-party code)
+info:   3. vendored://stdlib (stdlib typeshed stubs vendored by ty)
+info:   4. /home/yaredwb/terrain-change-detection-pc/.venv/lib/python3.13/site-packages (site-packages)
+info:   5. /home/yaredwb/terrain-change-detection-pc/.venv/lib64/python3.13/site-packages (site-packages)
+info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
+
+warning[invalid-argument-type]: Argument to bound method `__init__` is incorrect
+   --> tests/test_icp_registration.py:346:40
+    |
+344 |     )
+345 |
+346 |     _, _, err_custom = ICPRegistration(**params).align_point_clouds(
+    |                                        ^^^^^^^^ Expected `int`, found `int | float`
+347 |         source=src, target=tgt
+348 |     )
+    |
+info: Element `float` of this union is not assignable to `int`
+info: Method defined here
+  --> src/terrain_change_detection/alignment/fine_registration.py:30:9
+   |
+28 |     """
+29 |
+30 |     def __init__(
+   |         ^^^^^^^^
+31 |         self,
+32 |         max_iterations: int = 100,
+   |         ------------------------- Parameter declared here
+33 |         tolerance: float = 1e-6,
+34 |         max_correspondence_distance: float = 1.0,
+   |
+
+warning[invalid-argument-type]: Argument to bound method `__init__` is incorrect
+   --> tests/test_icp_registration.py:346:40
+    |
+344 |     )
+345 |
+346 |     _, _, err_custom = ICPRegistration(**params).align_point_clouds(
+    |                                        ^^^^^^^^ Expected `bool`, found `int | float`
+347 |         source=src, target=tgt
+348 |     )
+    |
+info: Method defined here
+  --> src/terrain_change_detection/alignment/fine_registration.py:30:9
+   |
+28 |     """
+29 |
+30 |     def __init__(
+   |         ^^^^^^^^
+31 |         self,
+32 |         max_iterations: int = 100,
+33 |         tolerance: float = 1e-6,
+34 |         max_correspondence_distance: float = 1.0,
+35 |         use_gpu: bool = False,
+   |         --------------------- Parameter declared here
+36 |         convergence_translation_epsilon: float = 1e-4,
+37 |         convergence_rotation_epsilon_deg: float = 0.1,
+   |
+
+warning[invalid-argument-type]: Argument to bound method `__init__` is incorrect
+   --> tests/test_icp_registration.py:349:34
+    |
+347 |         source=src, target=tgt
+348 |     )
+349 |     _, _, err_open3d = Open3DICP(**params).align_point_clouds(source=src, target=tgt)
+    |                                  ^^^^^^^^ Expected `int`, found `int | float`
+350 |
+351 |     # Both should converge well; compare against naive baseline
+    |
+info: Element `float` of this union is not assignable to `int`
+info: Method defined here
+  --> src/terrain_change_detection/alignment/open3d_icp.py:21:9
+   |
+19 |     """Open3D-based ICP registration with the same interface as ICPRegistration."""
+20 |
+21 |     def __init__(
+   |         ^^^^^^^^
+22 |         self,
+23 |         max_iterations: int = 100,
+   |         ------------------------- Parameter declared here
+24 |         tolerance: float = 1e-6,
+25 |         max_correspondence_distance: float = 1.0,
+   |
+
+warning[invalid-argument-type]: Argument to function `create_classification_mask` is incorrect
+   --> tests/test_streaming_integration.py:129:13
+    |
+127 |         mask = create_classification_mask(
+128 |             classes,
+129 |             ground_only=config["ground_only"],
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Expected `bool`, found `bool | None | list[int]`
+130 |             classification_filter=config["classification_filter"],
+131 |         )
+    |
+info: Union elements `None` and `list[int]` are not assignable to `bool`
+info: Function defined here
+  --> src/terrain_change_detection/utils/point_cloud_filters.py:13:5
+   |
+13 | def create_classification_mask(
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+14 |     classification: np.ndarray,
+15 |     ground_only: bool = True,
+   |     ------------------------ Parameter declared here
+16 |     classification_filter: Optional[List[int]] = None,
+17 | ) -> np.ndarray:
+   |
+
+warning[invalid-argument-type]: Argument to function `create_classification_mask` is incorrect
+   --> tests/test_streaming_integration.py:130:13
+    |
+128 |             classes,
+129 |             ground_only=config["ground_only"],
+130 |             classification_filter=config["classification_filter"],
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Expected `list[int] | None`, found `bool | None | list[int]`
+131 |         )
+    |
+info: Element `bool` of this union is not assignable to `list[int] | None`
+info: Function defined here
+  --> src/terrain_change_detection/utils/point_cloud_filters.py:13:5
+   |
+13 | def create_classification_mask(
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+14 |     classification: np.ndarray,
+15 |     ground_only: bool = True,
+16 |     classification_filter: Optional[List[int]] = None,
+   |     ------------------------------------------------- Parameter declared here
+17 | ) -> np.ndarray:
+18 |     """Create a boolean mask for point classification filtering.
+   |
+
+warning[invalid-argument-type]: Argument to function `run_m3c2` is incorrect
+   --> tests/test_workflow_reference_routing.py:185:9
+    |
+183 |         data,
+184 |         alignment,
+185 |         SimpleNamespace(cores_file=None, debug_m3c2_compare=False),
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Expected `Namespace`, found `SimpleNamespace`
+186 |         show_plots=False,
+187 |     )
+    |
+info: Function defined here
+  --> src/terrain_change_detection/workflow/detection_m3c2.py:38:5
+   |
+38 | def run_m3c2(
+   |     ^^^^^^^^
+39 |     cfg: AppConfig,
+40 |     data: PreparedData,
+41 |     alignment: AlignmentResult,
+42 |     args: argparse.Namespace,
+   |     ------------------------ Parameter declared here
+43 |     *,
+44 |     visualizer: PointCloudVisualizer | None = None,
+   |
+
+Found 164 diagnostics

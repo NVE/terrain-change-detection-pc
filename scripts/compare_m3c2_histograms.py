@@ -4,6 +4,7 @@ Compare M3C2 histograms: CloudCompare vs. Python Toolkit
 This script loads the CloudCompare histogram export and the toolkit's M3C2 output,
 then plots both distributions side-by-side for visual comparison.
 """
+
 import argparse
 from pathlib import Path
 import numpy as np
@@ -42,7 +43,9 @@ def load_toolkit_m3c2(laz_path: str) -> np.ndarray:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Compare CloudCompare vs Toolkit M3C2 histograms")
+    parser = argparse.ArgumentParser(
+        description="Compare CloudCompare vs Toolkit M3C2 histograms"
+    )
     parser.add_argument(
         "--cc-csv",
         type=str,
@@ -95,7 +98,8 @@ def main():
 
     # Create comparison plot with publication-quality styling
     fig = make_subplots(
-        rows=2, cols=1,
+        rows=2,
+        cols=1,
         subplot_titles=("CloudCompare M3C2", "Python Toolkit M3C2"),
         shared_xaxes=True,
         vertical_spacing=0.12,
@@ -104,21 +108,27 @@ def main():
     # CloudCompare histogram
     fig.add_trace(
         go.Bar(
-            x=cc_centers, y=cc_counts, name="CloudCompare",
+            x=cc_centers,
+            y=cc_counts,
+            name="CloudCompare",
             marker_color="#2E7D32",  # Dark green
             marker_line_width=0,
         ),
-        row=1, col=1,
+        row=1,
+        col=1,
     )
 
     # Toolkit histogram
     fig.add_trace(
         go.Bar(
-            x=toolkit_centers, y=toolkit_counts, name="Toolkit",
+            x=toolkit_centers,
+            y=toolkit_counts,
+            name="Toolkit",
             marker_color="#1565C0",  # Dark blue
             marker_line_width=0,
         ),
-        row=2, col=1,
+        row=2,
+        col=1,
     )
 
     # Publication-quality layout
@@ -141,18 +151,30 @@ def main():
     # Style axes for both subplots
     for row in [1, 2]:
         fig.update_xaxes(
-            showgrid=True, gridwidth=1, gridcolor="lightgray",
-            showline=True, linewidth=1, linecolor="black",
+            showgrid=True,
+            gridwidth=1,
+            gridcolor="lightgray",
+            showline=True,
+            linewidth=1,
+            linecolor="black",
             mirror=True,
-            zeroline=True, zerolinewidth=1, zerolinecolor="gray",
-            row=row, col=1,
+            zeroline=True,
+            zerolinewidth=1,
+            zerolinecolor="gray",
+            row=row,
+            col=1,
         )
         fig.update_yaxes(
-            showgrid=True, gridwidth=1, gridcolor="lightgray",
-            showline=True, linewidth=1, linecolor="black",
+            showgrid=True,
+            gridwidth=1,
+            gridcolor="lightgray",
+            showline=True,
+            linewidth=1,
+            linecolor="black",
             mirror=True,
             title_text="Count",
-            row=row, col=1,
+            row=row,
+            col=1,
         )
 
     fig.update_xaxes(title_text="M3C2 Distance (m)", row=2, col=1)

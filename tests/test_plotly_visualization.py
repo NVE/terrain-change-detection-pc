@@ -46,7 +46,9 @@ def test_plotly_visualizer_uses_browser_when_available(monkeypatch):
 
     def fake_write_html(self, file, auto_open=False, include_plotlyjs="cdn"):
         calls["write_html"] = True
-        raise AssertionError("HTML fallback should not be used when a browser is available")
+        raise AssertionError(
+            "HTML fallback should not be used when a browser is available"
+        )
 
     monkeypatch.setattr(go.Figure, "show", fake_show)
     monkeypatch.setattr(go.Figure, "write_html", fake_write_html)
@@ -70,14 +72,19 @@ def test_plotly_visualizer_falls_back_on_wsl_without_browser_integration(monkeyp
 
     def fake_show(self, renderer=None):
         calls["show"] = True
-        raise AssertionError("browser renderer should not be called on WSL without wslview")
+        raise AssertionError(
+            "browser renderer should not be called on WSL without wslview"
+        )
 
     def fake_write_html(self, file, auto_open=False, include_plotlyjs="cdn"):
         calls["write_html"] = file
 
     monkeypatch.setattr(go.Figure, "show", fake_show)
     monkeypatch.setattr(go.Figure, "write_html", fake_write_html)
-    monkeypatch.setattr("terrain_change_detection.visualization.point_cloud.shutil.which", lambda name: None)
+    monkeypatch.setattr(
+        "terrain_change_detection.visualization.point_cloud.shutil.which",
+        lambda name: None,
+    )
 
     vis._show_plotly_figure(fig, title="test")
 

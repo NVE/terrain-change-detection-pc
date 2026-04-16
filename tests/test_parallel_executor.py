@@ -25,6 +25,7 @@ def _scaling_worker(tile, scale=1):
     """Worker that scales tile index."""
     import time
     import random
+
     time.sleep(random.uniform(0.001, 0.01))
     return tile.i * scale
 
@@ -63,17 +64,19 @@ class TestTileParallelExecutor:
 
         # Create single tile
         tile = Tile(
-            i=0, j=0,
+            i=0,
+            j=0,
             inner=Bounds2D(0, 0, 10, 10),
             outer=Bounds2D(0, 0, 10, 10),
-            x0_idx=0, y0_idx=0, nx=10, ny=10
+            x0_idx=0,
+            y0_idx=0,
+            nx=10,
+            ny=10,
         )
 
         # Simple worker function
         results = executor.map_tiles(
-            tiles=[tile],
-            worker_fn=_scaling_worker,
-            worker_kwargs={'scale': 2}
+            tiles=[tile], worker_fn=_scaling_worker, worker_kwargs={"scale": 2}
         )
 
         assert len(results) == 1
@@ -85,17 +88,21 @@ class TestTileParallelExecutor:
 
         # Create multiple tiles
         tiles = [
-            Tile(i=i, j=0,
-                 inner=Bounds2D(i*10, 0, (i+1)*10, 10),
-                 outer=Bounds2D(i*10, 0, (i+1)*10, 10),
-                 x0_idx=i*10, y0_idx=0, nx=10, ny=10)
+            Tile(
+                i=i,
+                j=0,
+                inner=Bounds2D(i * 10, 0, (i + 1) * 10, 10),
+                outer=Bounds2D(i * 10, 0, (i + 1) * 10, 10),
+                x0_idx=i * 10,
+                y0_idx=0,
+                nx=10,
+                ny=10,
+            )
             for i in range(5)
         ]
 
         results = executor.map_tiles(
-            tiles=tiles,
-            worker_fn=_scaling_worker,
-            worker_kwargs={'scale': 1}
+            tiles=tiles, worker_fn=_scaling_worker, worker_kwargs={"scale": 1}
         )
 
         assert len(results) == 5
@@ -107,17 +114,21 @@ class TestTileParallelExecutor:
 
         # Create tiles
         tiles = [
-            Tile(i=i, j=0,
-                 inner=Bounds2D(i*10, 0, (i+1)*10, 10),
-                 outer=Bounds2D(i*10, 0, (i*1)*10, 10),
-                 x0_idx=i*10, y0_idx=0, nx=10, ny=10)
+            Tile(
+                i=i,
+                j=0,
+                inner=Bounds2D(i * 10, 0, (i + 1) * 10, 10),
+                outer=Bounds2D(i * 10, 0, (i * 1) * 10, 10),
+                x0_idx=i * 10,
+                y0_idx=0,
+                nx=10,
+                ny=10,
+            )
             for i in range(10)
         ]
 
         results = executor.map_tiles(
-            tiles=tiles,
-            worker_fn=_scaling_worker,
-            worker_kwargs={'scale': 3}
+            tiles=tiles, worker_fn=_scaling_worker, worker_kwargs={"scale": 3}
         )
 
         # Results should be in same order as input
@@ -129,9 +140,7 @@ class TestTileParallelExecutor:
         executor = TileParallelExecutor(n_workers=4)
 
         results = executor.map_tiles(
-            tiles=[],
-            worker_fn=_simple_worker,
-            worker_kwargs={}
+            tiles=[], worker_fn=_simple_worker, worker_kwargs={}
         )
 
         assert results == []
@@ -141,30 +150,38 @@ class TestTileParallelExecutor:
         executor = TileParallelExecutor(n_workers=2)
 
         tiles = [
-            Tile(i=i, j=0,
-                 inner=Bounds2D(i*10, 0, (i+1)*10, 10),
-                 outer=Bounds2D(i*10, 0, (i+1)*10, 10),
-                 x0_idx=i*10, y0_idx=0, nx=10, ny=10)
+            Tile(
+                i=i,
+                j=0,
+                inner=Bounds2D(i * 10, 0, (i + 1) * 10, 10),
+                outer=Bounds2D(i * 10, 0, (i + 1) * 10, 10),
+                x0_idx=i * 10,
+                y0_idx=0,
+                nx=10,
+                ny=10,
+            )
             for i in range(5)
         ]
 
         # Should raise RuntimeError due to worker failure
         with pytest.raises(RuntimeError, match="failed"):
-            executor.map_tiles(
-                tiles=tiles,
-                worker_fn=_error_worker,
-                worker_kwargs={}
-            )
+            executor.map_tiles(tiles=tiles, worker_fn=_error_worker, worker_kwargs={})
 
     def test_progress_callback(self):
         """Test progress callback is called correctly."""
         executor = TileParallelExecutor(n_workers=2)
 
         tiles = [
-            Tile(i=i, j=0,
-                 inner=Bounds2D(i*10, 0, (i+1)*10, 10),
-                 outer=Bounds2D(i*10, 0, (i+1)*10, 10),
-                 x0_idx=i*10, y0_idx=0, nx=10, ny=10)
+            Tile(
+                i=i,
+                j=0,
+                inner=Bounds2D(i * 10, 0, (i + 1) * 10, 10),
+                outer=Bounds2D(i * 10, 0, (i + 1) * 10, 10),
+                x0_idx=i * 10,
+                y0_idx=0,
+                nx=10,
+                ny=10,
+            )
             for i in range(5)
         ]
 
@@ -177,7 +194,7 @@ class TestTileParallelExecutor:
             tiles=tiles,
             worker_fn=_simple_worker,
             worker_kwargs={},
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
         )
 
         # Should have been called for each tile
@@ -191,18 +208,14 @@ class TestTileParallelExecutor:
 
         # Small dataset, plenty of memory
         optimal = executor.get_optimal_workers(
-            dataset_size_gb=1.0,
-            available_memory_gb=32.0,
-            tile_count=4
+            dataset_size_gb=1.0, available_memory_gb=32.0, tile_count=4
         )
         # Should be limited by tile count
         assert optimal == 4
 
         # Many tiles, limited memory
         optimal = executor.get_optimal_workers(
-            dataset_size_gb=50.0,
-            available_memory_gb=16.0,
-            tile_count=100
+            dataset_size_gb=50.0, available_memory_gb=16.0, tile_count=100
         )
         # Should be limited by memory (16 * 0.7 / 3 ≈ 3)
         assert optimal >= 1
@@ -210,12 +223,11 @@ class TestTileParallelExecutor:
 
         # Many tiles, plenty of resources
         optimal = executor.get_optimal_workers(
-            dataset_size_gb=10.0,
-            available_memory_gb=64.0,
-            tile_count=100
+            dataset_size_gb=10.0, available_memory_gb=64.0, tile_count=100
         )
         # Should be limited by CPU count
         from multiprocessing import cpu_count
+
         assert optimal <= cpu_count()
 
 
@@ -274,12 +286,15 @@ class TestWorkerFunctions:
         from terrain_change_detection.acceleration.tile_workers import apply_transform
 
         # Create test points
-        points = np.array([
-            [0, 0, 0],
-            [1, 0, 0],
-            [0, 1, 0],
-            [0, 0, 1],
-        ], dtype=np.float64)
+        points = np.array(
+            [
+                [0, 0, 0],
+                [1, 0, 0],
+                [0, 1, 0],
+                [0, 0, 1],
+            ],
+            dtype=np.float64,
+        )
 
         # Identity transform should return same points
         identity = np.eye(4)

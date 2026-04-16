@@ -7,11 +7,12 @@ import sys
 import os
 from pathlib import Path
 
+
 def main():
     # Set numpy to use all available cores
-    os.environ['OMP_NUM_THREADS'] = str(os.cpu_count())
-    os.environ['MKL_NUM_THREADS'] = str(os.cpu_count())
-    os.environ['NUMEXPR_NUM_THREADS'] = str(os.cpu_count())
+    os.environ["OMP_NUM_THREADS"] = str(os.cpu_count())
+    os.environ["MKL_NUM_THREADS"] = str(os.cpu_count())
+    os.environ["NUMEXPR_NUM_THREADS"] = str(os.cpu_count())
 
     # Import after setting environment variables
     import laspy
@@ -46,7 +47,7 @@ def main():
     print(f"   Z: {las_file.z.min():.2f} to {las_file.z.max():.2f}")
 
     # Fast classification analysis
-    if hasattr(las_file, 'classification'):
+    if hasattr(las_file, "classification"):
         unique_classes, counts = np.unique(las_file.classification, return_counts=True)
         print(f"\n🏷️  Classifications found: {len(unique_classes)} types")
 
@@ -69,6 +70,7 @@ def main():
     print(f"   Processing rate: {points_per_second:,.0f} points/second")
 
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -86,7 +86,7 @@ class C2CDetector:
 
         dists: np.ndarray
         indices: np.ndarray
-        
+
         # Optional heuristic: avoid GPU for very small problems (GPU overhead dominates)
         # Controlled via env var TCD_MIN_POINTS_FOR_GPU; default 0 (disabled) to honor tests/config
         if use_gpu:
@@ -94,7 +94,9 @@ class C2CDetector:
                 _min_pts_env = int(os.environ.get("TCD_MIN_POINTS_FOR_GPU", "0"))
             except Exception:
                 _min_pts_env = 0
-            if _min_pts_env > 0 and (len(source) < _min_pts_env or len(target) < _min_pts_env):
+            if _min_pts_env > 0 and (
+                len(source) < _min_pts_env or len(target) < _min_pts_env
+            ):
                 logger.debug(
                     "Skipping GPU for small problem (src=%d, tgt=%d < %d threshold)",
                     len(source),
@@ -127,27 +129,31 @@ class C2CDetector:
                     "GPU nearest neighbors failed (%s), falling back to CPU", str(e)
                 )
                 use_gpu = False
-        
+
         # CPU path (original sklearn or numpy fallback)
         if not use_gpu:
             try:
                 from sklearn.neighbors import KDTree
+
                 tree = KDTree(target)
                 dists, indices = tree.query(source, k=1)
                 dists = dists.flatten()
                 indices = indices.flatten()
             except Exception:
                 logger.warning("KDTree failed, using naive nearest neighbor")
-                dists = np.linalg.norm(source[:, None, :] - target[None, :, :], axis=2).min(axis=1)
-                indices = np.argmin(np.linalg.norm(source[:, None, :] - target[None, :, :], axis=2), axis=1)
+                dists = np.linalg.norm(
+                    source[:, None, :] - target[None, :, :], axis=2
+                ).min(axis=1)
+                indices = np.argmin(
+                    np.linalg.norm(source[:, None, :] - target[None, :, :], axis=2),
+                    axis=1,
+                )
 
         if max_distance is not None:
             mask = dists <= max_distance
             valid_dists = dists[mask]
-            valid_indices = indices[mask]
         else:
             valid_dists = dists
-            valid_indices = indices
 
         if valid_dists.size == 0:
             rmse = float("inf")
@@ -156,7 +162,11 @@ class C2CDetector:
             n = 0
         else:
             # Convert to float64 for statistics to avoid overflow
-            valid_dists_f64 = valid_dists.astype(np.float64) if valid_dists.dtype != np.float64 else valid_dists
+            valid_dists_f64 = (
+                valid_dists.astype(np.float64)
+                if valid_dists.dtype != np.float64
+                else valid_dists
+            )
             rmse = float(np.sqrt(np.mean(np.square(valid_dists_f64))))
             mean = float(np.mean(valid_dists_f64))
             median = float(np.median(valid_dists_f64))
@@ -166,7 +176,11 @@ class C2CDetector:
         backend = "GPU" if use_gpu else "CPU"
         logger.info(
             "C2C completed (%s): n=%d, mean=%.4f m, median=%.4f m, rmse=%.4f m",
-            backend, n, mean, median, rmse
+            backend,
+            n,
+            mean,
+            median,
+            rmse,
         )
 
         return C2CResult(
@@ -237,7 +251,8 @@ class C2CDetector:
                     gpu_backend = "unknown"
             except Exception as e:
                 logger.warning(
-                    "GPU neighbors initialization failed (%s), falling back to CPU", str(e)
+                    "GPU neighbors initialization failed (%s), falling back to CPU",
+                    str(e),
                 )
                 use_gpu = False
 
@@ -245,6 +260,7 @@ class C2CDetector:
         if not use_gpu:
             try:
                 from sklearn.neighbors import NearestNeighbors
+
                 nbrs = NearestNeighbors(n_neighbors=k_neighbors, metric="euclidean")
             except Exception as e:
                 logger.error("Failed to initialize CPU nearest neighbors: %s", e)
@@ -262,7 +278,9 @@ class C2CDetector:
         indices = np.full(N, -1, dtype=int)
 
         if radius is not None and radius > 0:
-            ind_lists = nbrs.radius_neighbors(source, radius=radius, return_distance=False)
+            ind_lists = nbrs.radius_neighbors(
+                source, radius=radius, return_distance=False
+            )
             # Ensure ind_lists is on CPU for iteration
             if use_gpu:
                 ind_lists = [ensure_cpu_array(inds) for inds in ind_lists]
@@ -284,7 +302,8 @@ class C2CDetector:
                         continue
                     src_z = source[i, 2]
                     plane_z_at_src = plane_z + (
-                        normal[0] * (source[i, 0] - c[0]) + normal[1] * (source[i, 1] - c[1])
+                        normal[0] * (source[i, 0] - c[0])
+                        + normal[1] * (source[i, 1] - c[1])
                     ) / (-normal[2])
                     out[i] = src_z - plane_z_at_src
                     # Bookkeep index of nearest neighbor in this radius
@@ -315,7 +334,8 @@ class C2CDetector:
                         continue
                     src_z = source[i, 2]
                     plane_z_at_src = plane_z + (
-                        normal[0] * (source[i, 0] - c[0]) + normal[1] * (source[i, 1] - c[1])
+                        normal[0] * (source[i, 0] - c[0])
+                        + normal[1] * (source[i, 1] - c[1])
                     ) / (-normal[2])
                     out[i] = src_z - plane_z_at_src
                     indices[i] = int(inds[0])
@@ -339,7 +359,11 @@ class C2CDetector:
         backend = "GPU" if use_gpu else "CPU"
         logger.info(
             "C2C vertical plane completed (%s): n=%d, mean=%.4f m, median=%.4f m, rmse=%.4f m",
-            backend, n, mean, median, rmse
+            backend,
+            n,
+            mean,
+            median,
+            rmse,
         )
 
         return C2CResult(
@@ -396,18 +420,22 @@ class C2CDetector:
             local_transform: Optional local coordinate transform (for numerical precision)
         """
         if not files_src or not files_tgt:
-            raise ValueError("compute_c2c_streaming_files_tiled requires non-empty file lists")
+            raise ValueError(
+                "compute_c2c_streaming_files_tiled requires non-empty file lists"
+            )
         if not (isinstance(max_distance, (int, float)) and max_distance > 0):
-            raise ValueError("max_distance must be provided and > 0 for streaming tiled C2C")
+            raise ValueError(
+                "max_distance must be provided and > 0 for streaming tiled C2C"
+            )
 
         # Determine if we should use GPU
         use_gpu = False
-        if config is not None and hasattr(config, 'gpu'):
+        if config is not None and hasattr(config, "gpu"):
             use_gpu = config.gpu.enabled and config.gpu.use_for_c2c
 
         # Get global bounds from file headers
         gb_global = union_bounds(files_src, files_tgt)
-        
+
         # Transform bounds to local coordinates if transform is provided
         if local_transform is not None:
             gb = Bounds2D(
@@ -428,11 +456,20 @@ class C2CDetector:
         dx = float(gb.max_x - gb.min_x)
         dy = float(gb.max_y - gb.min_y)
         logger.info(
-            "C2C extent: dX=%.1fm (%.3f km), dY=%.1fm (%.3f km)", dx, dx / 1000.0, dy, dy / 1000.0
+            "C2C extent: dX=%.1fm (%.3f km), dY=%.1fm (%.3f km)",
+            dx,
+            dx / 1000.0,
+            dy,
+            dy / 1000.0,
         )
         logger.info(
             "Streaming C2C tiled: tiles=%dx%d (tile=%.1fm, halo=%.1fm), chunk_points=%d, r=%.2fm",
-            tx, ty, tile_size, halo, chunk_points, max_distance,
+            tx,
+            ty,
+            tile_size,
+            halo,
+            chunk_points,
+            max_distance,
         )
 
         from ..acceleration.tiling import LaspyStreamReader
@@ -473,11 +510,11 @@ class C2CDetector:
         total_src = 0
         gpu_tiles = 0
         processed_tiles = 0
-        t0 = __import__('time').time()
+        _t0 = time.time()  # noqa: F841
         for j in range(ty):
             for i in range(tx):
                 inner, outer = _inner_outer(i, j)  # Local coordinates
-                
+
                 # Convert tile bounds back to global for file bbox filtering
                 if local_transform is not None:
                     inner_global = Bounds2D(
@@ -495,18 +532,27 @@ class C2CDetector:
                 else:
                     inner_global = inner
                     outer_global = outer
-                
+
                 # Stream source points (use global bbox for filtering, transform to local)
-                src_chunks = list(reader_src.stream_points(bbox=inner_global, transform=local_transform))
+                src_chunks = list(
+                    reader_src.stream_points(
+                        bbox=inner_global, transform=local_transform
+                    )
+                )
                 if not src_chunks:
                     continue
                 src = np.vstack(src_chunks)
                 if transform_src is not None:
                     from ..acceleration.tile_workers import apply_transform
+
                     src = apply_transform(src, transform_src)
-                    
+
                 # Stream target points (use global bbox for filtering, transform to local)
-                tgt_chunks = list(reader_tgt.stream_points(bbox=outer_global, transform=local_transform))
+                tgt_chunks = list(
+                    reader_tgt.stream_points(
+                        bbox=outer_global, transform=local_transform
+                    )
+                )
                 if not tgt_chunks:
                     logger.debug(f"Tile ({i},{j}) has no target points, skipping")
                     all_dists.append(np.full(len(src), np.inf, dtype=float))
@@ -515,7 +561,7 @@ class C2CDetector:
                     continue
                 tgt = np.vstack(tgt_chunks)
                 processed_tiles += 1
-                
+
                 # Compute distances for this tile
                 tile_gpu = False
                 if use_gpu:
@@ -527,34 +573,47 @@ class C2CDetector:
                         gpu_tiles += 1
                         tile_gpu = True
                     except Exception as e:
-                        logger.debug(f"GPU C2C failed for tile ({i},{j}): {e}, using CPU")
+                        logger.debug(
+                            f"GPU C2C failed for tile ({i},{j}): {e}, using CPU"
+                        )
                         from sklearn.neighbors import KDTree
+
                         tree = KDTree(tgt)
                         dists, _ = tree.query(src, k=1)
                         dists = dists.flatten()
                 else:
                     from sklearn.neighbors import KDTree
+
                     tree = KDTree(tgt)
                     dists, _ = tree.query(src, k=1)
                     dists = dists.flatten()
-                
+
                 # Apply max_distance threshold
                 dists = np.where(dists <= max_distance, dists, np.inf)
                 all_dists.append(dists)
                 total_src += len(src)
-                
+
                 # Per-tile progress logging
                 n_valid = int(np.count_nonzero(np.isfinite(dists)))
                 logger.info(
                     "Tile (%d,%d): src=%d, tgt=%d, valid=%d%s",
-                    i, j, len(src), len(tgt), n_valid,
-                    " (GPU)" if tile_gpu else ""
+                    i,
+                    j,
+                    len(src),
+                    len(tgt),
+                    n_valid,
+                    " (GPU)" if tile_gpu else "",
                 )
 
-        dists_concat = np.concatenate(all_dists) if all_dists else np.array([], dtype=float)
+        dists_concat = (
+            np.concatenate(all_dists) if all_dists else np.array([], dtype=float)
+        )
         valid = np.isfinite(dists_concat)
         if not np.any(valid):
-            rmse = float("inf"); mean = float("nan"); median = float("nan"); n = 0
+            rmse = float("inf")
+            mean = float("nan")
+            median = float("nan")
+            n = 0
         else:
             valid_dists_f64 = dists_concat[valid].astype(np.float64)
             rmse = float(np.sqrt(np.mean(np.square(valid_dists_f64))))
@@ -574,14 +633,18 @@ class C2CDetector:
             gpu_tiles,
             processed_tiles,
         )
-        
+
         # Log completion with statistics
         backend = "GPU" if gpu_used_any else "CPU"
         logger.info(
             "C2C completed (%s): n=%d, mean=%.4f m, median=%.4f m, rmse=%.4f m",
-            backend, n, mean, median, rmse
+            backend,
+            n,
+            mean,
+            median,
+            rmse,
         )
-        
+
         return C2CResult(
             distances=dists_concat,
             indices=idx,
@@ -620,10 +683,10 @@ class C2CDetector:
     ) -> C2CResult:
         """
         Parallel version of out-of-core tiled C2C.
-        
+
         Processes tiles in parallel using multiple CPU cores. Each tile
         computes nearest neighbor distances independently.
-        
+
         Args:
             files_src: Source epoch file paths
             files_tgt: Target epoch file paths
@@ -638,29 +701,33 @@ class C2CDetector:
             config: Optional configuration (for GPU settings)
             clip_bounds: Optional (minx, miny, maxx, maxy) to restrict processing
                          to tiles overlapping this region of interest
-        
+
         Returns:
             C2CResult with concatenated distances and statistics
         """
         from ..acceleration import TileParallelExecutor, process_c2c_tile
         from pathlib import Path
-        
+
         if not files_src or not files_tgt:
-            raise ValueError("compute_c2c_streaming_files_tiled_parallel requires non-empty file lists")
+            raise ValueError(
+                "compute_c2c_streaming_files_tiled_parallel requires non-empty file lists"
+            )
         if not (isinstance(max_distance, (int, float)) and max_distance > 0):
-            raise ValueError("max_distance must be provided and > 0 for parallel streaming tiled C2C")
-        
+            raise ValueError(
+                "max_distance must be provided and > 0 for parallel streaming tiled C2C"
+            )
+
         # Determine if we should use GPU
         use_gpu = False
-        if config is not None and hasattr(config, 'gpu'):
+        if config is not None and hasattr(config, "gpu"):
             use_gpu = config.gpu.enabled and config.gpu.use_for_c2c
-        
+
         # Note: File header bounds are scanned below and filtered per tile.
         # Paths are passed per-tile to workers to avoid redundant I/O.
-        
+
         # Get global bounds from file headers
         gb_global = union_bounds(files_src, files_tgt)
-        
+
         # Transform bounds to local coordinates if transform is provided
         if local_transform is not None:
             gb = Bounds2D(
@@ -671,29 +738,32 @@ class C2CDetector:
             )
         else:
             gb = gb_global
-        
+
         # Calculate tile grid (halo = max_distance for radius coverage)
         halo = float(max_distance)
         tx = int(np.ceil((gb.max_x - gb.min_x) / tile_size))
         ty = int(np.ceil((gb.max_y - gb.min_y) / tile_size))
-        
+
         # Log extent info
         dx = float(gb.max_x - gb.min_x)
         dy = float(gb.max_y - gb.min_y)
         logger.info(
             "C2C extent: dX=%.1fm (%.3f km), dY=%.1fm (%.3f km)",
-            dx, dx / 1000.0, dy, dy / 1000.0,
+            dx,
+            dx / 1000.0,
+            dy,
+            dy / 1000.0,
         )
-        
+
         # Create tiler with dummy cell size (not used for C2C)
         tiler = Tiler(gb, cell_size=1.0, tile_size=tile_size, halo=halo)
         tiles = list(tiler.tiles())
         n_tiles_total = len(tiles)
-        
+
         # Filter tiles by clip_bounds if provided
         if clip_bounds is not None:
             clip_minx, clip_miny, clip_maxx, clip_maxy = clip_bounds
-            
+
             def tile_intersects_clip(tile) -> bool:
                 """Check if tile overlaps the clip region."""
                 t_minx = tile.inner.min_x
@@ -701,45 +771,64 @@ class C2CDetector:
                 t_maxx = tile.inner.max_x
                 t_maxy = tile.inner.max_y
                 # Check for intersection (not disjoint)
-                return not (t_maxx < clip_minx or t_minx > clip_maxx or
-                           t_maxy < clip_miny or t_miny > clip_maxy)
-            
+                return not (
+                    t_maxx < clip_minx
+                    or t_minx > clip_maxx
+                    or t_maxy < clip_miny
+                    or t_miny > clip_maxy
+                )
+
             tiles = [t for t in tiles if tile_intersects_clip(t)]
             n_tiles = len(tiles)
             logger.info(
                 f"Clip bounds filter: {n_tiles}/{n_tiles_total} tiles overlap region of interest"
             )
-            
+
             if n_tiles == 0:
-                logger.warning("No tiles overlap the clip bounds - returning empty result")
+                logger.warning(
+                    "No tiles overlap the clip bounds - returning empty result"
+                )
                 # Return empty result
                 return C2CResult(
-                    src_points=np.array([]).reshape(0, 3),
                     distances=np.array([]),
-                    stats={},
+                    indices=np.array([]),
+                    rmse=0.0,
+                    mean=0.0,
+                    median=0.0,
+                    n=0,
                 )
         else:
             n_tiles = n_tiles_total
-        
+
         logger.info(
             "Parallel tiled C2C: tiles=%dx%d (%d total), tile=%.1fm, halo=%.1fm, chunk_points=%d, r=%.2fm",
-            tx, ty, n_tiles, tile_size, halo, chunk_points, max_distance,
+            tx,
+            ty,
+            n_tiles,
+            tile_size,
+            halo,
+            chunk_points,
+            max_distance,
         )
-        
+
         # Create parallel executor
-        executor = TileParallelExecutor(n_workers=n_workers, threads_per_worker=threads_per_worker)
-        
+        executor = TileParallelExecutor(
+            n_workers=n_workers, threads_per_worker=threads_per_worker
+        )
+
         # Log worker info
         from ..acceleration import estimate_speedup_factor
+
         eff_workers = min(executor.n_workers, n_tiles)
         expected_speedup = estimate_speedup_factor(eff_workers, n_tiles)
         logger.info(
             f"Using {eff_workers} workers for {n_tiles} tiles "
             f"(expected speedup: {expected_speedup:.1f}x)"
         )
-        
+
         # Pre-filter files per tile using LAS/LAZ header bounds
         from ..acceleration import scan_las_bounds, bounds_intersect
+
         src_bounds = scan_las_bounds(files_src)
         tgt_bounds = scan_las_bounds(files_tgt)
 
@@ -763,22 +852,31 @@ class C2CDetector:
             else:
                 tile_inner_global = tile.inner
                 tile_outer_global = tile.outer
-            
-            files_src_tile = [str(f) for f, b in src_bounds if bounds_intersect(tile_inner_global, b)]
-            files_tgt_tile = [str(f) for f, b in tgt_bounds if bounds_intersect(tile_outer_global, b)]
-            per_tile_kwargs.append({'files_source': [Path(f) for f in files_src_tile], 'files_target': [Path(f) for f in files_tgt_tile]})
+
+            files_src_tile = [
+                str(f) for f, b in src_bounds if bounds_intersect(tile_inner_global, b)
+            ]
+            files_tgt_tile = [
+                str(f) for f, b in tgt_bounds if bounds_intersect(tile_outer_global, b)
+            ]
+            per_tile_kwargs.append(
+                {
+                    "files_source": [Path(f) for f in files_src_tile],
+                    "files_target": [Path(f) for f in files_tgt_tile],
+                }
+            )
 
         # Process tiles in parallel
         worker_kwargs = {
-            'max_distance': max_distance,
-            'chunk_points': chunk_points,
-            'classification_filter': classification_filter,
-            'transform_matrix': transform_src,
-            'ground_only': ground_only,
-            'use_gpu': use_gpu,
-            'local_transform': local_transform,
+            "max_distance": max_distance,
+            "chunk_points": chunk_points,
+            "classification_filter": classification_filter,
+            "transform_matrix": transform_src,
+            "ground_only": ground_only,
+            "use_gpu": use_gpu,
+            "local_transform": local_transform,
         }
-        
+
         if use_gpu:
             logger.info("C2C parallel processing with GPU acceleration enabled")
 
@@ -790,12 +888,14 @@ class C2CDetector:
             per_tile_kwargs=per_tile_kwargs,
         )
         t1 = time.time()
-        
+
         logger.info(
             "Parallel C2C processing complete: %d tiles in %.2fs (%.2f tiles/s)",
-            n_tiles, t1 - t0, n_tiles / (t1 - t0)
+            n_tiles,
+            t1 - t0,
+            n_tiles / (t1 - t0),
         )
-        
+
         # Concatenate all distance arrays
         all_dists: list[np.ndarray] = []
         total_src = 0
@@ -803,9 +903,11 @@ class C2CDetector:
             if distances.size > 0:
                 all_dists.append(distances)
                 total_src += len(distances)
-        
-        dists_concat = np.concatenate(all_dists) if all_dists else np.array([], dtype=float)
-        
+
+        dists_concat = (
+            np.concatenate(all_dists) if all_dists else np.array([], dtype=float)
+        )
+
         # Compute statistics
         valid = np.isfinite(dists_concat) & (dists_concat <= max_distance)
         if not np.any(valid):
@@ -819,10 +921,10 @@ class C2CDetector:
             mean = float(np.mean(valid_dists_f64))
             median = float(np.median(valid_dists_f64))
             n = int(np.count_nonzero(valid))
-        
+
         # Indices not tracked in streaming path
         idx = -np.ones_like(dists_concat, dtype=int)
-        
+
         logger.info(
             "Parallel C2C complete: src_total=%d, valid=%d (<= %.2fm), RMSE=%.4fm%s",
             total_src,
@@ -831,14 +933,18 @@ class C2CDetector:
             rmse,
             " (GPU requested)" if use_gpu else "",
         )
-        
+
         # Log completion with statistics
         backend = "GPU" if use_gpu else "CPU"
         logger.info(
             "C2C completed (%s): n=%d, mean=%.4f m, median=%.4f m, rmse=%.4f m",
-            backend, n, mean, median, rmse
+            backend,
+            n,
+            mean,
+            median,
+            rmse,
         )
-        
+
         return C2CResult(
             distances=dists_concat,
             indices=idx,

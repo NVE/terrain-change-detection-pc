@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 
-import numpy as np
 
 from terrain_change_detection.detection import ChangeDetector
 from terrain_change_detection.utils.config import AppConfig
@@ -48,9 +47,9 @@ def run_dod(
 
         can_use_streaming = (
             data.use_streaming
-            and cfg.detection.dod.aggregator == 'mean'
+            and cfg.detection.dod.aggregator == "mean"
             and data.pc1_data is not None
-            and 'file_paths' in data.pc1_data
+            and "file_paths" in data.pc1_data
         )
 
         if can_use_streaming:
@@ -66,7 +65,7 @@ def run_dod(
             visualizer.visualize_dod_heatmap(dod_res, title="DEM of Difference (m)")
 
         # Export DoD GeoTIFF
-        if getattr(cfg.detection.dod, 'export_raster', False):
+        if getattr(cfg.detection.dod, "export_raster", False):
             _export_dod(cfg, data, dod_res)
 
     except Exception as e:
@@ -76,9 +75,9 @@ def run_dod(
 def _compute_streaming_dod(cfg, data, alignment):
     """Streaming DoD with parallel/sequential/fallback paths."""
     if cfg.alignment.reference == "t2":
-        files_t1 = data.pc1_data.get('aligned_file_paths') if data.pc1_data else None
+        files_t1 = data.pc1_data.get("aligned_file_paths") if data.pc1_data else None
         if files_t1:
-            files_t2 = data.pc2_data['file_paths']
+            files_t2 = data.pc2_data["file_paths"]
             logger.info("Using pre-transformed files for T1: %d files", len(files_t1))
             transform_t2 = None
         else:
@@ -88,13 +87,17 @@ def _compute_streaming_dod(cfg, data, alignment):
             )
             return _compute_inmemory_dod(cfg, alignment)
     else:
-        files_t1 = data.pc1_data['file_paths']
-        if data.pc2_data and 'aligned_file_paths' in data.pc2_data and data.pc2_data['aligned_file_paths']:
-            files_t2 = data.pc2_data['aligned_file_paths']
+        files_t1 = data.pc1_data["file_paths"]
+        if (
+            data.pc2_data
+            and "aligned_file_paths" in data.pc2_data
+            and data.pc2_data["aligned_file_paths"]
+        ):
+            files_t2 = data.pc2_data["aligned_file_paths"]
             logger.info("Using pre-transformed files for T2: %d files", len(files_t2))
             transform_t2 = None
         else:
-            files_t2 = data.pc2_data['file_paths']
+            files_t2 = data.pc2_data["file_paths"]
             logger.info("Using original T2 files with on-the-fly alignment transform")
             transform_t2 = alignment.transform_matrix
 
@@ -114,7 +117,7 @@ def _compute_streaming_dod(cfg, data, alignment):
                 chunk_points=cfg.outofcore.chunk_points,
                 transform_t2=transform_t2,
                 n_workers=cfg.parallel.n_workers,
-                threads_per_worker=getattr(cfg.parallel, 'threads_per_worker', 1),
+                threads_per_worker=getattr(cfg.parallel, "threads_per_worker", 1),
                 config=cfg,
                 clip_bounds=data.clip_bounds,
                 local_transform=data.local_transform,
@@ -153,7 +156,9 @@ def _export_dod(cfg, data, dod_res):
     """Export DoD as GeoTIFF."""
     try:
         # DoD uses flat output root (no area subdirectory) when output_dir is not set
-        export_dir = resolve_output_dir(cfg, data.selected_area.area_name, area_scoped=False)
+        export_dir = resolve_output_dir(
+            cfg, data.selected_area.area_name, area_scoped=False
+        )
         crs = detect_output_crs(cfg, str(data.ds1.laz_files[0]))
 
         area_prefix = data.selected_area.area_name

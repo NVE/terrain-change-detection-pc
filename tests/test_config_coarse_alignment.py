@@ -10,5 +10,10 @@ def test_alignment_coarse_defaults():
     cfg: AppConfig = load_config(None)
     assert hasattr(cfg.alignment, "coarse")
     assert cfg.alignment.coarse.enabled is False
-    assert cfg.alignment.coarse.method in {"pca", "centroid", "phase", "open3d_fpfh", "none"}
-
+    assert cfg.alignment.coarse.method in {
+        "pca",
+        "centroid",
+        "phase",
+        "open3d_fpfh",
+        "none",
+    }

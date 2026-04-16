@@ -8,6 +8,7 @@ has been moved to ``terrain_change_detection.workflow``.
 **Boundary rule**: New workflow coordination logic belongs in
 ``terrain_change_detection.workflow``, not here.
 """
+
 import sys
 from pathlib import Path
 

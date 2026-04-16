@@ -14,9 +14,9 @@ from typing import Optional
 from contextlib import contextmanager, redirect_stdout, redirect_stderr
 
 
-def setup_logger(name: str,
-                 level: int = logging.INFO,
-                 log_file: Optional[str] = None) -> logging.Logger:
+def setup_logger(
+    name: str, level: int = logging.INFO, log_file: Optional[str] = None
+) -> logging.Logger:
     """
     Set up a logger with consistent formatting.
 
@@ -39,12 +39,12 @@ def setup_logger(name: str,
 
     # Create formatters: simpler for console, detailed for file
     console_formatter = logging.Formatter(
-        '%(asctime)s | %(levelname)s | %(name)s | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
     file_formatter = logging.Formatter(
-        '%(asctime)s | %(levelname)s | %(processName)s[%(process)d] | %(name)s | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        "%(asctime)s | %(levelname)s | %(processName)s[%(process)d] | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
     # Console handler
@@ -58,7 +58,7 @@ def setup_logger(name: str,
         # Create parent directories if they don't exist
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(level)
         file_handler.setFormatter(file_formatter)
@@ -76,8 +76,13 @@ class _StreamToLogger:
       are optionally passed through to the original stream.
     """
 
-    def __init__(self, logger: logging.Logger, level: int = logging.DEBUG,
-                 pattern: Optional[str] = None, passthrough_stream=None):
+    def __init__(
+        self,
+        logger: logging.Logger,
+        level: int = logging.DEBUG,
+        pattern: Optional[str] = None,
+        passthrough_stream=None,
+    ):
         self.logger = logger
         self.level = level
         self.pattern = pattern
@@ -120,10 +125,12 @@ class _StreamToLogger:
 
 
 @contextmanager
-def redirect_stdout_stderr_to_logger(logger: logging.Logger,
-                                     level: int = logging.DEBUG,
-                                     pattern: Optional[str] = None,
-                                     passthrough_other: bool = True):
+def redirect_stdout_stderr_to_logger(
+    logger: logging.Logger,
+    level: int = logging.DEBUG,
+    pattern: Optional[str] = None,
+    passthrough_other: bool = True,
+):
     """
     Context manager that redirects stdout and stderr to a logger.
 
@@ -136,10 +143,18 @@ def redirect_stdout_stderr_to_logger(logger: logging.Logger,
     """
     orig_out = sys.stdout
     orig_err = sys.stderr
-    out_stream = _StreamToLogger(logger, level=level, pattern=pattern,
-                                 passthrough_stream=(orig_out if (pattern and passthrough_other) else None))
-    err_stream = _StreamToLogger(logger, level=level, pattern=pattern,
-                                 passthrough_stream=(orig_err if (pattern and passthrough_other) else None))
+    out_stream = _StreamToLogger(
+        logger,
+        level=level,
+        pattern=pattern,
+        passthrough_stream=(orig_out if (pattern and passthrough_other) else None),
+    )
+    err_stream = _StreamToLogger(
+        logger,
+        level=level,
+        pattern=pattern,
+        passthrough_stream=(orig_err if (pattern and passthrough_other) else None),
+    )
     with redirect_stdout(out_stream), redirect_stderr(err_stream):
         yield
 
@@ -214,7 +229,9 @@ def capture_c_streams_to_logger(
                 for line in text.splitlines():
                     if not line:
                         continue
-                    if include_patterns is None or any(p in line for p in include_patterns):
+                    if include_patterns is None or any(
+                        p in line for p in include_patterns
+                    ):
                         try:
                             logger.log(level, line)
                         except Exception:

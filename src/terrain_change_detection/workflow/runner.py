@@ -89,7 +89,10 @@ def run(
         # Optional: Area Clipping
         # ----------------------------------------------------------------
         points1, points2, clip_bounds = apply_clipping(
-            cfg, data.points1, data.points2, data.local_transform,
+            cfg,
+            data.points1,
+            data.points2,
+            data.local_transform,
         )
         data.points1 = points1
         data.points2 = points2
@@ -126,8 +129,12 @@ def run(
         alignment = run_alignment(cfg, data, rng)
 
         # Visualization: aligned clouds
-        vis_p1_aligned = to_global_for_vis(alignment.points1_aligned, data.local_transform)
-        vis_p2_aligned = to_global_for_vis(alignment.points2_aligned, data.local_transform)
+        vis_p1_aligned = to_global_for_vis(
+            alignment.points1_aligned, data.local_transform
+        )
+        vis_p2_aligned = to_global_for_vis(
+            alignment.points2_aligned, data.local_transform
+        )
         if show_plots:
             logger.info("--- Visualizing aligned point clouds ---")
             visualizer.visualize_clouds(
@@ -153,14 +160,18 @@ def run(
 
         run_dod(cfg, data, alignment, visualizer=visualizer, show_plots=show_plots)
         run_c2c(cfg, data, alignment, visualizer=visualizer, show_plots=show_plots)
-        run_m3c2(cfg, data, alignment, args, visualizer=visualizer, show_plots=show_plots)
+        run_m3c2(
+            cfg, data, alignment, args, visualizer=visualizer, show_plots=show_plots
+        )
 
         # ----------------------------------------------------------------
         # Write run manifest
         # ----------------------------------------------------------------
         export_dir = resolve_output_dir(cfg, data.selected_area.area_name)
         write_run_inputs(
-            export_dir, args, cfg,
+            export_dir,
+            args,
+            cfg,
             config_files=list(args.config or []),
             cli_overrides=cli_overrides,
         )
@@ -172,7 +183,7 @@ def run(
             selected_area=data.selected_area.area_name,
             epochs=(data.t1, data.t2),
             streaming_used=data.use_streaming,
-            alignment_enabled=getattr(cfg.alignment, 'enabled', True),
+            alignment_enabled=getattr(cfg.alignment, "enabled", True),
             alignment_error=alignment.alignment_error,
         )
 

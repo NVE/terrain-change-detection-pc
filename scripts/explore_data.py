@@ -13,14 +13,15 @@ from pprint import pprint
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from terrain_change_detection.preprocessing import DataDiscovery, BatchLoader
-from terrain_change_detection.preprocessing import PointCloudLoader 
+from terrain_change_detection.preprocessing import PointCloudLoader
 from terrain_change_detection.utils.logging import setup_logger
+
 
 def main():
     """
     Explores a data structure and validates the point cloud data.
     """
-    logger = setup_logger(__name__)
+    _logger = setup_logger(__name__)
 
     print("Point Cloud Data Explorer")
     print("=========================")
@@ -32,7 +33,7 @@ def main():
     if not base_dir.exists():
         print(f"Base directory {base_dir} does not exist.")
         return
-    
+
     # Discover data
     discovery = DataDiscovery(base_dir)
     areas = discovery.scan_areas()
@@ -57,11 +58,11 @@ def main():
             "│       └── metadata/"
         )
         return
-    
+
     # Display discovered areas/area directories
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("Data Discovery Summary")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"Found {len(areas)} area(s):\n")
 
     total_files = 0
@@ -94,14 +95,14 @@ def main():
             total_ground_points += dataset.total_points
         print()
 
-    print(f"{'='*60}")    
+    print(f"{'=' * 60}")
     print(f"Total files: {total_files}")
     print(f"Total ground points (sum across all datasets): {total_ground_points}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # test loading a sample point cloud
     print("Sample Point Cloud Loading Test")
-    print("-"*40)
+    print("-" * 40)
     test_area_name = list(areas.keys())[0]
     test_time_period = list(areas[test_area_name].time_periods)[0]
     test_dataset = areas[test_area_name].datasets[test_time_period]
@@ -109,7 +110,7 @@ def main():
     print(f"Testing: {test_area_name}/{test_time_period}")
 
     try:
-        batch_loader = BatchLoader()
+        _batch_loader = BatchLoader()  # noqa: F841
         first_file = test_dataset.laz_files[0]
         print(f"  Loading file: {first_file.name}")
         loader = PointCloudLoader()
@@ -125,7 +126,7 @@ def main():
 
     # Show potential change detection analyses
     print("\nChange Detection Opportunities")
-    print("-"*40)
+    print("-" * 40)
     for area_name, area_info in areas.items():
         if len(area_info.time_periods) >= 2:
             periods = area_info.time_periods
@@ -133,17 +134,18 @@ def main():
                 for j in range(i + 1, len(periods)):
                     dataset1 = area_info.datasets[periods[i]]
                     dataset2 = area_info.datasets[periods[j]]
-                    print(f"  {area_name}: {periods[i]} vs {periods[j]} "
-                          f"({dataset1.total_points} vs {dataset2.total_points} ground points)")
+                    print(
+                        f"  {area_name}: {periods[i]} vs {periods[j]} "
+                        f"({dataset1.total_points} vs {dataset2.total_points} ground points)"
+                    )
         else:
             print(f"  {area_name} has {len(area_info.time_periods)} time period(s). ")
-            print("  Two or more time periods are required for change detection analysis.")
+            print(
+                "  Two or more time periods are required for change detection analysis."
+            )
     print("\nTo run change detection, use:")
     print("  uv run scripts/run_workflow.py")
 
 
 if __name__ == "__main__":
     main()
-
-
-

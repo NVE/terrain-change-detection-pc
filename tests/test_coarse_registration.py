@@ -15,12 +15,13 @@ from terrain_change_detection.alignment.coarse_registration import CoarseRegistr
 def _nn_rmse(A: np.ndarray, B: np.ndarray) -> float:
     try:
         from sklearn.neighbors import NearestNeighbors  # type: ignore
+
         nbrs = NearestNeighbors(n_neighbors=1, algorithm="kd_tree").fit(B)
         d, _ = nbrs.kneighbors(A)
-        return float(np.sqrt(np.mean(d ** 2)))
+        return float(np.sqrt(np.mean(d**2)))
     except Exception:
         # Fallback: brute-force for small arrays
-        n, m = len(A), len(B)
+        n, _m = len(A), len(B)
         dmin = []
         for i in range(n):
             dsq = np.sum((B - A[i]) ** 2, axis=1)
@@ -47,10 +48,14 @@ def test_centroid_translation_alignment():
 def test_pca_coarse_alignment_reduces_error():
     rng = np.random.default_rng(1)
     # Anisotropic cloud to avoid PCA degeneracy
-    A = rng.normal(size=(4000, 3)) * np.array([20.0, 5.0, 1.0]) + np.array([100.0, -50.0, 10.0])
+    A = rng.normal(size=(4000, 3)) * np.array([20.0, 5.0, 1.0]) + np.array(
+        [100.0, -50.0, 10.0]
+    )
     # Apply a known rotation around Z and translation
     th = np.deg2rad(15.0)
-    Rz = np.array([[np.cos(th), -np.sin(th), 0], [np.sin(th), np.cos(th), 0], [0, 0, 1]])
+    Rz = np.array(
+        [[np.cos(th), -np.sin(th), 0], [np.sin(th), np.cos(th), 0], [0, 0, 1]]
+    )
     t = np.array([5.0, -3.0, 0.7])
     B = (A @ Rz.T) + t
 
@@ -62,4 +67,3 @@ def test_pca_coarse_alignment_reduces_error():
     assert after < before
     # PCA is coarse; expect residual but significantly reduced
     assert after < before * 0.5
-

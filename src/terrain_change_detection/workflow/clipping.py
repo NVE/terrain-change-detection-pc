@@ -51,7 +51,7 @@ def apply_clipping(
         WorkflowAbort: If clipping is enabled but prerequisites are missing
             or clipping results in empty point clouds.
     """
-    clipping_cfg = getattr(cfg, 'clipping', None)
+    clipping_cfg = getattr(cfg, "clipping", None)
 
     if clipping_cfg is None or not clipping_cfg.enabled:
         return points1, points2, None
@@ -99,8 +99,10 @@ def apply_clipping(
         pct2 = 100.0 * len(points2) / original_count_2 if original_count_2 > 0 else 0
         logger.info(
             "Clipping complete: T1 %s pts (%.1f%%), T2 %s pts (%.1f%%)",
-            f"{len(points1):,}", pct1,
-            f"{len(points2):,}", pct2,
+            f"{len(points1):,}",
+            pct1,
+            f"{len(points2):,}",
+            pct2,
         )
 
         if len(points1) == 0 or len(points2) == 0:

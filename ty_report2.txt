@@ -1,0 +1,13 @@
+ty failed
+  Cause: /home/yaredwb/terrain-change-detection-pc/pyproject.toml is not a valid `pyproject.toml`: TOML parse error at line 67, column 1
+   |
+67 | exclude = ["exploration"]
+   | ^^^^^^^
+unknown field `exclude`, expected one of `environment`, `src`, `rules`, `terminal`, `analysis`, `overrides`
+
+  Cause: TOML parse error at line 67, column 1
+   |
+67 | exclude = ["exploration"]
+   | ^^^^^^^
+unknown field `exclude`, expected one of `environment`, `src`, `rules`, `terminal`, `analysis`, `overrides`
+

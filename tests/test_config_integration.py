@@ -44,7 +44,9 @@ def test_synthetic_profile_outofcore_settings():
     # Synthetic profile is intended for small, in-memory/dev datasets
     assert cfg.outofcore.enabled is False
     assert cfg.outofcore.streaming_mode is True
-    assert cfg.outofcore.save_transformed_files is False  # Don't save for small datasets
+    assert (
+        cfg.outofcore.save_transformed_files is False
+    )  # Don't save for small datasets
     assert cfg.outofcore.tile_size_m == 300.0
     assert cfg.outofcore.halo_m == 20.0
     assert cfg.outofcore.chunk_points == 20_000
@@ -150,14 +152,14 @@ def test_outofcore_config_all_fields():
 def test_config_coordination_with_preprocessing():
     """Test that config coordinates preprocessing and out-of-core settings."""
     cfg = load_config("config/profiles/large_scale.yaml")
-    
+
     # Preprocessing settings should work with streaming
-    assert cfg.preprocessing.ground_only == True
+    assert cfg.preprocessing.ground_only
     assert cfg.preprocessing.classification_filter == [2]
-    
+
     # Alignment settings should be appropriate for streaming
     assert cfg.alignment.subsample_size > 0  # Need samples for alignment
-    
+
     # Detection settings should work with tiling
     assert cfg.detection.dod.cell_size > 0
 
@@ -165,7 +167,7 @@ def test_config_coordination_with_preprocessing():
 def test_config_coordination_with_alignment():
     """Test that config coordinates alignment and out-of-core settings."""
     cfg = load_config("config/profiles/large_scale.yaml")
-    
+
     # When out-of-core enabled and save_transformed_files is true,
     # alignment should be able to work with file paths
     if cfg.outofcore.enabled and cfg.outofcore.save_transformed_files:
@@ -174,4 +176,5 @@ def test_config_coordination_with_alignment():
 
 if __name__ == "__main__":
     import pytest
+
     pytest.main([__file__, "-v"])

@@ -49,7 +49,7 @@ def run_alignment(
     Returns:
         An :class:`AlignmentResult` with the aligned point clouds and transform.
     """
-    alignment_enabled = getattr(cfg.alignment, 'enabled', True)
+    alignment_enabled = getattr(cfg.alignment, "enabled", True)
 
     if not alignment_enabled:
         logger.info("=== STEP 2: Spatial Alignment (SKIPPED) ===")
@@ -105,7 +105,11 @@ def run_alignment(
 
     if getattr(cfg.alignment, "multiscale", None) and cfg.alignment.multiscale.enabled:
         transform_matrix = _run_multiscale_icp(
-            cfg, points1, points2, transform_matrix, rng,
+            cfg,
+            points1,
+            points2,
+            transform_matrix,
+            rng,
         )
 
     # ----------------------------------------------------------------
@@ -120,7 +124,9 @@ def run_alignment(
     points2_for_icp = points2
     if cfg.alignment.overlap_filter and not data.use_streaming:
         mask1, mask2 = compute_overlap_mask(
-            points1, points2, margin=cfg.alignment.overlap_margin_m,
+            points1,
+            points2,
+            margin=cfg.alignment.overlap_margin_m,
         )
         n1_overlap = int(mask1.sum())
         n2_overlap = int(mask2.sum())
@@ -129,12 +135,16 @@ def run_alignment(
             points2_for_icp = points2[mask2]
             logger.info(
                 "Overlap filter: T1 %d/%d, T2 %d/%d points in overlap region",
-                n1_overlap, len(points1), n2_overlap, len(points2),
+                n1_overlap,
+                len(points1),
+                n2_overlap,
+                len(points2),
             )
         else:
             logger.warning(
                 "Overlap filter: too few points in overlap (%d, %d); using full clouds",
-                n1_overlap, n2_overlap,
+                n1_overlap,
+                n2_overlap,
             )
 
     # ----------------------------------------------------------------
@@ -161,12 +171,16 @@ def run_alignment(
         icp_source = points1_subsampled
         icp_target = points2_subsampled
         icp_source_full = points1
-        logger.info("ICP direction: aligning T1 (%s) to T2 (%s) reference", data.t1, data.t2)
+        logger.info(
+            "ICP direction: aligning T1 (%s) to T2 (%s) reference", data.t1, data.t2
+        )
     else:
         icp_source = points2_subsampled
         icp_target = points1_subsampled
         icp_source_full = points2
-        logger.info("ICP direction: aligning T2 (%s) to T1 (%s) reference", data.t2, data.t1)
+        logger.info(
+            "ICP direction: aligning T2 (%s) to T1 (%s) reference", data.t2, data.t1
+        )
 
     # ----------------------------------------------------------------
     # Perform ICP
@@ -192,7 +206,10 @@ def run_alignment(
     # Validation RMSE
     # ----------------------------------------------------------------
     alignment_error = _compute_validation_error(
-        icp, source_full_aligned, icp_target, rng,
+        icp,
+        source_full_aligned,
+        icp_target,
+        rng,
     )
     logger.info("Alignment validation (post-ICP): RMSE=%.6f m", alignment_error)
 
@@ -201,7 +218,11 @@ def run_alignment(
     # ----------------------------------------------------------------
     if cfg.alignment.export_aligned_pc:
         _export_aligned_pc(
-            cfg, data, source_full_aligned, aligned_epoch, transform_matrix,
+            cfg,
+            data,
+            source_full_aligned,
+            aligned_epoch,
+            transform_matrix,
         )
 
     # ----------------------------------------------------------------
@@ -240,8 +261,16 @@ def _run_multiscale_icp(
     n_coarse = cfg.alignment.multiscale.coarse_subsample_size
     n1c = min(len(points1), n_coarse)
     n2c = min(len(points2), n_coarse)
-    idx1c = rng.choice(len(points1), n1c, replace=False) if len(points1) > n1c else np.arange(len(points1))
-    idx2c = rng.choice(len(points2), n2c, replace=False) if len(points2) > n2c else np.arange(len(points2))
+    idx1c = (
+        rng.choice(len(points1), n1c, replace=False)
+        if len(points1) > n1c
+        else np.arange(len(points1))
+    )
+    idx2c = (
+        rng.choice(len(points2), n2c, replace=False)
+        if len(points2) > n2c
+        else np.arange(len(points2))
+    )
     points1_coarse = points1[idx1c]
     points2_coarse = points2[idx2c]
 
@@ -261,9 +290,12 @@ def _run_multiscale_icp(
 
     # Pre-refinement RMSE
     try:
-        points2_coarse_init = icp_coarse.apply_transformation(points2_coarse, transform_matrix)
+        points2_coarse_init = icp_coarse.apply_transformation(
+            points2_coarse, transform_matrix
+        )
         pre_coarse_err = icp_coarse.compute_registration_error(
-            source=points2_coarse_init, target=points1_coarse,
+            source=points2_coarse_init,
+            target=points1_coarse,
         )
     except Exception:
         pre_coarse_err = None
@@ -277,12 +309,17 @@ def _run_multiscale_icp(
     if pre_coarse_err is not None and coarse_err > pre_coarse_err:
         logger.info(
             "Multi-scale refinement unchanged (no improvement): RMSE %.6f m → %.6f m",
-            pre_coarse_err, coarse_err,
+            pre_coarse_err,
+            coarse_err,
         )
     else:
         transform_matrix = T_coarse
         if pre_coarse_err is not None:
-            logger.info("Multi-scale refinement improved: RMSE %.6f m → %.6f m", pre_coarse_err, coarse_err)
+            logger.info(
+                "Multi-scale refinement improved: RMSE %.6f m → %.6f m",
+                pre_coarse_err,
+                coarse_err,
+            )
         else:
             logger.info("Multi-scale refinement completed: RMSE=%.6f m", coarse_err)
 
@@ -294,6 +331,7 @@ def _create_icp_backend(cfg: AppConfig):
     if cfg.alignment.icp_backend == "open3d":
         try:
             from terrain_change_detection.alignment.open3d_icp import Open3DICP
+
             icp = Open3DICP(
                 max_iterations=cfg.alignment.max_iterations,
                 tolerance=cfg.alignment.tolerance,
@@ -317,7 +355,9 @@ def _create_icp_backend(cfg: AppConfig):
 
 
 def _compute_validation_error(
-    icp, source_aligned: np.ndarray, icp_target: np.ndarray,
+    icp,
+    source_aligned: np.ndarray,
+    icp_target: np.ndarray,
     rng: np.random.Generator,
 ) -> float:
     """Compute post-ICP RMSE on a downsampled subset."""
@@ -346,12 +386,20 @@ def _export_aligned_pc(
     aligned_pc_path = export_dir / f"aligned_{aligned_epoch}.laz"
     export_points = (
         data.local_transform.to_global(source_full_aligned)
-        if data.local_transform else source_full_aligned
+        if data.local_transform
+        else source_full_aligned
     )
-    source_laz = data.ds1.laz_files[0] if cfg.alignment.reference == "t2" else data.ds2.laz_files[0]
+    source_laz = (
+        data.ds1.laz_files[0]
+        if cfg.alignment.reference == "t2"
+        else data.ds2.laz_files[0]
+    )
     export_points_to_laz(
-        export_points, None, str(aligned_pc_path),
-        crs=crs, source_laz_path=str(source_laz),
+        export_points,
+        None,
+        str(aligned_pc_path),
+        crs=crs,
+        source_laz_path=str(source_laz),
     )
     logger.info("Aligned point cloud exported to: %s", aligned_pc_path)
 
@@ -365,16 +413,25 @@ def _apply_streaming_transform(
     logger.info("--- Applying transformation to full datasets (streaming) ---")
 
     if cfg.alignment.reference == "t2":
-        files_to_transform = data.pc1_data['file_paths']
+        files_to_transform = data.pc1_data["file_paths"]
         aligned_label = f"{data.t1}_aligned"
     else:
-        files_to_transform = data.pc2_data['file_paths']
+        files_to_transform = data.pc2_data["file_paths"]
         aligned_label = f"{data.t2}_aligned"
 
     if cfg.outofcore.output_dir:
-        output_dir = Path(cfg.outofcore.output_dir) / data.selected_area.area_name / aligned_label
+        output_dir = (
+            Path(cfg.outofcore.output_dir)
+            / data.selected_area.area_name
+            / aligned_label
+        )
     else:
-        output_dir = Path(cfg.paths.base_dir).parent / "processed" / data.selected_area.area_name / aligned_label
+        output_dir = (
+            Path(cfg.paths.base_dir).parent
+            / "processed"
+            / data.selected_area.area_name
+            / aligned_label
+        )
 
     try:
         aligned_files = apply_transform_to_files(
@@ -386,9 +443,9 @@ def _apply_streaming_transform(
             chunk_points=cfg.outofcore.chunk_points,
         )
         if cfg.alignment.reference == "t2":
-            data.pc1_data['aligned_file_paths'] = aligned_files
+            data.pc1_data["aligned_file_paths"] = aligned_files
         else:
-            data.pc2_data['aligned_file_paths'] = aligned_files
+            data.pc2_data["aligned_file_paths"] = aligned_files
 
         transform_file = output_dir / "transformation_matrix.txt"
         save_transform_matrix(transform_matrix, str(transform_file))

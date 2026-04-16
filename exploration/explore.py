@@ -37,16 +37,20 @@ print(f"Z: {las_file.z.min():.2f} to {las_file.z.max():.2f}")
 print("Header information:")
 print(f"Version: {las_file.header.version}")
 print(f"Creation date: {las_file.header.creation_date}")
-print(f"Scale factors: X={las_file.header.x_scale}, Y={las_file.header.y_scale}, Z={las_file.header.z_scale}")
-print(f"Offsets: X={las_file.header.x_offset}, Y={las_file.header.y_offset}, Z={las_file.header.z_offset}")
+print(
+    f"Scale factors: X={las_file.header.x_scale}, Y={las_file.header.y_scale}, Z={las_file.header.z_scale}"
+)
+print(
+    f"Offsets: X={las_file.header.x_offset}, Y={las_file.header.y_offset}, Z={las_file.header.z_offset}"
+)
 
 # Point classification analysis
-print("\n" + "="*50)
+print("\n" + "=" * 50)
 print("POINT CLASSIFICATION ANALYSIS")
-print("="*50)
+print("=" * 50)
 
 # Check if classification data exists
-if hasattr(las_file, 'classification'):
+if hasattr(las_file, "classification"):
     classifications = las_file.classification
     # Use numpy's efficient unique function with return_counts for better performance
     unique_classes, counts = np.unique(classifications, return_counts=True)
@@ -75,14 +79,16 @@ if hasattr(las_file, 'classification'):
         15: "Transmission Tower",
         16: "Wire-structure Connector (e.g. Insulator)",
         17: "Bridge Deck",
-        18: "High Noise"
+        18: "High Noise",
     }
 
     print("\nClassification breakdown:")
     for class_code, count in zip(unique_classes, counts):
         percentage = (count / len(classifications)) * 100
         meaning = class_meanings.get(class_code, "User defined or reserved")
-        print(f"  Class {class_code:2d}: {count:8,} points ({percentage:5.1f}%) - {meaning}")
+        print(
+            f"  Class {class_code:2d}: {count:8,} points ({percentage:5.1f}%) - {meaning}"
+        )
 else:
     print("No classification field found in this file.")
 

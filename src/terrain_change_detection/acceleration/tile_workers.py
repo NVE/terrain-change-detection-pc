@@ -31,11 +31,11 @@ logger = logging.getLogger(__name__)
 def apply_transform(points: np.ndarray, matrix: np.ndarray) -> np.ndarray:
     """
     Apply 4x4 transformation matrix to points.
-    
+
     Args:
         points: (N, 3) array of XYZ coordinates
         matrix: (4, 4) transformation matrix
-    
+
     Returns:
         Transformed points (N, 3)
     """
@@ -68,10 +68,10 @@ def process_dod_tile(
 ) -> Tuple[Tile, np.ndarray, np.ndarray]:
     """
     Process single DoD tile in worker process.
-    
+
     Streams points from both epochs, accumulates them into grid cells,
     and computes mean DEMs for the tile.
-    
+
     Args:
         tile: Tile with inner and outer bounds
         files_t1: Epoch 1 LAZ/LAS file paths
@@ -80,14 +80,14 @@ def process_dod_tile(
         chunk_points: Maximum points per streaming chunk
         classification_filter: Optional list of classification codes to include
         transform_matrix: Optional 4x4 transformation matrix for epoch 2
-    
+
     Returns:
         Tuple of (tile, dem1, dem2) where DEMs are 2D arrays with shape (ny, nx)
     """
     # Create accumulators for this tile's inner bounds
     acc1 = GridAccumulator(tile.inner, cell_size, use_gpu=use_gpu)
     acc2 = GridAccumulator(tile.inner, cell_size, use_gpu=use_gpu)
-    
+
     # Convert tile bounds back to global coords for bbox filtering if using local transform
     # (files have global coords, but tile bounds were converted to local)
     if local_transform is not None:
@@ -99,13 +99,13 @@ def process_dod_tile(
         )
     else:
         outer_bbox = tile.outer
-    
+
     # Stream and accumulate epoch 1 points (using outer bounds for complete coverage)
     reader1 = LaspyStreamReader(
         files_t1,
         ground_only=ground_only,
         classification_filter=classification_filter,
-        chunk_points=chunk_points
+        chunk_points=chunk_points,
     )
     n_chunks_1 = 0
     n_points_1 = 0
@@ -113,13 +113,13 @@ def process_dod_tile(
         acc1.accumulate(chunk)
         n_chunks_1 += 1
         n_points_1 += len(chunk)
-    
+
     # Stream and accumulate epoch 2 points (with optional transformation)
     reader2 = LaspyStreamReader(
         files_t2,
         ground_only=ground_only,
         classification_filter=classification_filter,
-        chunk_points=chunk_points
+        chunk_points=chunk_points,
     )
     n_chunks_2 = 0
     n_points_2 = 0
@@ -130,11 +130,11 @@ def process_dod_tile(
         acc2.accumulate(chunk)
         n_chunks_2 += 1
         n_points_2 += len(chunk)
-    
+
     # Compute mean DEMs
     dem1 = acc1.finalize()
     dem2 = acc2.finalize()
-    
+
     # Log tile completion with stats
     logger.debug(
         f"Tile complete: inner=({tile.inner.min_x:.1f}, {tile.inner.min_y:.1f}) "
@@ -142,7 +142,7 @@ def process_dod_tile(
         f"T2={n_points_2:,} pts ({n_chunks_2} chunks), "
         f"DEM shape={dem1.shape}"
     )
-    
+
     return (tile, dem1, dem2)
 
 
@@ -162,10 +162,10 @@ def process_c2c_tile(
 ) -> Tuple[Tile, np.ndarray]:
     """
     Process single C2C tile in worker process.
-    
+
     Loads source points from inner tile and target points from outer tile
     (with halo for radius coverage), then computes nearest neighbor distances.
-    
+
     Args:
         tile: Tile with inner and outer bounds
         files_source: Source point cloud file paths
@@ -177,7 +177,7 @@ def process_c2c_tile(
         k_neighbors: Number of nearest neighbors (typically 1)
         ground_only: Whether to filter ground points only
         use_gpu: Whether to use GPU acceleration for nearest neighbors
-    
+
     Returns:
         Tuple of (tile, distances) where distances is 1D array
     """
@@ -199,46 +199,46 @@ def process_c2c_tile(
     else:
         inner_bbox = tile.inner
         outer_bbox = tile.outer
-    
+
     # Load source points (inner tile only - these are the query points)
     source_points = []
     reader_src = LaspyStreamReader(
         files_source,
         ground_only=ground_only,
         classification_filter=classification_filter,
-        chunk_points=chunk_points
+        chunk_points=chunk_points,
     )
     for chunk in reader_src.stream_points(bbox=inner_bbox, transform=local_transform):
         if transform_matrix is not None:
             # Apply ICP transformation on-the-fly (now in local coordinate space)
             chunk = apply_transform(chunk, transform_matrix)
         source_points.append(chunk)
-    
+
     source = np.vstack(source_points) if source_points else np.empty((0, 3))
-    
+
     # Load target points (outer tile with halo for radius coverage)
     target_points = []
     reader_tgt = LaspyStreamReader(
         files_target,
         ground_only=ground_only,
         classification_filter=classification_filter,
-        chunk_points=chunk_points
+        chunk_points=chunk_points,
     )
     for chunk in reader_tgt.stream_points(bbox=outer_bbox, transform=local_transform):
         target_points.append(chunk)
-    
+
     target = np.vstack(target_points) if target_points else np.empty((0, 3))
-    
+
     # Handle empty point clouds
     if len(source) == 0:
         logger.debug(f"Tile has no source points: {tile.inner}")
         return (tile, np.array([]))
-    
+
     if len(target) == 0:
         logger.warning(f"Tile has no target points: {tile.outer}")
         # Return inf distances for all source points
         return (tile, np.full(len(source), np.inf, dtype=float))
-    
+
     # Build nearest neighbors structure and query
     try:
         # Try GPU first if requested
@@ -257,19 +257,20 @@ def process_c2c_tile(
             except Exception as e:
                 logger.debug(f"GPU nearest neighbors failed, falling back to CPU: {e}")
                 use_gpu = False
-        
+
         # CPU fallback
         if not use_gpu:
             from sklearn.neighbors import KDTree
+
             tree = KDTree(target)
             distances, indices = tree.query(source, k=k_neighbors)
             distances = distances.flatten()
             gpu_used = False
             backend = "cpu"
-        
+
         # Apply radius cutoff
         distances = np.where(distances <= max_distance, distances, np.inf)
-        
+
         if gpu_used:
             backend_str = f"GPU[{backend}]"
         else:
@@ -280,9 +281,9 @@ def process_c2c_tile(
             f"{len(source):,} source, {len(target):,} target, "
             f"{np.isfinite(distances).sum():,} valid distances (max={max_distance:.2f})"
         )
-        
+
         return (tile, distances)
-        
+
     except Exception as e:
         logger.error(f"Nearest neighbors query failed for tile: {e}")
         raise
@@ -303,11 +304,11 @@ def process_m3c2_tile(
 ):
     """
     Process single M3C2 tile in worker process.
-    
+
     Loads both epoch point clouds for the tile and runs M3C2 on core points.
     Core points can be either pre-computed (tile_cores_dict) or selected
     per-tile using reservoir sampling (core_points_percent).
-    
+
     Args:
         tile: Tile with inner and outer bounds
         files_t1: Epoch 1 file paths
@@ -319,14 +320,14 @@ def process_m3c2_tile(
         transform_matrix: Optional transformation for epoch 2
         tile_cores_dict: Dictionary mapping (i,j) to pre-computed core points
         core_points_percent: If provided, select this percentage of T1 points as cores
-    
+
     Returns:
         Tuple of (tile, M3C2Result) for assembly
     """
     from ..detection.m3c2 import M3C2Detector, M3C2Result
-    
+
     ij_key = (tile.i, tile.j)
-    
+
     # Convert tile bounds back to global coords for bbox filtering if using local transform
     # (files have global coords, but tile bounds were converted to local)
     if local_transform is not None:
@@ -338,25 +339,33 @@ def process_m3c2_tile(
         )
     else:
         outer_bbox = tile.outer
-    
+
     # Load epoch 1 points (outer bounds for neighborhoods)
     points_t1 = []
     reader1 = LaspyStreamReader(
         files_t1,
         ground_only=ground_only,
         classification_filter=classification_filter,
-        chunk_points=chunk_points
+        chunk_points=chunk_points,
     )
     for chunk in reader1.stream_points(bbox=outer_bbox, transform=local_transform):
         points_t1.append(chunk)
-    
+
     pc1 = np.vstack(points_t1) if points_t1 else np.empty((0, 3))
-    
+
     # Handle empty T1
     if len(pc1) == 0:
         logger.warning(f"Tile ({tile.i},{tile.j}) has no T1 points")
-        return (tile, M3C2Result(core_points=np.empty((0, 3)), distances=np.array([]), uncertainty=None, metadata={}))
-    
+        return (
+            tile,
+            M3C2Result(
+                core_points=np.empty((0, 3)),
+                distances=np.array([]),
+                uncertainty=None,
+                metadata={},
+            ),
+        )
+
     # Determine core points for this tile
     if tile_cores_dict is not None and ij_key in tile_cores_dict:
         # Use pre-computed core points (backward compatibility)
@@ -365,49 +374,69 @@ def process_m3c2_tile(
         # Per-tile core point selection: sample from T1 points in inner tile
         # Filter pc1 to inner bounds for core selection
         inner_mask = (
-            (pc1[:, 0] >= tile.inner.min_x) & (pc1[:, 0] <= tile.inner.max_x) &
-            (pc1[:, 1] >= tile.inner.min_y) & (pc1[:, 1] <= tile.inner.max_y)
+            (pc1[:, 0] >= tile.inner.min_x)
+            & (pc1[:, 0] <= tile.inner.max_x)
+            & (pc1[:, 1] >= tile.inner.min_y)
+            & (pc1[:, 1] <= tile.inner.max_y)
         )
         pc1_inner = pc1[inner_mask]
-        
+
         if len(pc1_inner) == 0:
             logger.warning(f"Tile ({tile.i},{tile.j}) has no T1 points in inner bounds")
-            return (tile, M3C2Result(core_points=np.empty((0, 3)), distances=np.array([]), uncertainty=None, metadata={}))
-        
+            return (
+                tile,
+                M3C2Result(
+                    core_points=np.empty((0, 3)),
+                    distances=np.array([]),
+                    uncertainty=None,
+                    metadata={},
+                ),
+            )
+
         # Calculate number of core points for this tile
         n_cores = max(1, int(len(pc1_inner) * core_points_percent / 100.0))
-        
+
         # Subsample if needed
         if len(pc1_inner) > n_cores:
             idx = np.random.choice(len(pc1_inner), n_cores, replace=False)
             core_points_tile = pc1_inner[idx]
         else:
             core_points_tile = pc1_inner
-        
+
         logger.debug(
             f"Tile ({tile.i},{tile.j}) selected {len(core_points_tile):,} core points "
             f"({core_points_percent:.1f}% of {len(pc1_inner):,} inner T1 points)"
         )
     else:
-        logger.warning(f"Tile ({tile.i},{tile.j}) has no core points source (neither dict nor percent)")
-        return (tile, M3C2Result(core_points=np.empty((0, 3)), distances=np.array([]), uncertainty=None, metadata={}))
-    
+        logger.warning(
+            f"Tile ({tile.i},{tile.j}) has no core points source (neither dict nor percent)"
+        )
+        return (
+            tile,
+            M3C2Result(
+                core_points=np.empty((0, 3)),
+                distances=np.array([]),
+                uncertainty=None,
+                metadata={},
+            ),
+        )
+
     # Load epoch 2 points
     points_t2 = []
     reader2 = LaspyStreamReader(
         files_t2,
         ground_only=ground_only,
         classification_filter=classification_filter,
-        chunk_points=chunk_points
+        chunk_points=chunk_points,
     )
     for chunk in reader2.stream_points(bbox=outer_bbox, transform=local_transform):
         if transform_matrix is not None:
             # Apply ICP transformation on-the-fly (now in local coordinate space)
             chunk = apply_transform(chunk, transform_matrix)
         points_t2.append(chunk)
-    
+
     pc2 = np.vstack(points_t2) if points_t2 else np.empty((0, 3))
-    
+
     # Handle empty T2
     if len(pc2) == 0:
         logger.warning(
@@ -415,22 +444,39 @@ def process_m3c2_tile(
             f"T1={len(pc1)}, core={len(core_points_tile)}"
         )
         empty_distances = np.full(len(core_points_tile), np.nan, dtype=float)
-        return (tile, M3C2Result(core_points=core_points_tile, distances=empty_distances, uncertainty=None, metadata={}))
-    
+        return (
+            tile,
+            M3C2Result(
+                core_points=core_points_tile,
+                distances=empty_distances,
+                uncertainty=None,
+                metadata={},
+            ),
+        )
+
     # Run M3C2 computation
     try:
-        result = M3C2Detector.compute_m3c2_original(core_points_tile, pc1, pc2, params, _verbose=False)
-        
+        result = M3C2Detector.compute_m3c2_original(
+            core_points_tile, pc1, pc2, params, _verbose=False
+        )
+
         logger.debug(
             f"Tile ({tile.i},{tile.j}) M3C2 complete: {len(core_points_tile):,} core points, "
             f"{len(pc1):,} T1 pts, {len(pc2):,} T2 pts, "
             f"{np.sum(np.isfinite(result.distances)):,} valid distances"
         )
-        
+
         return (tile, result)
-        
+
     except Exception as e:
         logger.error(f"M3C2 computation failed for tile ({tile.i},{tile.j}): {e}")
         empty_distances = np.full(len(core_points_tile), np.nan, dtype=float)
-        return (tile, M3C2Result(core_points=core_points_tile, distances=empty_distances, uncertainty=None, metadata={}))
-
+        return (
+            tile,
+            M3C2Result(
+                core_points=core_points_tile,
+                distances=empty_distances,
+                uncertainty=None,
+                metadata={},
+            ),
+        )

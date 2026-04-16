@@ -29,7 +29,9 @@ class CoarseRegistration:
     voxel_size: float = 2.0
     phase_grid_cell: float = 2.0
 
-    def compute_initial_transform(self, source: np.ndarray, target: np.ndarray) -> np.ndarray:
+    def compute_initial_transform(
+        self, source: np.ndarray, target: np.ndarray
+    ) -> np.ndarray:
         """
         Compute a coarse initial transform aligning source -> target.
 
@@ -44,12 +46,14 @@ class CoarseRegistration:
             return np.eye(4)
 
         if source.size == 0 or target.size == 0:
-            logger.warning("CoarseRegistration: empty inputs; returning identity transform.")
+            logger.warning(
+                "CoarseRegistration: empty inputs; returning identity transform."
+            )
             return np.eye(4)
 
         method = self.method.lower()
         logger.info(f"Computing coarse registration ({method})...")
-        
+
         if method == "centroid":
             T = self._centroid_transform(source, target)
         elif method == "pca":
@@ -57,26 +61,36 @@ class CoarseRegistration:
             T = self._validate_or_fallback(source, target, T)
         elif method == "phase":
             try:
-                T = self._phase_correlation_xy(source, target, cell=self.phase_grid_cell)
+                T = self._phase_correlation_xy(
+                    source, target, cell=self.phase_grid_cell
+                )
             except Exception as e:
-                logger.warning(f"Phase correlation failed: {e}; falling back to centroid.")
+                logger.warning(
+                    f"Phase correlation failed: {e}; falling back to centroid."
+                )
                 T = self._centroid_transform(source, target)
             T = self._validate_or_fallback(source, target, T)
         elif method == "open3d_fpfh":
             try:
                 T = self._open3d_fpfh_transform(source, target, voxel=self.voxel_size)
             except Exception as e:
-                logger.warning(f"Open3D FPFH coarse registration failed: {e}; falling back to PCA.")
+                logger.warning(
+                    f"Open3D FPFH coarse registration failed: {e}; falling back to PCA."
+                )
                 T = self._pca_transform(source, target)
             T = self._validate_or_fallback(source, target, T)
         else:
-            logger.warning(f"Unknown coarse registration method '{self.method}', using identity.")
+            logger.warning(
+                f"Unknown coarse registration method '{self.method}', using identity."
+            )
             T = np.eye(4)
-        
+
         # Log translation magnitude
         translation = np.linalg.norm(T[:3, 3])
-        logger.info(f"Coarse registration completed: translation magnitude = {translation:.3f} m")
-        
+        logger.info(
+            f"Coarse registration completed: translation magnitude = {translation:.3f} m"
+        )
+
         return T
 
     # ------------------------ Methods ------------------------
@@ -121,7 +135,9 @@ class CoarseRegistration:
         T[:3, 3] = t
         return T
 
-    def _phase_correlation_xy(self, src: np.ndarray, dst: np.ndarray, *, cell: float = 2.0) -> np.ndarray:
+    def _phase_correlation_xy(
+        self, src: np.ndarray, dst: np.ndarray, *, cell: float = 2.0
+    ) -> np.ndarray:
         """Estimate XY translation using phase correlation of occupancy grids.
 
         Returns 4x4 with identity rotation and estimated XY translation.
@@ -199,11 +215,15 @@ class CoarseRegistration:
         T[:3, 3] = t_xy
         return T
 
-    def _open3d_fpfh_transform(self, src: np.ndarray, dst: np.ndarray, *, voxel: float = 2.0) -> np.ndarray:
+    def _open3d_fpfh_transform(
+        self, src: np.ndarray, dst: np.ndarray, *, voxel: float = 2.0
+    ) -> np.ndarray:
         try:
             import open3d as o3d  # type: ignore
         except Exception as e:
-            raise ImportError("Open3D is required for open3d_fpfh coarse registration") from e
+            raise ImportError(
+                "Open3D is required for open3d_fpfh coarse registration"
+            ) from e
 
         def to_pcd(points: np.ndarray) -> "o3d.geometry.PointCloud":
             pcd = o3d.geometry.PointCloud()
@@ -216,14 +236,20 @@ class CoarseRegistration:
             src_pcd = src_pcd.voxel_down_sample(voxel)
             dst_pcd = dst_pcd.voxel_down_sample(voxel)
 
-        src_pcd.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=voxel * 2.0, max_nn=30))
-        dst_pcd.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=voxel * 2.0, max_nn=30))
+        src_pcd.estimate_normals(
+            o3d.geometry.KDTreeSearchParamHybrid(radius=voxel * 2.0, max_nn=30)
+        )
+        dst_pcd.estimate_normals(
+            o3d.geometry.KDTreeSearchParamHybrid(radius=voxel * 2.0, max_nn=30)
+        )
 
         src_fpfh = o3d.pipelines.registration.compute_fpfh_feature(
-            src_pcd, o3d.geometry.KDTreeSearchParamHybrid(radius=voxel * 5.0, max_nn=100)
+            src_pcd,
+            o3d.geometry.KDTreeSearchParamHybrid(radius=voxel * 5.0, max_nn=100),
         )
         dst_fpfh = o3d.pipelines.registration.compute_fpfh_feature(
-            dst_pcd, o3d.geometry.KDTreeSearchParamHybrid(radius=voxel * 5.0, max_nn=100)
+            dst_pcd,
+            o3d.geometry.KDTreeSearchParamHybrid(radius=voxel * 5.0, max_nn=100),
         )
 
         distance_threshold = voxel * 1.5
@@ -234,11 +260,15 @@ class CoarseRegistration:
             dst_fpfh,
             mutual_filter=True,
             max_correspondence_distance=distance_threshold,
-            estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(False),
+            estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(
+                False
+            ),
             ransac_n=4,
             checkers=[
                 o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(0.9),
-                o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(distance_threshold),
+                o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(
+                    distance_threshold
+                ),
             ],
             criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(50000, 1000),
         )
@@ -251,7 +281,9 @@ class CoarseRegistration:
         return T
 
     # ------------------------ Helpers ------------------------
-    def _validate_or_fallback(self, src: np.ndarray, dst: np.ndarray, T: np.ndarray, *, threshold: float = 1.1) -> np.ndarray:
+    def _validate_or_fallback(
+        self, src: np.ndarray, dst: np.ndarray, T: np.ndarray, *, threshold: float = 1.1
+    ) -> np.ndarray:
         """Quickly evaluate coarse transform; fallback to centroid if clearly worse.
 
         Uses a small NN-based RMSE on random subsamples to score the candidate vs. centroid.
@@ -263,14 +295,17 @@ class CoarseRegistration:
             if not np.isfinite(rmse_T) or rmse_T > threshold * rmse_C:
                 logger.warning(
                     "CoarseRegistration: candidate transform worse than centroid (rmse %.3f vs %.3f). Using centroid.",
-                    rmse_T, rmse_C,
+                    rmse_T,
+                    rmse_C,
                 )
                 return T_cent
             return T
         except Exception:
             return T
 
-    def _score_rmse(self, src: np.ndarray, dst: np.ndarray, T: np.ndarray, *, max_pairs: int = 3000) -> float:
+    def _score_rmse(
+        self, src: np.ndarray, dst: np.ndarray, T: np.ndarray, *, max_pairs: int = 3000
+    ) -> float:
         if src.size == 0 or dst.size == 0:
             return float("inf")
         rng = np.random.default_rng(0)
@@ -279,14 +314,23 @@ class CoarseRegistration:
         # cap product to ~2e6 distance evaluations
         max_prod = 2_000_000
         n_tgt = min(len(dst), max(1000, int(max_prod / max(1, n_src))))
-        idx_s = rng.choice(len(src), n_src, replace=False) if len(src) > n_src else np.arange(len(src))
-        idx_t = rng.choice(len(dst), n_tgt, replace=False) if len(dst) > n_tgt else np.arange(len(dst))
+        idx_s = (
+            rng.choice(len(src), n_src, replace=False)
+            if len(src) > n_src
+            else np.arange(len(src))
+        )
+        idx_t = (
+            rng.choice(len(dst), n_tgt, replace=False)
+            if len(dst) > n_tgt
+            else np.arange(len(dst))
+        )
         A = src[idx_s]
         B = dst[idx_t]
         # apply transform to sampled source
         A1 = self.apply_transformation(A, T)
         try:
             from sklearn.neighbors import NearestNeighbors  # type: ignore
+
             nn = NearestNeighbors(n_neighbors=1, algorithm="kd_tree")
             nn.fit(B)
             d, _ = nn.kneighbors(A1)
@@ -295,7 +339,8 @@ class CoarseRegistration:
             diff = A1[:, None, :] - B[None, :, :]
             dsq = np.einsum("ijk,ijk->ij", diff, diff)
             d = np.sqrt(np.min(dsq, axis=1))
-        return float(np.sqrt(np.mean(d ** 2)))
+        return float(np.sqrt(np.mean(d**2)))
+
     @staticmethod
     def apply_transformation(points: np.ndarray, transform: np.ndarray) -> np.ndarray:
         if points.size == 0:
