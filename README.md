@@ -159,6 +159,11 @@ data/raw/
 *   [**Known Issues**](docs/KNOWN_ISSUES.md): Current limitations and workarounds.
 *   [**Changelog**](docs/CHANGELOG.md): History of changes and updates.
 
+
 ## License
 
-TBD
+This project is licensed under the [MIT License](LICENSE).
+
+## Citation
+
+If you use this software in your research, please cite it using the metadata in [`CITATION.cff`](CITATION.cff), or click the **"Cite this repository"** button on GitHub.
