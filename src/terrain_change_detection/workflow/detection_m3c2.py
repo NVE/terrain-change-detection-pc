@@ -41,6 +41,7 @@ def run_m3c2(
     alignment: AlignmentResult,
     args: argparse.Namespace,
     *,
+    run_id: str | None = None,
     visualizer: PointCloudVisualizer | None = None,
     show_plots: bool = False,
 ) -> None:
@@ -151,7 +152,7 @@ def run_m3c2(
         # ----------------------------------------------------------------
         # Export
         # ----------------------------------------------------------------
-        _export_m3c2(cfg, data, m3c2_res)
+        _export_m3c2(cfg, data, m3c2_res, run_id=run_id)
 
     except Exception as e:
         logger.error("M3C2 computation failed: %s", e)
@@ -523,7 +524,7 @@ def _debug_m3c2_compare(m3c2_res_stream, core_src, points1, points2_aligned, m3c
     _summary("inmem", m3c2_res_mem.distances)
 
 
-def _export_m3c2(cfg, data, m3c2_res):
+def _export_m3c2(cfg, data, m3c2_res, *, run_id: str | None = None):
     """Export M3C2 results as LAZ and/or GeoTIFF."""
     export_m3c2_pc = getattr(cfg.detection.m3c2, 'export_pc', True)
     export_m3c2_raster = getattr(cfg.detection.m3c2, 'export_raster', True)
@@ -537,9 +538,10 @@ def _export_m3c2(cfg, data, m3c2_res):
         crs = detect_output_crs(cfg, str(data.ds1.laz_files[0]))
 
         area_prefix = data.selected_area.area_name
+        run_suffix = f"_{run_id}" if run_id else ""
 
         if export_m3c2_pc:
-            m3c2_laz = export_dir / f"m3c2_{area_prefix}_{data.t1}_{data.t2}.laz"
+            m3c2_laz = export_dir / f"m3c2_{area_prefix}_{data.t1}_{data.t2}{run_suffix}.laz"
             extra_dims = {}
             if m3c2_res.uncertainty is not None:
                 extra_dims['uncertainty'] = m3c2_res.uncertainty
@@ -554,7 +556,7 @@ def _export_m3c2(cfg, data, m3c2_res):
             logger.info("Exported M3C2 point cloud: %s", m3c2_laz)
 
         if export_m3c2_raster:
-            m3c2_tif = export_dir / f"m3c2_{area_prefix}_{data.t1}_{data.t2}.tif"
+            m3c2_tif = export_dir / f"m3c2_{area_prefix}_{data.t1}_{data.t2}{run_suffix}.tif"
             export_distances_to_geotiff(
                 m3c2_res.core_points, m3c2_res.distances, str(m3c2_tif),
                 cell_size=cfg.detection.dod.cell_size, crs=crs,

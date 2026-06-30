@@ -20,6 +20,13 @@ from terrain_change_detection.utils.export import (
 
 logger = logging.getLogger(__name__)
 
+
+def make_run_id() -> str:
+    """Create the timestamp identifier shared by outputs and run manifest."""
+    from datetime import datetime
+
+    return datetime.now().strftime('%Y%m%d_%H%M%S')
+
 # ---------------------------------------------------------------------------
 # CRS detection (cached per workflow run)
 # ---------------------------------------------------------------------------
@@ -142,19 +149,23 @@ def write_run_inputs(
     args,
     cfg: AppConfig,
     *,
+    run_id: str | None = None,
     config_files: list[str] | None = None,
     cli_overrides: list[str] | None = None,
 ) -> None:
     """Write the run inputs (CLI args and config) to a text file for record-keeping."""
-    from datetime import datetime
-
     import yaml
 
-    filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+    if run_id is None:
+        run_id = make_run_id()
+    filename = f"{run_id}.txt"
 
     output_path = base_dir / "logs" / filename
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, 'w') as f:
+        f.write("=== Run ===\n")
+        f.write(f"run_id: {run_id}\n\n")
+
         f.write("=== Command Line Arguments ===\n")
         for arg, value in vars(args).items():
             f.write(f"{arg}: {value}\n")

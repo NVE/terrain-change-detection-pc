@@ -24,6 +24,7 @@ from .detection_dod import run_dod
 from .detection_m3c2 import run_m3c2
 from .export_helpers import (
     export_dem_rasters,
+    make_run_id,
     reset_crs_cache,
     resolve_output_dir,
     write_run_inputs,
@@ -61,6 +62,8 @@ def run(
         # Bootstrap
         # ----------------------------------------------------------------
         logger, rng = setup_runtime(cfg)
+        run_id = make_run_id()
+        logger.info("run_id: %s", run_id)
 
         show_plots: bool = args.show_plots
         selected_years: list[int] | None = args.years
@@ -153,7 +156,7 @@ def run(
 
         run_dod(cfg, data, alignment, visualizer=visualizer, show_plots=show_plots)
         run_c2c(cfg, data, alignment, visualizer=visualizer, show_plots=show_plots)
-        run_m3c2(cfg, data, alignment, args, visualizer=visualizer, show_plots=show_plots)
+        run_m3c2(cfg, data, alignment, args, run_id=run_id, visualizer=visualizer, show_plots=show_plots)
 
         # ----------------------------------------------------------------
         # Write run manifest
@@ -161,6 +164,7 @@ def run(
         export_dir = resolve_output_dir(cfg, data.selected_area.area_name)
         write_run_inputs(
             export_dir, args, cfg,
+            run_id=run_id,
             config_files=list(args.config or []),
             cli_overrides=cli_overrides,
         )
