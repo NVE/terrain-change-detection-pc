@@ -24,6 +24,7 @@ from terrain_change_detection.detection import (
 from terrain_change_detection.utils.config import AppConfig
 from terrain_change_detection.utils.export import (
     export_distances_to_geotiff,
+    export_erosion_polygons_geojson,
     export_points_to_laz,
 )
 from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
@@ -573,6 +574,37 @@ def _export_m3c2(cfg, data, m3c2_res, *, run_id: str | None = None):
             )
             logger.info("Exported M3C2 raster: %s", m3c2_tif)
             output_paths.append(str(m3c2_tif))
+
+            erosion_cfg = cfg.detection.m3c2.erosion_polygons
+            if erosion_cfg.enabled:
+                m3c2_geojson = export_dir / f"m3c2_erosion_polygons_{area_prefix}_{data.t1}_{data.t2}{run_suffix}.geojson"
+                significant_values = None
+                if m3c2_res.significant is not None and len(m3c2_res.significant) == len(m3c2_res.distances):
+                    significant_values = m3c2_res.significant
+                elif erosion_cfg.use_significance:
+                    logger.warning("M3C2 significance unavailable or incomplete; exporting erosion polygons without significance mask")
+
+                summary = export_erosion_polygons_geojson(
+                    str(m3c2_tif),
+                    str(m3c2_geojson),
+                    peak_threshold_m=erosion_cfg.peak_threshold_m,
+                    outline_threshold_m=erosion_cfg.outline_threshold_m,
+                    use_significance=erosion_cfg.use_significance,
+                    significant_points=m3c2_res.core_points if significant_values is not None else None,
+                    significant_values=significant_values,
+                    closing_iterations=erosion_cfg.closing_iterations,
+                    opening_iterations=erosion_cfg.opening_iterations,
+                    structure_radius_cells=erosion_cfg.structure_radius_cells,
+                    min_area_m2=erosion_cfg.min_area_m2,
+                    min_cells=erosion_cfg.min_cells,
+                    simplify_tolerance_m=erosion_cfg.simplify_tolerance_m,
+                    local_transform=data.local_transform,
+                )
+                logger.info(
+                    "Exported M3C2 erosion polygons: %s (%d polygons)",
+                    m3c2_geojson, summary["polygon_count"],
+                )
+                output_paths.append(str(m3c2_geojson))
 
         return output_paths
 

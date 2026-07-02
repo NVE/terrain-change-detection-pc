@@ -5,6 +5,7 @@ Tests LAZ point cloud and GeoTIFF raster export functions.
 """
 
 import tempfile
+import json
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
@@ -227,6 +228,142 @@ class TestExportDistancesToGeotiff:
                 # Should have some valid data (not all nodata)
                 nodata = src.nodata
                 assert np.sum(data != nodata) > 0
+
+
+class TestExportErosionPolygonsGeojson:
+    """Tests for hysteresis erosion polygon export."""
+
+    @pytest.fixture(autouse=True)
+    def check_deps(self):
+        pytest.importorskip("rasterio")
+        pytest.importorskip("scipy")
+        pytest.importorskip("shapely")
+
+    def _write_raster(self, path: Path, data: np.ndarray) -> None:
+        import rasterio
+        from rasterio.transform import from_origin
+
+        with rasterio.open(
+            path,
+            "w",
+            driver="GTiff",
+            height=data.shape[0],
+            width=data.shape[1],
+            count=1,
+            dtype="float32",
+            crs="EPSG:25833",
+            transform=from_origin(0, data.shape[0], 1, 1),
+            nodata=-9999.0,
+        ) as dst:
+            dst.write(data.astype(np.float32), 1)
+
+    def test_hysteresis_keeps_outline_component_with_peak(self):
+        from terrain_change_detection.utils.export import export_erosion_polygons_geojson
+
+        raster = np.zeros((8, 8), dtype=float)
+        raster[2:6, 2:6] = -0.3
+        raster[3:5, 3:5] = -0.7
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            raster_path = Path(tmpdir) / "m3c2.tif"
+            output_path = Path(tmpdir) / "erosion.geojson"
+            self._write_raster(raster_path, raster)
+
+            summary = export_erosion_polygons_geojson(
+                str(raster_path),
+                str(output_path),
+                peak_threshold_m=-0.5,
+                outline_threshold_m=-0.25,
+                closing_iterations=0,
+                opening_iterations=0,
+            )
+
+            assert summary["polygon_count"] == 1
+            data = json.loads(output_path.read_text())
+            props = data["features"][0]["properties"]
+            assert props["cell_count"] == 16
+            assert props["min_distance_m"] == pytest.approx(-0.7, abs=1e-6)
+            assert props["peak_erosion_m"] == pytest.approx(0.7, abs=1e-6)
+
+    def test_hysteresis_drops_outline_component_without_peak(self):
+        from terrain_change_detection.utils.export import export_erosion_polygons_geojson
+
+        raster = np.zeros((8, 8), dtype=float)
+        raster[2:6, 2:6] = -0.3
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            raster_path = Path(tmpdir) / "m3c2.tif"
+            output_path = Path(tmpdir) / "erosion.geojson"
+            self._write_raster(raster_path, raster)
+
+            summary = export_erosion_polygons_geojson(
+                str(raster_path),
+                str(output_path),
+                peak_threshold_m=-0.5,
+                outline_threshold_m=-0.25,
+                closing_iterations=0,
+                opening_iterations=0,
+            )
+
+            assert summary["polygon_count"] == 0
+            data = json.loads(output_path.read_text())
+            assert data["features"] == []
+
+    def test_min_cells_filters_small_component(self):
+        from terrain_change_detection.utils.export import export_erosion_polygons_geojson
+
+        raster = np.zeros((8, 8), dtype=float)
+        raster[3, 3] = -0.7
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            raster_path = Path(tmpdir) / "m3c2.tif"
+            output_path = Path(tmpdir) / "erosion.geojson"
+            self._write_raster(raster_path, raster)
+
+            summary = export_erosion_polygons_geojson(
+                str(raster_path),
+                str(output_path),
+                peak_threshold_m=-0.5,
+                outline_threshold_m=-0.25,
+                closing_iterations=0,
+                opening_iterations=0,
+                min_cells=2,
+            )
+
+            assert summary["polygon_count"] == 0
+
+    def test_min_area_requires_polygon_area_greater_than_threshold(self):
+        from terrain_change_detection.utils.export import export_erosion_polygons_geojson
+
+        raster = np.zeros((8, 8), dtype=float)
+        raster[2:5, 2:5] = -0.7
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            raster_path = Path(tmpdir) / "m3c2.tif"
+            output_path = Path(tmpdir) / "erosion.geojson"
+            self._write_raster(raster_path, raster)
+
+            equal_area = export_erosion_polygons_geojson(
+                str(raster_path),
+                str(output_path),
+                peak_threshold_m=-0.5,
+                outline_threshold_m=-0.25,
+                closing_iterations=0,
+                opening_iterations=0,
+                min_area_m2=9.0,
+            )
+            assert equal_area["polygon_count"] == 0
+
+            greater_area = export_erosion_polygons_geojson(
+                str(raster_path),
+                str(output_path),
+                peak_threshold_m=-0.5,
+                outline_threshold_m=-0.25,
+                closing_iterations=0,
+                opening_iterations=0,
+                min_area_m2=8.99,
+            )
+            assert greater_area["polygon_count"] == 1
 
 
 # ============================================================

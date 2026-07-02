@@ -137,6 +137,54 @@ alignment:
 
 `subsample_size` and `subsample_percent` are not competing settings. The workflow uses exactly one of them based on `subsample_mode`, then applies `max_subsample_size` as a final cap.
 
+### 3.1 Reusable Alignment Artifacts
+
+Alignment artifacts are an opt-in cache for expensive post-ICP results. They are disabled by default and never modify original input LAZ files.
+
+```yaml
+artifacts:
+  enabled: false
+  read_existing: true
+  write_outputs: true
+  dir: null
+  force_classification: true
+```
+
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| `enabled` | `false` | Enables reusable artifacts. Default is off to avoid accidental cache reuse. |
+| `read_existing` | `true` | Reuse a valid existing alignment artifact before running ICP. |
+| `write_outputs` | `true` | Write a new alignment artifact after ICP completes. |
+| `dir` | `null` | Optional artifact root. If `null`, uses `output/<area>/artifacts/`. |
+| `force_classification` | `true` | Assigns the configured LAS class to aligned artifact LAZ files so later ground filtering still works. |
+
+When enabled, the first compatible run writes:
+
+- `aligned_<epoch>.laz`: the already-aligned point cloud for the moving epoch.
+- `transformation_matrix.txt`: the ICP transform matrix used for traceability and downstream metadata.
+- `alignment_<t1>_<t2>_<reference>.json`: validation metadata, including input file size/mtime, relevant config, clipping, local coordinate transform, reference epoch, ICP RMSE, and output paths.
+
+On a later run, the workflow validates the metadata. If inputs and relevant configuration still match, it loads `aligned_<epoch>.laz` and skips ICP. The saved matrix is returned in the workflow result, but it is not reapplied to the artifact LAZ because that LAZ is already aligned.
+
+Common CLI patterns:
+
+```bash
+# Populate artifacts, but do not read an older cache
+uv run scripts/run_workflow.py --set artifacts.enabled=true --set artifacts.write_outputs=true --set artifacts.read_existing=false
+
+# Reuse existing artifacts, but do not write/update them
+uv run scripts/run_workflow.py --set artifacts.enabled=true --set artifacts.read_existing=true --set artifacts.write_outputs=false
+
+# Reuse when valid; write when missing or invalid
+uv run scripts/run_workflow.py --set artifacts.enabled=true --set artifacts.read_existing=true --set artifacts.write_outputs=true
+```
+
+Cache is invalidated if input paths, file sizes, mtimes, clipping, local coordinate settings, classification filters, alignment reference, or ICP-relevant parameters change.
+
+Classification behavior: if `classification_filter` is set, artifacts use the first configured class, for example `[2]` writes class `2`. If `classification_filter: null` and `ground_only: true`, artifacts write class `2`. If both are disabled, no class is forced.
+
+Current limitation: reusable alignment artifacts are implemented for in-memory alignment. Streaming/out-of-core artifact reuse is skipped explicitly to avoid treating preview or subsampled arrays as complete point clouds.
+
 ---
 
 ## 4. Detection Methods
@@ -184,6 +232,66 @@ detection:
 | **fixed.radius** | `1.0` | Manual cylinder radius (used if `use_autotune: false`). |
 | **fixed.normal_scale** | `1.0` | Manual scale for normal estimation. |
 | **fixed.depth_factor** | `2.0` | Manual depth factor (max_depth = radius × depth_factor). |
+
+#### M3C2 Erosion Polygon Export
+
+M3C2 can optionally export erosion areas as GeoJSON polygons derived from the M3C2 GeoTIFF raster. This is disabled by default.
+
+```yaml
+detection:
+  m3c2:
+    export_raster: true
+    erosion_polygons:
+      enabled: false
+      peak_threshold_m: -0.5
+      outline_threshold_m: -0.25
+      use_significance: false
+      closing_iterations: 1
+      opening_iterations: 1
+      structure_radius_cells: 1
+      min_area_m2: 0.0
+      min_cells: 1
+      simplify_tolerance_m: 0.0
+      output_format: geojson
+```
+
+The polygon workflow uses hysteresis thresholding:
+
+- `peak_threshold_m` defines the strong erosion seed. A polygon is kept only if it contains at least one raster cell with M3C2 distance `<= peak_threshold_m`.
+- `outline_threshold_m` defines the broader erosion outline. Connected cells with M3C2 distance `<= outline_threshold_m` form the candidate polygon extent.
+- Both thresholds must be negative, and `peak_threshold_m` must be less than or equal to `outline_threshold_m`. Example: `-0.5 <= -0.25`.
+
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| `enabled` | `false` | Export erosion polygons after M3C2 raster export. Requires `export_raster: true`. |
+| `peak_threshold_m` | `-0.5` | Strong negative M3C2 distance required inside each polygon. |
+| `outline_threshold_m` | `-0.25` | Broader negative M3C2 distance used to draw polygon outlines. |
+| `use_significance` | `false` | Experimental. If true and M3C2 significance is available, require significant cells before polygonization. Default is false because significance masking is not yet reliable across current M3C2 runs. |
+| `closing_iterations` | `1` | Number of binary closing iterations applied to the outline mask. Helps fill small gaps. |
+| `opening_iterations` | `1` | Number of binary opening iterations applied after closing. Helps remove speckle noise. |
+| `structure_radius_cells` | `1` | Radius, in raster cells, for the morphology kernel. |
+| `min_area_m2` | `0.0` | Minimum polygon area filter. `0.0` disables the filter. If set to `10`, only polygons with area greater than `10 m²` are kept. |
+| `min_cells` | `1` | Minimum connected raster cells required before polygonization. |
+| `simplify_tolerance_m` | `0.0` | Topology-preserving simplification tolerance in meters. `0.0` disables simplification. |
+| `output_format` | `geojson` | Output vector format. Currently only GeoJSON is supported. |
+
+Example CLI run:
+
+```bash
+uv run scripts/run_workflow.py \
+  --set detection.m3c2.erosion_polygons.enabled=true \
+  --set detection.m3c2.erosion_polygons.peak_threshold_m=-0.5 \
+  --set detection.m3c2.erosion_polygons.outline_threshold_m=-0.25 \
+  --set detection.m3c2.erosion_polygons.min_area_m2=10
+```
+
+Output file pattern:
+
+```text
+m3c2_erosion_polygons_<area>_<t1>_<t2>_<run_id>.geojson
+```
+
+Each GeoJSON feature includes erosion attributes such as `min_distance_m` (negative signed M3C2 distance), `peak_erosion_m` (positive magnitude), `mean_erosion_m`, percentiles, area, cell count, thresholds used, and approximate `volume_loss_m3`.
 
 ### 4.2 DoD (DEM of Difference)
 

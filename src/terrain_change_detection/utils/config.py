@@ -11,7 +11,7 @@ from difflib import get_close_matches
 from pathlib import Path
 from typing import Optional, Literal, List, Any, Dict, Sequence, get_args, get_origin
 
-from pydantic import BaseModel, Field, TypeAdapter, ValidationError
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError, model_validator
 import yaml
 
 
@@ -229,6 +229,44 @@ class DetectionM3C2FixedConfig(BaseModel):
     depth_factor: Optional[float] = Field(default=2.0)
 
 
+class DetectionM3C2ErosionPolygonConfig(BaseModel):
+    enabled: bool = Field(default=False)
+    peak_threshold_m: float = Field(
+        default=-0.5,
+        description="Negative M3C2 distance required inside each erosion polygon",
+    )
+    outline_threshold_m: float = Field(
+        default=-0.25,
+        description="Negative M3C2 distance used to grow erosion polygon outlines",
+    )
+    use_significance: bool = Field(default=False)
+    closing_iterations: int = Field(default=1)
+    opening_iterations: int = Field(default=1)
+    structure_radius_cells: int = Field(default=1)
+    min_area_m2: float = Field(default=0.0)
+    min_cells: int = Field(default=1)
+    simplify_tolerance_m: float = Field(default=0.0)
+    output_format: Literal["geojson"] = Field(default="geojson")
+
+    @model_validator(mode="after")
+    def validate_thresholds(self):
+        if self.peak_threshold_m >= 0 or self.outline_threshold_m >= 0:
+            raise ValueError("erosion polygon thresholds must be negative M3C2 distances")
+        if self.peak_threshold_m > self.outline_threshold_m:
+            raise ValueError("peak_threshold_m must be <= outline_threshold_m")
+        if self.closing_iterations < 0 or self.opening_iterations < 0:
+            raise ValueError("morphology iterations must be >= 0")
+        if self.structure_radius_cells < 0:
+            raise ValueError("structure_radius_cells must be >= 0")
+        if self.min_area_m2 < 0:
+            raise ValueError("min_area_m2 must be >= 0")
+        if self.min_cells < 1:
+            raise ValueError("min_cells must be >= 1")
+        if self.simplify_tolerance_m < 0:
+            raise ValueError("simplify_tolerance_m must be >= 0")
+        return self
+
+
 class DetectionM3C2Config(BaseModel):
     enabled: bool = Field(default=True)
     core_points_percent: Optional[float] = Field(
@@ -251,6 +289,9 @@ class DetectionM3C2Config(BaseModel):
     export_raster: bool = Field(
         default=True,
         description="Export M3C2 distances as interpolated GeoTIFF raster"
+    )
+    erosion_polygons: DetectionM3C2ErosionPolygonConfig = Field(
+        default_factory=DetectionM3C2ErosionPolygonConfig
     )
 
 

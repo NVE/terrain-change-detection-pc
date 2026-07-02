@@ -83,3 +83,8 @@ experiments/
 
 # Verification runs (temporary test outputs)
 verification_runs/
+
+AGENTS.md
+PROAKTIV.md
+docs/CHEATSHEET.md
+config/profiles/proaktiv*.yaml

@@ -9,7 +9,8 @@ These outputs are compatible with QGIS and similar GIS software.
 """
 
 from pathlib import Path
-from typing import Optional, Dict, TYPE_CHECKING
+from typing import Optional, Dict, TYPE_CHECKING, Any
+import json
 import numpy as np
 
 from .logging import setup_logger
@@ -395,3 +396,187 @@ def export_distances_to_geotiff(
         f"Exported distance raster ({width}x{height}, {n_valid:,} cells with data) to {output_path}"
     )
     return str(output_path)
+
+
+def export_erosion_polygons_geojson(
+    raster_path: str,
+    output_path: str,
+    *,
+    peak_threshold_m: float,
+    outline_threshold_m: float,
+    use_significance: bool = False,
+    significant_points: Optional[np.ndarray] = None,
+    significant_values: Optional[np.ndarray] = None,
+    closing_iterations: int = 1,
+    opening_iterations: int = 1,
+    structure_radius_cells: int = 1,
+    min_area_m2: float = 0.0,
+    min_cells: int = 1,
+    simplify_tolerance_m: float = 0.0,
+    local_transform: Optional["LocalCoordinateTransform"] = None,
+) -> dict[str, Any]:
+    """Export erosion polygons from a signed M3C2 distance raster.
+
+    Uses hysteresis thresholding: components are grown from the broader
+    ``outline_threshold_m`` mask, then kept only if they contain at least one
+    cell below ``peak_threshold_m``.
+    """
+    import rasterio
+    from rasterio.features import shapes
+    from scipy import ndimage
+    from shapely.geometry import shape, mapping
+
+    if peak_threshold_m >= 0 or outline_threshold_m >= 0:
+        raise ValueError("erosion thresholds must be negative")
+    if peak_threshold_m > outline_threshold_m:
+        raise ValueError("peak_threshold_m must be <= outline_threshold_m")
+
+    output_path_obj = Path(output_path)
+    output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+    with rasterio.open(raster_path) as src:
+        raster = src.read(1).astype(np.float64)
+        nodata = src.nodata
+        transform = src.transform
+        crs = src.crs.to_string() if src.crs is not None else None
+
+    valid = np.isfinite(raster)
+    if nodata is not None and np.isfinite(nodata):
+        valid &= raster != nodata
+
+    candidate_mask = valid & (raster <= outline_threshold_m)
+    seed_mask = valid & (raster <= peak_threshold_m)
+
+    if use_significance and significant_points is not None and significant_values is not None:
+        significant_grid = _rasterize_nearest_to_existing_grid(
+            significant_points,
+            significant_values,
+            raster.shape,
+            transform,
+            local_transform=local_transform,
+        )
+        significant_mask = significant_grid > 0.5
+        candidate_mask &= significant_mask
+        seed_mask &= significant_mask
+
+    structure = _binary_structure(structure_radius_cells)
+    if closing_iterations > 0:
+        candidate_mask = ndimage.binary_closing(candidate_mask, structure=structure, iterations=closing_iterations)
+    if opening_iterations > 0:
+        candidate_mask = ndimage.binary_opening(candidate_mask, structure=structure, iterations=opening_iterations)
+    candidate_mask &= valid
+
+    labels, label_count = ndimage.label(candidate_mask, structure=structure)
+    if label_count == 0:
+        _write_geojson(output_path_obj, [], crs)
+        return {"path": str(output_path_obj), "polygon_count": 0, "total_area_m2": 0.0, "total_volume_loss_m3": 0.0}
+
+    seed_labels = np.unique(labels[seed_mask & (labels > 0)])
+    keep_labels = set(int(label) for label in seed_labels)
+    if min_cells > 1:
+        counts = np.bincount(labels.ravel())
+        keep_labels = {label for label in keep_labels if counts[label] >= min_cells}
+
+    kept_mask = np.isin(labels, list(keep_labels)) if keep_labels else np.zeros_like(candidate_mask, dtype=bool)
+    pixel_area = abs(transform.a * transform.e)
+    features = []
+
+    for geom_mapping, value in shapes(labels.astype(np.int32), mask=kept_mask, transform=transform):
+        label = int(value)
+        if label <= 0 or label not in keep_labels:
+            continue
+        geom = shape(geom_mapping)
+        if simplify_tolerance_m > 0:
+            geom = geom.simplify(simplify_tolerance_m, preserve_topology=True)
+        if geom.is_empty:
+            continue
+        if min_area_m2 > 0 and geom.area <= min_area_m2:
+            continue
+
+        component_values = raster[labels == label]
+        component_values = component_values[np.isfinite(component_values)]
+        if component_values.size == 0:
+            continue
+        erosion_values = component_values[component_values < 0]
+        if erosion_values.size == 0:
+            continue
+
+        volume_loss = float(np.sum(np.abs(erosion_values)) * pixel_area)
+        min_distance = float(np.min(component_values))
+        props = {
+            "label": label,
+            "cell_count": int(np.sum(labels == label)),
+            "area_m2": float(geom.area),
+            "min_distance_m": min_distance,
+            "peak_erosion_m": float(abs(min_distance)),
+            "mean_erosion_m": float(np.mean(np.abs(erosion_values))),
+            "max_erosion_m": float(np.max(np.abs(erosion_values))),
+            "p05_erosion_m": float(np.percentile(np.abs(erosion_values), 5)),
+            "p50_erosion_m": float(np.percentile(np.abs(erosion_values), 50)),
+            "p95_erosion_m": float(np.percentile(np.abs(erosion_values), 95)),
+            "volume_loss_m3": volume_loss,
+            "peak_threshold_m": float(peak_threshold_m),
+            "outline_threshold_m": float(outline_threshold_m),
+            "closing_iterations": int(closing_iterations),
+            "opening_iterations": int(opening_iterations),
+            "structure_radius_cells": int(structure_radius_cells),
+        }
+        features.append({"type": "Feature", "geometry": mapping(geom), "properties": props})
+
+    _write_geojson(output_path_obj, features, crs)
+    total_area = float(sum(feature["properties"]["area_m2"] for feature in features))
+    total_volume = float(sum(feature["properties"]["volume_loss_m3"] for feature in features))
+    logger.info(
+        "Exported %d erosion polygons (area %.2f m2, volume %.2f m3) to %s",
+        len(features), total_area, total_volume, output_path_obj,
+    )
+    return {
+        "path": str(output_path_obj),
+        "polygon_count": len(features),
+        "total_area_m2": total_area,
+        "total_volume_loss_m3": total_volume,
+    }
+
+
+def _binary_structure(radius_cells: int) -> np.ndarray:
+    if radius_cells <= 0:
+        return np.ones((3, 3), dtype=bool)
+    y, x = np.ogrid[-radius_cells:radius_cells + 1, -radius_cells:radius_cells + 1]
+    return (x * x + y * y) <= radius_cells * radius_cells
+
+
+def _rasterize_nearest_to_existing_grid(
+    points: np.ndarray,
+    values: np.ndarray,
+    shape: tuple[int, int],
+    transform,
+    *,
+    local_transform: Optional["LocalCoordinateTransform"] = None,
+) -> np.ndarray:
+    import rasterio.transform
+    from scipy.spatial import cKDTree
+
+    points = np.asarray(points, dtype=np.float64)
+    values = np.asarray(values, dtype=np.float64)
+    if local_transform is not None:
+        points = local_transform.to_global(points)
+
+    rows, cols = shape
+    xs, ys = np.meshgrid(np.arange(cols), np.arange(rows))
+    grid_x, grid_y = rasterio.transform.xy(transform, ys, xs, offset="center")
+    grid_points = np.column_stack([np.asarray(grid_x).ravel(), np.asarray(grid_y).ravel()])
+    tree = cKDTree(points[:, :2])
+    max_dist = max(abs(transform.a), abs(transform.e)) * 2
+    dists, indices = tree.query(grid_points, k=1, distance_upper_bound=max_dist)
+    out = np.zeros(rows * cols, dtype=np.float64)
+    valid = np.isfinite(dists) & (indices < len(values))
+    out[valid] = values[indices[valid]]
+    return out.reshape(shape)
+
+
+def _write_geojson(output_path: Path, features: list[dict[str, Any]], crs: Optional[str]) -> None:
+    data: dict[str, Any] = {"type": "FeatureCollection", "features": features}
+    if crs:
+        data["crs"] = {"type": "name", "properties": {"name": crs}}
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(data, f)

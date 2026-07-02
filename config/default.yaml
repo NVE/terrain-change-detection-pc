@@ -152,6 +152,25 @@ detection:
     export_pc: true
     # Export M3C2 distances as interpolated GeoTIFF raster
     export_raster: true
+    erosion_polygons:
+      # Export erosion polygons from M3C2 raster using hysteresis thresholds
+      enabled: false
+      # Strong negative M3C2 distance required inside each polygon
+      peak_threshold_m: -0.5
+      # Broader negative M3C2 distance used to draw polygon outlines
+      outline_threshold_m: -0.25
+      # If M3C2 significance is available, require significant cells (experimental)
+      use_significance: false
+      # Binary morphology applied to outline mask before polygonization
+      closing_iterations: 1
+      opening_iterations: 1
+      structure_radius_cells: 1
+      # Remove small polygons/components
+      min_area_m2: 0.0
+      min_cells: 1
+      # Simplify polygon boundaries while preserving topology
+      simplify_tolerance_m: 0.0
+      output_format: geojson
 
 visualization:
   # plotly | pyvista | pyvistaqt
