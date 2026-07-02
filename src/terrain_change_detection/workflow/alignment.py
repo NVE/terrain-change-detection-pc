@@ -24,6 +24,7 @@ from terrain_change_detection.alignment.fine_registration import ICPRegistration
 from terrain_change_detection.utils.config import AppConfig
 from terrain_change_detection.utils.export import export_points_to_laz
 
+from .artifacts import get_forced_classification, load_alignment_artifact, write_alignment_artifact
 from .data_loading import resolve_subsample_count
 from .export_helpers import detect_output_crs, resolve_output_dir
 from .types import AlignmentResult, PreparedData
@@ -61,6 +62,10 @@ def run_alignment(
             aligned_epoch=None,
             alignment_error=None,
         )
+
+    cached_alignment = load_alignment_artifact(cfg, data)
+    if cached_alignment is not None:
+        return cached_alignment
 
     logger.info("=== STEP 2: Spatial Alignment ===")
     step2_start = time.time()
@@ -213,13 +218,15 @@ def run_alignment(
     step2_end = time.time()
     logger.info("Spatial alignment completed in %.2f seconds", step2_end - step2_start)
 
-    return AlignmentResult(
+    result = AlignmentResult(
         points1_aligned=points1_aligned,
         points2_aligned=points2_aligned,
         transform_matrix=transform_matrix,
         aligned_epoch=aligned_epoch,
         alignment_error=alignment_error,
     )
+    write_alignment_artifact(cfg, data, result)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -352,6 +359,7 @@ def _export_aligned_pc(
     export_points_to_laz(
         export_points, None, str(aligned_pc_path),
         crs=crs, source_laz_path=str(source_laz),
+        classification=get_forced_classification(cfg),
     )
     logger.info("Aligned point cloud exported to: %s", aligned_pc_path)
 

@@ -34,7 +34,7 @@ class PathsConfig(BaseModel):
 
 class PreprocessingConfig(BaseModel):
     ground_only: bool = Field(default=True)
-    classification_filter: List[int] = Field(default_factory=lambda: [2])
+    classification_filter: Optional[List[int]] = Field(default_factory=lambda: [2])
 
 
 class CoordinateConfig(BaseModel):
@@ -84,6 +84,14 @@ class ClippingConfig(BaseModel):
         default=None,
         description="Directory to save clipped files (auto if None)"
     )
+
+
+class ArtifactsConfig(BaseModel):
+    enabled: bool = Field(default=False, description="Enable reusable workflow artifacts")
+    read_existing: bool = Field(default=True, description="Reuse valid existing artifacts when available")
+    write_outputs: bool = Field(default=True, description="Write reusable artifacts after expensive steps")
+    dir: Optional[str] = Field(default=None, description="Artifact directory root (auto if None)")
+    force_classification: bool = Field(default=True, description="Force configured class on aligned artifact LAZ files")
 
 
 class CoarseRegistrationConfig(BaseModel):
@@ -298,6 +306,7 @@ class AppConfig(BaseModel):
     coordinates: CoordinateConfig = Field(default_factory=CoordinateConfig)
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
     clipping: ClippingConfig = Field(default_factory=ClippingConfig)
+    artifacts: ArtifactsConfig = Field(default_factory=ArtifactsConfig)
     alignment: AlignmentICPConfig = Field(default_factory=AlignmentICPConfig)
     detection: DetectionConfig = Field(default_factory=DetectionConfig)
     visualization: VisualizationConfig = Field(default_factory=VisualizationConfig)

@@ -89,6 +89,7 @@ def export_points_to_laz(
     extra_dims: Optional[Dict[str, np.ndarray]] = None,
     source_laz_path: Optional[str] = None,
     local_transform: Optional["LocalCoordinateTransform"] = None,
+    classification: Optional[int] = None,
 ) -> str:
     """
     Export points to a LAZ/LAS file, optionally with distance values.
@@ -105,6 +106,7 @@ def export_points_to_laz(
         extra_dims: Optional dict of additional arrays to store as extra dimensions
         source_laz_path: Optional path to source LAZ for CRS auto-detection
         local_transform: If provided, reverts points from local to global coordinates
+        classification: Optional LAS classification code to assign to every point
 
     Returns:
         Path to created file
@@ -179,6 +181,9 @@ def export_points_to_laz(
     las.y = points[:, 1]
     las.z = points[:, 2]
 
+    if classification is not None:
+        las.classification = np.full(len(points), classification, dtype=np.uint8)
+
     # Set distance dimension
     if has_distances:
         las.distance = distances
@@ -245,7 +250,6 @@ def export_dod_to_geotiff(
     # Get DoD array and dimensions
     dod = np.asarray(dod_result.dod, dtype=np.float32)
     min_x, min_y, max_x, max_y = dod_result.bounds
-    cell_size = dod_result.cell_size
 
     # Handle NaN values
     dod = np.where(np.isnan(dod), nodata, dod)
