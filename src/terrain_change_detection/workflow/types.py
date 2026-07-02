@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from terrain_change_detection.preprocessing.data_discovery import AreaInfo, DatasetInfo
 from terrain_change_detection.utils.config import AppConfig
 from terrain_change_detection.utils.coordinate_transform import LocalCoordinateTransform
 
@@ -40,11 +41,11 @@ class DiscoveryResult:
     local coordinate transform before the (expensive) loading step.
     """
 
-    selected_area: object  # AreaInfo from data_discovery
+    selected_area: AreaInfo
     t1: str
     t2: str
-    ds1: object  # DatasetInfo
-    ds2: object  # DatasetInfo
+    ds1: DatasetInfo
+    ds2: DatasetInfo
     use_streaming: bool = False
 
 
@@ -53,11 +54,11 @@ class PreparedData:
     """Output of data-loading and clipping phases."""
 
     # Selected area metadata
-    selected_area: object  # AreaInfo from data_discovery
+    selected_area: AreaInfo
     t1: str
     t2: str
-    ds1: object  # DatasetInfo
-    ds2: object  # DatasetInfo
+    ds1: DatasetInfo
+    ds2: DatasetInfo
 
     # Point arrays (subsampled for streaming, full for in-memory)
     points1: np.ndarray
