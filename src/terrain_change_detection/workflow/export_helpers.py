@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from pprint import pformat
 
 import numpy as np
 
@@ -150,6 +151,7 @@ def write_run_inputs(
     cfg: AppConfig,
     *,
     run_id: str | None = None,
+    evaluation_summary: dict | None = None,
     config_files: list[str] | None = None,
     cli_overrides: list[str] | None = None,
 ) -> None:
@@ -165,6 +167,11 @@ def write_run_inputs(
     with open(output_path, 'w') as f:
         f.write("=== Run ===\n")
         f.write(f"run_id: {run_id}\n\n")
+
+        if evaluation_summary:
+            f.write("=== Run Evaluation Summary ===\n")
+            f.write(pformat(evaluation_summary, sort_dicts=False))
+            f.write("\n\n")
 
         f.write("=== Command Line Arguments ===\n")
         for arg, value in vars(args).items():

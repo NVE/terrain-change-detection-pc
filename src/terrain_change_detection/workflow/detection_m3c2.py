@@ -44,7 +44,7 @@ def run_m3c2(
     run_id: str | None = None,
     visualizer: PointCloudVisualizer | None = None,
     show_plots: bool = False,
-) -> None:
+) -> dict:
     """Compute M3C2 distances (Step 3c).
 
     Args:
@@ -57,7 +57,7 @@ def run_m3c2(
     """
     if not getattr(cfg.detection.m3c2, "enabled", True):
         logger.info("Skipping M3C2 (disabled in config).")
-        return
+        return {"enabled": False}
 
     try:
         logger.info("Computing M3C2 distances...")
@@ -104,7 +104,7 @@ def run_m3c2(
         # ----------------------------------------------------------------
         # M3C2 parameters (fixed or autotuned)
         # ----------------------------------------------------------------
-        m3c2_params = _resolve_m3c2_params(
+        m3c2_params, params_source = _resolve_m3c2_params(
             cfg,
             data,
             reference_points=points_t1,
@@ -152,10 +152,12 @@ def run_m3c2(
         # ----------------------------------------------------------------
         # Export
         # ----------------------------------------------------------------
-        _export_m3c2(cfg, data, m3c2_res, run_id=run_id)
+        output_paths = _export_m3c2(cfg, data, m3c2_res, run_id=run_id)
+        return _build_m3c2_summary(cfg, m3c2_params, params_source, max_core, m3c2_res, output_paths)
 
     except Exception as e:
         logger.error("M3C2 computation failed: %s", e)
+        return {"enabled": True, "error": str(e)}
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +258,7 @@ def _resolve_m3c2_params(
     *,
     reference_points: np.ndarray,
     streaming_inputs: dict | None = None,
-) -> M3C2Params:
+) -> tuple[M3C2Params, str]:
     """Resolve M3C2 parameters from config (fixed or autotuned)."""
     m3c2_cfg = cfg.detection.m3c2
 
@@ -288,7 +290,7 @@ def _resolve_m3c2_params(
             "M3C2 fixed params from config: radius=%.2f, normal_scale=%.2f, max_depth=%.2f (factor=%.2f)",
             r, normal_scale, r * depth_factor, depth_factor,
         )
-        return params
+        return params, "fixed"
 
     # Autotuning
     at = m3c2_cfg.autotune
@@ -303,6 +305,7 @@ def _resolve_m3c2_params(
 
     if use_header and files_t1:
         params = None
+        source = "autotune_header"
         try:
             params = autotune_m3c2_params_from_headers(
                 files_t1=files_t1,
@@ -314,6 +317,7 @@ def _resolve_m3c2_params(
             )
         except Exception as _e:
             logger.warning("Header-based autotune failed (%s); falling back to sample-based.", _e)
+            source = "autotune_sample"
 
         if params is None:
             params = autotune_m3c2_params(
@@ -323,15 +327,17 @@ def _resolve_m3c2_params(
                 min_radius=at.min_radius,
                 max_radius=at.max_radius,
             )
-        return params
+            source = "autotune_sample"
+        return params, source
 
-    return autotune_m3c2_params(
+    params = autotune_m3c2_params(
         reference_points,
         target_neighbors=at.target_neighbors,
         max_depth_factor=at.max_depth_factor,
         min_radius=at.min_radius,
         max_radius=at.max_radius,
     )
+    return params, "autotune_sample"
 
 
 def _compute_streaming_m3c2(
@@ -530,7 +536,9 @@ def _export_m3c2(cfg, data, m3c2_res, *, run_id: str | None = None):
     export_m3c2_raster = getattr(cfg.detection.m3c2, 'export_raster', True)
 
     if not (export_m3c2_pc or export_m3c2_raster):
-        return
+        return []
+
+    output_paths = []
 
     try:
         # M3C2 uses area-scoped output directory
@@ -554,6 +562,7 @@ def _export_m3c2(cfg, data, m3c2_res, *, run_id: str | None = None):
                 local_transform=data.local_transform,
             )
             logger.info("Exported M3C2 point cloud: %s", m3c2_laz)
+            output_paths.append(str(m3c2_laz))
 
         if export_m3c2_raster:
             m3c2_tif = export_dir / f"m3c2_{area_prefix}_{data.t1}_{data.t2}{run_suffix}.tif"
@@ -563,6 +572,37 @@ def _export_m3c2(cfg, data, m3c2_res, *, run_id: str | None = None):
                 local_transform=data.local_transform,
             )
             logger.info("Exported M3C2 raster: %s", m3c2_tif)
+            output_paths.append(str(m3c2_tif))
+
+        return output_paths
 
     except Exception as export_err:
         logger.error("M3C2 export failed: %s", export_err)
+        return output_paths
+
+
+def _build_m3c2_summary(cfg, params, params_source, max_core, m3c2_res, output_paths):
+    distances = np.asarray(m3c2_res.distances)
+    valid = np.isfinite(distances)
+    total = int(distances.size)
+    valid_count = int(valid.sum())
+    at = cfg.detection.m3c2.autotune
+    return {
+        "enabled": True,
+        "params_source": params_source,
+        "target_neighbors": getattr(at, "target_neighbors", None),
+        "core_points_percent": cfg.detection.m3c2.core_points_percent,
+        "core_points_requested": int(max_core),
+        "core_points_result": int(len(m3c2_res.core_points)),
+        "valid_distances": valid_count,
+        "valid_percent": (valid_count / total * 100.0) if total else 0.0,
+        "params": {
+            "projection_scale": params.projection_scale,
+            "cylinder_radius": params.cylinder_radius,
+            "normal_scale": params.normal_scale,
+            "max_depth": params.max_depth,
+            "min_neighbors": params.min_neighbors,
+            "confidence": params.confidence,
+        },
+        "output_paths": output_paths,
+    }

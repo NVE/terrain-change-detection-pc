@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from pprint import pformat
 from time import perf_counter
 
 from terrain_change_detection.utils.config import AppConfig
@@ -156,7 +157,15 @@ def run(
 
         run_dod(cfg, data, alignment, visualizer=visualizer, show_plots=show_plots)
         run_c2c(cfg, data, alignment, visualizer=visualizer, show_plots=show_plots)
-        run_m3c2(cfg, data, alignment, args, run_id=run_id, visualizer=visualizer, show_plots=show_plots)
+        m3c2_summary = run_m3c2(
+            cfg, data, alignment, args,
+            run_id=run_id,
+            visualizer=visualizer,
+            show_plots=show_plots,
+        )
+
+        evaluation_summary = _build_evaluation_summary(cfg, data, alignment, run_id, m3c2_summary)
+        logger.info("Run evaluation summary:\n%s", pformat(evaluation_summary, sort_dicts=False))
 
         # ----------------------------------------------------------------
         # Write run manifest
@@ -165,6 +174,7 @@ def run(
         write_run_inputs(
             export_dir, args, cfg,
             run_id=run_id,
+            evaluation_summary=evaluation_summary,
             config_files=list(args.config or []),
             cli_overrides=cli_overrides,
         )
@@ -186,3 +196,34 @@ def run(
     except Exception as e:
         logger_module.error("Change detection workflow failed: %s", e)
         return None
+
+
+def _build_evaluation_summary(
+    cfg: AppConfig,
+    data,
+    alignment,
+    run_id: str,
+    m3c2_summary: dict | None,
+) -> dict:
+    """Collect concise run metrics for logs/manifest."""
+    return {
+        "run_id": run_id,
+        "area": data.selected_area.area_name,
+        "epochs": {"t1": data.t1, "t2": data.t2},
+        "counts": {
+            "points_t1": int(len(data.points1)),
+            "points_t2": int(len(data.points2)),
+        },
+        "alignment": {
+            "enabled": bool(getattr(cfg.alignment, "enabled", True)),
+            "reference": cfg.alignment.reference,
+            "backend": cfg.alignment.icp_backend,
+            "coarse_enabled": bool(getattr(cfg.alignment.coarse, "enabled", False)),
+            "coarse_method": getattr(cfg.alignment.coarse, "method", None),
+            "max_iterations": cfg.alignment.max_iterations,
+            "aligned_epoch": alignment.aligned_epoch,
+            "rmse": alignment.alignment_error,
+            "transform_matrix": alignment.transform_matrix.tolist(),
+        },
+        "m3c2": m3c2_summary or {"enabled": False},
+    }
