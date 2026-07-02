@@ -753,6 +753,7 @@ class M3C2Detector:
         files_t2: list[str],
         params: M3C2Params,
         core_points_percent: float,
+        evaluation_source: str = "t1",
         *,
         tile_size: float,
         halo: Optional[float] = None,
@@ -777,6 +778,7 @@ class M3C2Detector:
             files_t2: Epoch 2 file paths
             params: M3C2 parameters
             core_points_percent: Percentage of T1 points to use as core points (per tile)
+            evaluation_source: Epoch used to select core points ("t1" or "t2")
             tile_size: Tile size in meters
             halo: Optional XY halo (default: max(cylinder_radius, projection_scale))
             ground_only: Filter ground points only
@@ -794,6 +796,8 @@ class M3C2Detector:
         
         if not files_t1 or not files_t2:
             raise ValueError("files_t1 and files_t2 must be non-empty")
+        if evaluation_source not in {"t1", "t2"}:
+            raise ValueError("evaluation_source must be 't1' or 't2'")
         
         # Determine processing bounds from the union of LAS headers
         gb_global = union_bounds(files_t1, files_t2)
@@ -827,8 +831,8 @@ class M3C2Detector:
         ty = max(1, int(np.ceil((gb.max_y - gb.min_y) / tile_size)))
         
         logger.info(
-            "Per-tile M3C2: core_pct=%.1f%%, tiles=%dx%d (%d total), tile=%.1fm, halo=%.1fm",
-            core_points_percent, tx, ty, tx * ty, tile_size, used_halo,
+            "Per-tile M3C2: core_pct=%.1f%%, evaluation_source=%s, tiles=%dx%d (%d total), tile=%.1fm, halo=%.1fm",
+            core_points_percent, evaluation_source, tx, ty, tx * ty, tile_size, used_halo,
         )
         
         # Create tiler
@@ -881,6 +885,7 @@ class M3C2Detector:
             'classification_filter': classification_filter,
             'transform_matrix': transform_t2,
             'core_points_percent': core_points_percent,  # Per-tile selection
+            'evaluation_source': evaluation_source,
             'local_transform': local_transform,
         }
 
@@ -953,7 +958,7 @@ class M3C2Detector:
             uncertainty=unc_out,
             metadata={"rmse": rmse, "mean": mean, "median": median, "n_valid": n_valid, 
                       "streaming": True, "tiled": True, "parallel": True, "per_tile": True,
-                      "core_points_percent": core_points_percent},
+                      "core_points_percent": core_points_percent, "evaluation_source": evaluation_source},
         )
 
     @staticmethod

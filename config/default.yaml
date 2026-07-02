@@ -129,6 +129,8 @@ detection:
     enabled: true
     # Use automatic parameter tuning (true) or fixed parameters below (false)
     use_autotune: false
+    # Epoch used for M3C2 core/evaluation points. Distance sign remains t2 - t1.
+    evaluation_source: t1
     # Percentage of reference ground points to use as M3C2 core points
     core_points_percent: 100.0
     # (Optional) Absolute number of core points - overrides percentage if set

@@ -269,6 +269,10 @@ class DetectionM3C2ErosionPolygonConfig(BaseModel):
 
 class DetectionM3C2Config(BaseModel):
     enabled: bool = Field(default=True)
+    evaluation_source: Literal["t1", "t2"] = Field(
+        default="t1",
+        description="Epoch used to select M3C2 core/evaluation points; distance sign remains t2 - t1.",
+    )
     core_points_percent: Optional[float] = Field(
         default=100.0,
         description="Percentage of reference ground points to use as M3C2 core points (e.g., 10.0 = 10%)"

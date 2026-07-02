@@ -200,6 +200,7 @@ detection:
   m3c2:
     enabled: true
     use_autotune: false
+    evaluation_source: t1
     core_points_percent: 100.0
     export_pc: true
     export_raster: true
@@ -221,7 +222,8 @@ detection:
 | :--- | :--- | :--- |
 | `enabled` | `true` | Activates M3C2 processing. |
 | `use_autotune` | `false` | Use manual fixed M3C2 parameters from `fixed.*` instead of autotuning. |
-| `core_points_percent` | `100.0` | Percentage of T1 points to use as "core points". |
+| `evaluation_source` | `t1` | Epoch used to select M3C2 core/evaluation points: `t1` or `t2`. Distance sign remains `t2 - t1`. |
+| `core_points_percent` | `100.0` | Percentage of `evaluation_source` points to use as "core points". |
 | `export_pc` | `true` | Saves results as a point cloud (.laz) with distance attributes. |
 | `export_raster` | `true` | Interpolates results to a GeoTIFF raster. |
 | **autotune.source** | `header` | Density source: `header` (fast) or `sample` (accurate). |
@@ -232,6 +234,12 @@ detection:
 | **fixed.radius** | `1.0` | Manual cylinder radius (used if `use_autotune: false`). |
 | **fixed.normal_scale** | `1.0` | Manual scale for normal estimation. |
 | **fixed.depth_factor** | `2.0` | Manual depth factor (max_depth = radius × depth_factor). |
+
+Use `evaluation_source: t2` when you want M3C2 outputs located on the T2 point domain while preserving signed distances as T2 minus T1:
+
+```bash
+uv run scripts/run_workflow.py --set detection.m3c2.evaluation_source=t2
+```
 
 #### M3C2 Erosion Polygon Export
 

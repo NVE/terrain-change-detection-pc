@@ -64,11 +64,13 @@ def run_m3c2(
         logger.info("Computing M3C2 distances...")
         points_t1 = alignment.points1_aligned
         points_t2 = alignment.points2_aligned
+        evaluation_source = cfg.detection.m3c2.evaluation_source
+        evaluation_points = points_t2 if evaluation_source == "t2" else points_t1
 
         # ----------------------------------------------------------------
         # Core-point count
         # ----------------------------------------------------------------
-        total_ref_points = _determine_ref_point_count(data, points_t1)
+        total_ref_points = _determine_ref_point_count(data, evaluation_points, evaluation_source)
 
         # ----------------------------------------------------------------
         # Resolve streaming inputs up front so reference=t2 can fall back
@@ -98,8 +100,12 @@ def run_m3c2(
             data,
             args,
             max_core,
-            reference_points=points_t1,
-            streaming_t1_files=(streaming_inputs["files_t1"] if streaming_inputs is not None else None),
+            reference_points=evaluation_points,
+            streaming_core_files=(
+                _streaming_core_files(streaming_inputs, evaluation_source)
+                if streaming_inputs is not None else None
+            ),
+            streaming_enabled=streaming_inputs is not None,
         )
 
         # ----------------------------------------------------------------
@@ -108,7 +114,7 @@ def run_m3c2(
         m3c2_params, params_source = _resolve_m3c2_params(
             cfg,
             data,
-            reference_points=points_t1,
+            reference_points=evaluation_points,
             streaming_inputs=streaming_inputs,
         )
 
@@ -166,13 +172,14 @@ def run_m3c2(
 # ---------------------------------------------------------------------------
 
 
-def _determine_ref_point_count(data: PreparedData, reference_points: np.ndarray) -> int:
+def _determine_ref_point_count(data: PreparedData, reference_points: np.ndarray, evaluation_source: str) -> int:
     """Determine total reference ground points for core-point percentage."""
-    if data.use_streaming and data.pc1_data and 'metadata' in data.pc1_data:
-        m1 = data.pc1_data['metadata']
-        total = m1.get('total_points_ground')
+    pc_data = data.pc2_data if evaluation_source == "t2" else data.pc1_data
+    if data.use_streaming and pc_data and 'metadata' in pc_data:
+        metadata = pc_data['metadata']
+        total = metadata.get('total_points_ground')
         if total is None or total == 0:
-            total = m1.get('total_points_all', 0)
+            total = metadata.get('total_points_all', 0)
             if total > 0:
                 logger.warning(
                     "No ground point count in metadata; using total points (%s). "
@@ -181,9 +188,20 @@ def _determine_ref_point_count(data: PreparedData, reference_points: np.ndarray)
                 )
         if total == 0:
             raise ValueError("No reference point count available for M3C2")
-        logger.debug("Metadata-based T1 ground point count: %s", f"{total:,}")
+        logger.debug("Metadata-based %s ground point count: %s", evaluation_source.upper(), f"{total:,}")
         return total
     return len(reference_points)
+
+
+def _streaming_core_files(streaming_inputs: dict, evaluation_source: str) -> list[str] | None:
+    """Return streaming files used for core-point selection."""
+    if evaluation_source == "t2" and streaming_inputs.get("transform_t2") is not None:
+        logger.warning(
+            "Selecting M3C2 core points from aligned in-memory T2 points because T2 streaming files "
+            "require an on-the-fly transform."
+        )
+        return None
+    return streaming_inputs["files_t2"] if evaluation_source == "t2" else streaming_inputs["files_t1"]
 
 
 def _select_core_points(
@@ -193,7 +211,8 @@ def _select_core_points(
     max_core: int,
     *,
     reference_points: np.ndarray,
-    streaming_t1_files: list[str] | None = None,
+    streaming_core_files: list[str] | None = None,
+    streaming_enabled: bool = False,
 ) -> np.ndarray | None:
     """Select or load M3C2 core points."""
     cores_path = Path(args.cores_file) if args.cores_file else None
@@ -214,7 +233,7 @@ def _select_core_points(
 
     # Select core points
     use_parallel_streaming = (
-        streaming_t1_files is not None
+        streaming_enabled
         and getattr(cfg.parallel, 'enabled', False)
     )
 
@@ -224,16 +243,22 @@ def _select_core_points(
             cfg.detection.m3c2.core_points_percent or 10.0,
         )
         core_src = None
-    elif streaming_t1_files is not None:
-        logger.info("Selecting %s core points via streaming from T1 files...", f"{max_core:,}")
+    elif streaming_core_files is not None:
+        logger.info(
+            "Selecting %s core points via streaming from %s files...",
+            f"{max_core:,}", cfg.detection.m3c2.evaluation_source.upper(),
+        )
         core_reader = LaspyStreamReader(
-            [str(p) for p in streaming_t1_files],
+            [str(p) for p in streaming_core_files],
             ground_only=cfg.preprocessing.ground_only,
             classification_filter=cfg.preprocessing.classification_filter,
             chunk_points=cfg.outofcore.chunk_points,
         )
         core_src = core_reader.reservoir_sample(max_core, transform=data.local_transform)
-        logger.info("Selected %s core points from T1 via streaming", f"{len(core_src):,}")
+        logger.info(
+            "Selected %s core points from %s via streaming",
+            f"{len(core_src):,}", cfg.detection.m3c2.evaluation_source.upper(),
+        )
     else:
         if len(reference_points) > max_core:
             idx = np.random.choice(len(reference_points), max_core, replace=False)
@@ -369,6 +394,7 @@ def _compute_streaming_m3c2(
                 files_t2=files_t2,
                 params=m3c2_params,
                 core_points_percent=cfg.detection.m3c2.core_points_percent or 10.0,
+                evaluation_source=cfg.detection.m3c2.evaluation_source,
                 tile_size=cfg.outofcore.tile_size_m,
                 halo=None,
                 ground_only=cfg.preprocessing.ground_only,
@@ -624,6 +650,7 @@ def _build_m3c2_summary(cfg, params, params_source, max_core, m3c2_res, output_p
         "params_source": params_source,
         "target_neighbors": getattr(at, "target_neighbors", None),
         "core_points_percent": cfg.detection.m3c2.core_points_percent,
+        "evaluation_source": cfg.detection.m3c2.evaluation_source,
         "core_points_requested": int(max_core),
         "core_points_result": int(len(m3c2_res.core_points)),
         "valid_distances": valid_count,

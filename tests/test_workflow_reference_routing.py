@@ -177,3 +177,33 @@ def test_m3c2_uses_aligned_t1_for_reference_t2(monkeypatch):
     np.testing.assert_array_equal(captured["cloud_t1"], alignment.points1_aligned)
     np.testing.assert_array_equal(captured["cloud_t2"], alignment.points2_aligned)
     np.testing.assert_array_equal(captured["core_points"], alignment.points1_aligned)
+
+
+def test_m3c2_evaluation_source_t2_uses_t2_cores_without_flipping_epochs(monkeypatch):
+    cfg = _make_cfg()
+    cfg.detection.m3c2.evaluation_source = "t2"
+    data = _make_prepared_data(use_streaming=False)
+    alignment = _make_alignment()
+    captured = {}
+
+    def fake_compute_m3c2_original(*, core_points, cloud_t1, cloud_t2, params):
+        captured["core_points"] = core_points.copy()
+        captured["cloud_t1"] = cloud_t1.copy()
+        captured["cloud_t2"] = cloud_t2.copy()
+        return SimpleNamespace(
+            core_points=core_points,
+            distances=np.zeros(len(core_points)),
+            uncertainty=None,
+            significant=None,
+        )
+
+    monkeypatch.setattr(
+        "terrain_change_detection.workflow.detection_m3c2.ChangeDetector.compute_m3c2_original",
+        fake_compute_m3c2_original,
+    )
+
+    run_m3c2(cfg, data, alignment, SimpleNamespace(cores_file=None, debug_m3c2_compare=False), show_plots=False)
+
+    np.testing.assert_array_equal(captured["cloud_t1"], alignment.points1_aligned)
+    np.testing.assert_array_equal(captured["cloud_t2"], alignment.points2_aligned)
+    np.testing.assert_array_equal(captured["core_points"], alignment.points2_aligned)

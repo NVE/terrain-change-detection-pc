@@ -299,6 +299,7 @@ def process_m3c2_tile(
     transform_matrix: Optional[np.ndarray] = None,
     tile_cores_dict: Optional[Dict] = None,
     core_points_percent: Optional[float] = None,
+    evaluation_source: str = "t1",
     local_transform: Optional["LocalCoordinateTransform"] = None,
 ):
     """
@@ -318,7 +319,8 @@ def process_m3c2_tile(
         classification_filter: Optional classification filter
         transform_matrix: Optional transformation for epoch 2
         tile_cores_dict: Dictionary mapping (i,j) to pre-computed core points
-        core_points_percent: If provided, select this percentage of T1 points as cores
+        core_points_percent: If provided, select this percentage of evaluation-source points as cores
+        evaluation_source: Epoch used to select core points ("t1" or "t2")
     
     Returns:
         Tuple of (tile, M3C2Result) for assembly
@@ -326,6 +328,8 @@ def process_m3c2_tile(
     from ..detection.m3c2 import M3C2Detector, M3C2Result
     
     ij_key = (tile.i, tile.j)
+    if evaluation_source not in {"t1", "t2"}:
+        raise ValueError("evaluation_source must be 't1' or 't2'")
     
     # Convert tile bounds back to global coords for bbox filtering if using local transform
     # (files have global coords, but tile bounds were converted to local)
@@ -357,41 +361,6 @@ def process_m3c2_tile(
         logger.warning(f"Tile ({tile.i},{tile.j}) has no T1 points")
         return (tile, M3C2Result(core_points=np.empty((0, 3)), distances=np.array([]), uncertainty=None, metadata={}))
     
-    # Determine core points for this tile
-    if tile_cores_dict is not None and ij_key in tile_cores_dict:
-        # Use pre-computed core points (backward compatibility)
-        core_points_tile = tile_cores_dict[ij_key]
-    elif core_points_percent is not None:
-        # Per-tile core point selection: sample from T1 points in inner tile
-        # Filter pc1 to inner bounds for core selection
-        inner_mask = (
-            (pc1[:, 0] >= tile.inner.min_x) & (pc1[:, 0] <= tile.inner.max_x) &
-            (pc1[:, 1] >= tile.inner.min_y) & (pc1[:, 1] <= tile.inner.max_y)
-        )
-        pc1_inner = pc1[inner_mask]
-        
-        if len(pc1_inner) == 0:
-            logger.warning(f"Tile ({tile.i},{tile.j}) has no T1 points in inner bounds")
-            return (tile, M3C2Result(core_points=np.empty((0, 3)), distances=np.array([]), uncertainty=None, metadata={}))
-        
-        # Calculate number of core points for this tile
-        n_cores = max(1, int(len(pc1_inner) * core_points_percent / 100.0))
-        
-        # Subsample if needed
-        if len(pc1_inner) > n_cores:
-            idx = np.random.choice(len(pc1_inner), n_cores, replace=False)
-            core_points_tile = pc1_inner[idx]
-        else:
-            core_points_tile = pc1_inner
-        
-        logger.debug(
-            f"Tile ({tile.i},{tile.j}) selected {len(core_points_tile):,} core points "
-            f"({core_points_percent:.1f}% of {len(pc1_inner):,} inner T1 points)"
-        )
-    else:
-        logger.warning(f"Tile ({tile.i},{tile.j}) has no core points source (neither dict nor percent)")
-        return (tile, M3C2Result(core_points=np.empty((0, 3)), distances=np.array([]), uncertainty=None, metadata={}))
-    
     # Load epoch 2 points
     points_t2 = []
     reader2 = LaspyStreamReader(
@@ -405,8 +374,43 @@ def process_m3c2_tile(
             # Apply ICP transformation on-the-fly (now in local coordinate space)
             chunk = apply_transform(chunk, transform_matrix)
         points_t2.append(chunk)
-    
+
     pc2 = np.vstack(points_t2) if points_t2 else np.empty((0, 3))
+
+    # Determine core points for this tile
+    if tile_cores_dict is not None and ij_key in tile_cores_dict:
+        # Use pre-computed core points (backward compatibility)
+        core_points_tile = tile_cores_dict[ij_key]
+    elif core_points_percent is not None:
+        # Per-tile core point selection: sample from selected epoch in inner tile.
+        pc_core = pc2 if evaluation_source == "t2" else pc1
+        inner_mask = (
+            (pc_core[:, 0] >= tile.inner.min_x) & (pc_core[:, 0] <= tile.inner.max_x) &
+            (pc_core[:, 1] >= tile.inner.min_y) & (pc_core[:, 1] <= tile.inner.max_y)
+        )
+        pc_inner = pc_core[inner_mask]
+        
+        if len(pc_inner) == 0:
+            logger.warning(f"Tile ({tile.i},{tile.j}) has no {evaluation_source.upper()} points in inner bounds")
+            return (tile, M3C2Result(core_points=np.empty((0, 3)), distances=np.array([]), uncertainty=None, metadata={}))
+        
+        # Calculate number of core points for this tile
+        n_cores = max(1, int(len(pc_inner) * core_points_percent / 100.0))
+        
+        # Subsample if needed
+        if len(pc_inner) > n_cores:
+            idx = np.random.choice(len(pc_inner), n_cores, replace=False)
+            core_points_tile = pc_inner[idx]
+        else:
+            core_points_tile = pc_inner
+        
+        logger.debug(
+            f"Tile ({tile.i},{tile.j}) selected {len(core_points_tile):,} core points "
+            f"({core_points_percent:.1f}% of {len(pc_inner):,} inner {evaluation_source.upper()} points)"
+        )
+    else:
+        logger.warning(f"Tile ({tile.i},{tile.j}) has no core points source (neither dict nor percent)")
+        return (tile, M3C2Result(core_points=np.empty((0, 3)), distances=np.array([]), uncertainty=None, metadata={}))
     
     # Handle empty T2
     if len(pc2) == 0:
