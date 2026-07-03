@@ -11,6 +11,7 @@ from terrain_change_detection.utils.config import AppConfig
 from terrain_change_detection.workflow.detection_c2c import run_c2c
 from terrain_change_detection.workflow.detection_dod import run_dod
 from terrain_change_detection.workflow.detection_m3c2 import run_m3c2
+from terrain_change_detection.workflow.runner import _split_features_dir
 from terrain_change_detection.workflow.types import AlignmentResult, PreparedData
 
 
@@ -29,6 +30,13 @@ def _make_cfg() -> AppConfig:
     cfg.detection.m3c2.core_points_percent = 100.0
     cfg.outofcore.enabled = False
     return cfg
+
+
+def test_split_features_dir_is_area_scoped(tmp_path):
+    cfg = AppConfig()
+    cfg.paths.output_dir = str(tmp_path / "outputs")
+
+    assert _split_features_dir(cfg, "Romerike") == tmp_path / "outputs" / "Romerike" / "_split_features"
 
 
 def _make_prepared_data(*, use_streaming: bool = False) -> PreparedData:

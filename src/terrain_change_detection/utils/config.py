@@ -76,6 +76,10 @@ class ClippingConfig(BaseModel):
         default=None,
         description="Name of specific feature to use from the boundary file (if multiple features exist)"
     )
+    split_features: bool = Field(
+        default=False,
+        description="Run the workflow separately for each GeoJSON feature in boundary_file"
+    )
     save_clipped_files: bool = Field(
         default=False,
         description="Save clipped LAZ files to disk for reuse"

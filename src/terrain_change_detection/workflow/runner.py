@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from pathlib import Path
 from pprint import pformat
 from time import perf_counter
 
@@ -21,7 +22,7 @@ from terrain_change_detection.preprocessing.data_discovery import (
 
 from .alignment import run_alignment
 from .bootstrap import setup_runtime
-from .clipping import apply_clipping, resolve_clipping_bounds
+from .clipping import apply_clipping, resolve_clipping_bounds, split_clipping_features
 from .coordinate_setup import setup_local_transform
 from .data_loading import discover, load_data
 from .detection_c2c import run_c2c
@@ -91,6 +92,9 @@ def run(
         A :class:`WorkflowResult` summary, or ``None`` if the workflow
         was aborted.
     """
+    if getattr(cfg.clipping, 'split_features', False):
+        return _run_split_features(args, cfg, cli_overrides)
+
     runtime_start = perf_counter()
     reset_crs_cache()
 
@@ -234,6 +238,50 @@ def run(
     except Exception as e:
         logger_module.error("Change detection workflow failed: %s", e)
         return None
+
+
+def _run_split_features(
+    args: argparse.Namespace,
+    cfg: AppConfig,
+    cli_overrides: list[str],
+) -> WorkflowResult | None:
+    """Run workflow once per GeoJSON feature when split_features is enabled."""
+    split_root = _split_features_dir(cfg, args.area_name)
+
+    try:
+        features = split_clipping_features(cfg, split_root)
+    except WorkflowAbort as e:
+        logger_module.log(e.level, "%s", e)
+        return None
+
+    logger_module.info("Running split_features workflow for %d clipping features", len(features))
+
+    last_result = None
+    for feature in features:
+        logger_module.info(
+            "=== split_features %03d/%03d: %s ===",
+            feature.index,
+            len(features),
+            feature.label,
+        )
+        feature_cfg = cfg.model_copy(deep=True)
+        feature_cfg.clipping.split_features = False
+        feature_cfg.clipping.boundary_file = str(feature.boundary_file)
+        feature_cfg.clipping.feature_name = None
+
+        result = run(args, feature_cfg, cli_overrides)
+        if result is not None:
+            last_result = result
+
+    return last_result
+
+
+def _split_features_dir(cfg: AppConfig, area_name: str | None) -> Path:
+    """Resolve persistent directory for per-feature clipping GeoJSONs."""
+    split_root = Path(cfg.paths.output_dir or (Path(cfg.paths.base_dir) / "output"))
+    if area_name:
+        split_root = split_root / area_name
+    return split_root / "_split_features"
 
 
 def _build_evaluation_summary(

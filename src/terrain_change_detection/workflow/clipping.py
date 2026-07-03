@@ -11,6 +11,7 @@ import json
 import logging
 from pathlib import Path
 import re
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -24,6 +25,15 @@ from terrain_change_detection.utils.coordinate_transform import LocalCoordinateT
 from .types import WorkflowAbort
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ClipFeature:
+    """Single clipping feature prepared for an isolated workflow run."""
+
+    index: int
+    label: str
+    boundary_file: Path
 
 
 def _resolve_boundary_path(cfg: AppConfig, project_root: Path | None = None) -> Path | None:
@@ -83,6 +93,68 @@ def _safe_filename_part(value: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value).strip())
     safe = re.sub(r"_+", "_", safe).strip("._-")
     return safe.lower()
+
+
+def split_clipping_features(cfg: AppConfig, output_dir: Path) -> list[ClipFeature]:
+    """Write one temporary GeoJSON per boundary feature for split processing."""
+    boundary_path = _resolve_boundary_path(cfg)
+    if boundary_path is None or not boundary_path.exists():
+        raise WorkflowAbort(f"Clipping boundary file not found: {boundary_path}")
+
+    if boundary_path.suffix.lower() not in {'.geojson', '.json'}:
+        raise WorkflowAbort("clipping.split_features currently supports GeoJSON boundary files only.")
+
+    try:
+        with open(boundary_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception as e:
+        raise WorkflowAbort(f"Could not read clipping GeoJSON for split_features: {e}") from e
+
+    if data.get('type') == 'FeatureCollection':
+        features = data.get('features') or []
+    elif data.get('type') == 'Feature':
+        features = [data]
+    else:
+        raise WorkflowAbort("clipping.split_features requires a GeoJSON Feature or FeatureCollection.")
+
+    if not features:
+        raise WorkflowAbort("clipping.split_features found no GeoJSON features.")
+
+    requested_name = getattr(cfg.clipping, 'feature_name', None)
+    if requested_name:
+        features = [f for f in features if (f.get('properties') or {}).get('name') == requested_name]
+        if not features:
+            raise WorkflowAbort(f"clipping.split_features found no feature with properties.name='{requested_name}'.")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    split_features = []
+    for i, feature in enumerate(features, start=1):
+        if feature.get('type') != 'Feature' or feature.get('geometry') is None:
+            logger.warning("Skipping clipping feature %03d without geometry", i)
+            continue
+
+        label = _feature_label(feature, i)
+        feature_path = output_dir / f"{i:03d}_{label}.geojson"
+        properties = feature.get("properties") or {}
+        if not properties.get("name"):
+            properties = {**properties, "name": label}
+        feature_path.write_text(
+            json.dumps({"type": "Feature", "geometry": feature["geometry"], "properties": properties}),
+            encoding='utf-8',
+        )
+        split_features.append(ClipFeature(index=i, label=label, boundary_file=feature_path))
+
+    if not split_features:
+        raise WorkflowAbort("clipping.split_features found no valid GeoJSON geometries.")
+
+    return split_features
+
+
+def _feature_label(feature: dict, index: int) -> str:
+    """Return safe feature label from properties.name, falling back to index."""
+    name = (feature.get('properties') or {}).get('name')
+    label = _safe_filename_part(str(name)) if name else ""
+    return label or f"{index:03d}"
 
 
 def apply_clipping(

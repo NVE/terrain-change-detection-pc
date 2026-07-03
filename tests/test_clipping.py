@@ -31,7 +31,7 @@ from terrain_change_detection.preprocessing.clipping import (
     check_fiona_available,
 )
 from terrain_change_detection.utils.config import AppConfig
-from terrain_change_detection.workflow.clipping import clipping_export_suffix
+from terrain_change_detection.workflow.clipping import clipping_export_suffix, split_clipping_features
 
 
 # Skip all tests if shapely is not available
@@ -114,6 +114,72 @@ class TestAreaClipperCreation:
         cfg.clipping.boundary_file = str(boundary)
 
         assert clipping_export_suffix(cfg) == "_clipped_clip_1"
+
+    def test_split_clipping_features_writes_one_geojson_per_feature(self, tmp_path):
+        boundary = tmp_path / "multi.geojson"
+        boundary.write_text(
+            json.dumps({
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]},
+                        "properties": {"name": "Named A"},
+                    },
+                    {
+                        "type": "Feature",
+                        "geometry": {"type": "Polygon", "coordinates": [[[2, 2], [3, 2], [3, 3], [2, 2]]]},
+                        "properties": {},
+                    },
+                ],
+            }),
+            encoding="utf-8",
+        )
+        cfg = AppConfig()
+        cfg.clipping.enabled = True
+        cfg.clipping.boundary_file = str(boundary)
+        cfg.clipping.split_features = True
+
+        features = split_clipping_features(cfg, tmp_path / "split")
+
+        assert [f.label for f in features] == ["named_a", "002"]
+        assert [f.boundary_file.exists() for f in features] == [True, True]
+
+        cfg.clipping.boundary_file = str(features[0].boundary_file)
+        assert clipping_export_suffix(cfg) == "_clipped_named_a"
+
+        cfg.clipping.boundary_file = str(features[1].boundary_file)
+        assert clipping_export_suffix(cfg) == "_clipped_002"
+
+    def test_split_clipping_features_honors_feature_name(self, tmp_path):
+        boundary = tmp_path / "multi.geojson"
+        boundary.write_text(
+            json.dumps({
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]},
+                        "properties": {"name": "A"},
+                    },
+                    {
+                        "type": "Feature",
+                        "geometry": {"type": "Polygon", "coordinates": [[[2, 2], [3, 2], [3, 3], [2, 2]]]},
+                        "properties": {"name": "B"},
+                    },
+                ],
+            }),
+            encoding="utf-8",
+        )
+        cfg = AppConfig()
+        cfg.clipping.enabled = True
+        cfg.clipping.boundary_file = str(boundary)
+        cfg.clipping.split_features = True
+        cfg.clipping.feature_name = "B"
+
+        features = split_clipping_features(cfg, tmp_path / "split")
+
+        assert [f.label for f in features] == ["b"]
     
     def test_from_geojson_file_polygon(self):
         """Test loading clipper from a GeoJSON file with a single polygon."""
