@@ -14,10 +14,14 @@ from time import perf_counter
 
 from terrain_change_detection.utils.config import AppConfig
 from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
+from terrain_change_detection.preprocessing.data_discovery import (
+    dataset_size_bytes,
+    filter_dataset_by_bounds,
+)
 
 from .alignment import run_alignment
 from .bootstrap import setup_runtime
-from .clipping import apply_clipping
+from .clipping import apply_clipping, resolve_clipping_bounds
 from .coordinate_setup import setup_local_transform
 from .data_loading import discover, load_data
 from .detection_c2c import run_c2c
@@ -34,6 +38,38 @@ from .types import WorkflowAbort, WorkflowResult
 from .visualization_helpers import to_global_for_vis
 
 logger_module = logging.getLogger(__name__)
+
+
+def _prefilter_discovery_by_clipping(cfg: AppConfig, discovery) -> None:
+    """Reduce discovered tile lists using clipping bounds before point loading."""
+    clip_bounds = resolve_clipping_bounds(cfg)
+    if clip_bounds is None:
+        return
+
+    for attr_name, time_period in (("ds1", discovery.t1), ("ds2", discovery.t2)):
+        original = getattr(discovery, attr_name)
+        original_count = len(original.laz_files)
+        original_size = dataset_size_bytes(original)
+        filtered = filter_dataset_by_bounds(original, clip_bounds)
+        filtered_count = len(filtered.laz_files)
+        filtered_size = dataset_size_bytes(filtered)
+
+        if filtered_count == 0:
+            raise WorkflowAbort(
+                f"Clipping bounds prefilter removed all tiles for {time_period}. "
+                "Check clipping boundary CRS and dataset extent."
+            )
+
+        setattr(discovery, attr_name, filtered)
+        discovery.selected_area.datasets[time_period] = filtered
+        logger_module.info(
+            "Tile prefilter (%s): %d -> %d files, %.2f -> %.2f GiB",
+            time_period,
+            original_count,
+            filtered_count,
+            original_size / (1024 ** 3),
+            filtered_size / (1024 ** 3),
+        )
 
 
 def run(
@@ -82,6 +118,8 @@ def run(
             area_name=args.area_name,
             selected_years=selected_years,
         )
+
+        _prefilter_discovery_by_clipping(cfg, discovery)
 
         # Setup local coordinate transform from T1 bounds
         local_transform = setup_local_transform(cfg, discovery.ds1.bounds)

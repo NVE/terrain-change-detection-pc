@@ -9,7 +9,72 @@ import sys
 
 # Import the data discovery module
 sys.path.append(str(Path(__file__).parent.parent.parent / "src"))
-from terrain_change_detection.preprocessing.data_discovery import DataDiscovery, BatchLoader
+from terrain_change_detection.preprocessing.data_discovery import (
+    BatchLoader,
+    DataDiscovery,
+    DatasetInfo,
+    filter_dataset_by_bounds,
+)
+
+
+class TestDatasetBoundsFilter(unittest.TestCase):
+    """Test coarse tile filtering using per-file bounds."""
+
+    def test_filter_dataset_by_bounds_keeps_intersecting_tiles(self):
+        dataset = DatasetInfo(
+            area_name="area",
+            time_period="2025",
+            laz_files=[Path("tile_a.laz"), Path("tile_b.laz"), Path("tile_c.laz")],
+            metadata_dir=None,
+            total_points=60,
+            bounds={"min_x": 0, "min_y": 0, "min_z": 0, "max_x": 30, "max_y": 10, "max_z": 3},
+            per_file_stats=[
+                {
+                    "file": "tile_a.laz",
+                    "ground_points": 10,
+                    "bounds": {"min_x": 0, "min_y": 0, "min_z": 0, "max_x": 10, "max_y": 10, "max_z": 1},
+                },
+                {
+                    "file": "tile_b.laz",
+                    "ground_points": 20,
+                    "bounds": {"min_x": 10, "min_y": 0, "min_z": 1, "max_x": 20, "max_y": 10, "max_z": 2},
+                },
+                {
+                    "file": "tile_c.laz",
+                    "ground_points": 30,
+                    "bounds": {"min_x": 20, "min_y": 0, "min_z": 2, "max_x": 30, "max_y": 10, "max_z": 3},
+                },
+            ],
+        )
+
+        filtered = filter_dataset_by_bounds(dataset, (12, 2, 18, 8))
+
+        self.assertEqual([p.name for p in filtered.laz_files], ["tile_b.laz"])
+        self.assertEqual(filtered.total_points, 20)
+        self.assertEqual(filtered.bounds["min_x"], 10)
+        self.assertEqual(filtered.bounds["max_x"], 20)
+
+    def test_filter_dataset_by_bounds_keeps_tiles_without_stats(self):
+        dataset = DatasetInfo(
+            area_name="area",
+            time_period="2025",
+            laz_files=[Path("tile_a.laz")],
+            metadata_dir=None,
+            total_points=123,
+            bounds={"min_x": 0, "min_y": 0, "min_z": 0, "max_x": 10, "max_y": 10, "max_z": 1},
+            per_file_stats=[],
+        )
+
+        filtered = filter_dataset_by_bounds(dataset, (100, 100, 110, 110))
+
+        self.assertEqual(filtered.laz_files, dataset.laz_files)
+        self.assertEqual(filtered.total_points, dataset.total_points)
+        self.assertEqual(filtered.bounds, dataset.bounds)
+
+    def test_discovery_can_skip_classification_stats(self):
+        discovery = DataDiscovery("data/raw", include_classification_stats=False)
+
+        self.assertFalse(discovery.include_classification_stats)
 
 
 class TestDataDiscovery(unittest.TestCase):

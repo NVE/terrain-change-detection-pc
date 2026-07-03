@@ -7,8 +7,10 @@ using :class:`~terrain_change_detection.preprocessing.clipping.AreaClipper`.
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
+import re
 
 import numpy as np
 
@@ -22,6 +24,65 @@ from terrain_change_detection.utils.coordinate_transform import LocalCoordinateT
 from .types import WorkflowAbort
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_boundary_path(cfg: AppConfig, project_root: Path | None = None) -> Path | None:
+    """Resolve configured clipping boundary path without validating geometry."""
+    clipping_cfg = getattr(cfg, 'clipping', None)
+    if clipping_cfg is None or not clipping_cfg.enabled or not clipping_cfg.boundary_file:
+        return None
+
+    boundary_path = Path(clipping_cfg.boundary_file)
+    if not boundary_path.is_absolute():
+        if project_root is None:
+            project_root = Path(__file__).resolve().parents[3]
+        boundary_path = project_root / boundary_path
+
+    return boundary_path
+
+
+def clipping_export_suffix(cfg: AppConfig, *, project_root: Path | None = None) -> str:
+    """Return filename suffix for clipped outputs, or empty string if clipping is off."""
+    clipping_cfg = getattr(cfg, 'clipping', None)
+    boundary_path = _resolve_boundary_path(cfg, project_root)
+    if clipping_cfg is None or boundary_path is None:
+        return ""
+
+    label = clipping_cfg.feature_name or _single_geojson_feature_name(boundary_path) or boundary_path.stem
+    safe_label = _safe_filename_part(label)
+    return f"_clipped_{safe_label}" if safe_label else "_clipped"
+
+
+def _single_geojson_feature_name(boundary_path: Path) -> str | None:
+    """Return properties.name when boundary is a single named GeoJSON feature."""
+    if boundary_path.suffix.lower() not in {'.geojson', '.json'} or not boundary_path.exists():
+        return None
+
+    try:
+        with open(boundary_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception:
+        return None
+
+    if data.get('type') == 'FeatureCollection':
+        features = data.get('features') or []
+        if len(features) != 1:
+            return None
+        feature = features[0]
+    elif data.get('type') == 'Feature':
+        feature = data
+    else:
+        return None
+
+    name = (feature.get('properties') or {}).get('name')
+    return str(name) if name else None
+
+
+def _safe_filename_part(value: str) -> str:
+    """Sanitize a human label for filenames."""
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value).strip())
+    safe = re.sub(r"_+", "_", safe).strip("._-")
+    return safe.lower()
 
 
 def apply_clipping(
@@ -66,13 +127,9 @@ def apply_clipping(
             "Clipping is enabled but no boundary_file is specified in config."
         )
 
-    boundary_path = Path(clipping_cfg.boundary_file)
-    if not boundary_path.is_absolute():
-        if project_root is None:
-            project_root = Path(__file__).resolve().parents[3]
-        boundary_path = project_root / boundary_path
+    boundary_path = _resolve_boundary_path(cfg, project_root)
 
-    if not boundary_path.exists():
+    if boundary_path is None or not boundary_path.exists():
         raise WorkflowAbort(f"Clipping boundary file not found: {boundary_path}")
 
     logger.info("--- Applying area clipping ---")
@@ -114,3 +171,70 @@ def apply_clipping(
         raise
     except Exception as e:
         raise WorkflowAbort(f"Clipping failed: {e}") from e
+
+
+def resolve_clipping_bounds(
+    cfg: AppConfig,
+    *,
+    project_root: Path | None = None,
+) -> tuple[float, float, float, float] | None:
+    """Resolve global clipping bounds for coarse tile prefiltering."""
+    clipping_cfg = getattr(cfg, 'clipping', None)
+
+    if clipping_cfg is None or not clipping_cfg.enabled:
+        return None
+
+    if not clipping_cfg.boundary_file:
+        return None
+
+    if not check_shapely_available():
+        return None
+
+    boundary_path = _resolve_boundary_path(cfg, project_root)
+
+    if boundary_path is None or not boundary_path.exists():
+        return None
+
+    try:
+        clipper = AreaClipper.from_file(
+            str(boundary_path),
+            feature_name=clipping_cfg.feature_name,
+        )
+    except Exception as e:
+        logger.warning("Could not resolve clipping bounds for tile prefiltering: %s", e)
+        return None
+
+    return clipper.bounds
+
+
+def resolve_clipper(
+    cfg: AppConfig,
+    local_transform: LocalCoordinateTransform | None = None,
+    *,
+    project_root: Path | None = None,
+) -> AreaClipper | None:
+    """Resolve clipping geometry, optionally transformed to local coordinates."""
+    clipping_cfg = getattr(cfg, 'clipping', None)
+
+    if clipping_cfg is None or not clipping_cfg.enabled or not clipping_cfg.boundary_file:
+        return None
+
+    if not check_shapely_available():
+        return None
+
+    boundary_path = _resolve_boundary_path(cfg, project_root)
+
+    if boundary_path is None or not boundary_path.exists():
+        return None
+
+    try:
+        clipper = AreaClipper.from_file(
+            str(boundary_path),
+            feature_name=clipping_cfg.feature_name,
+        )
+        if local_transform is not None:
+            clipper = clipper.transform_to_local(local_transform)
+        return clipper
+    except Exception as e:
+        logger.warning("Could not resolve clipping geometry: %s", e)
+        return None

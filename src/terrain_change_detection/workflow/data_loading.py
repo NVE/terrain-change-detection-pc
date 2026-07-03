@@ -86,6 +86,7 @@ def discover(
         data_dir_name=cfg.discovery.data_dir_name,
         metadata_dir_name=cfg.discovery.metadata_dir_name,
         loader=loader,
+        include_classification_stats=False,
     )
     areas = data_discovery.scan_areas(user_area_name=area_name)
 
@@ -278,29 +279,15 @@ def _load_streaming(
     # Log metadata
     m1 = pc1_data['metadata']
     m2 = pc2_data['metadata']
-    logger.info(
-        "Dataset 1 (%s): %d files, ~%.0f ground / %.0f total (%.1f%%)",
-        t1,
-        len(pc1_data['file_paths']),
-        float(m1.get('total_points_ground') or 0),
-        float(m1.get('total_points_all') or 0),
-        float(m1.get('ground_percentage')) if m1.get('ground_percentage') is not None else float('nan'),
-    )
-    logger.info(
-        "Dataset 2 (%s): %d files, ~%.0f ground / %.0f total (%.1f%%)",
-        t2,
-        len(pc2_data['file_paths']),
-        float(m2.get('total_points_ground') or 0),
-        float(m2.get('total_points_all') or 0),
-        float(m2.get('ground_percentage')) if m2.get('ground_percentage') is not None else float('nan'),
-    )
+    _log_streaming_dataset_summary(t1, pc1_data)
+    _log_streaming_dataset_summary(t2, pc2_data)
 
     # Subsample counts
     est_ground1 = int(m1.get('total_points_ground') or m1.get('total_points_all') or 0)
     est_ground2 = int(m2.get('total_points_ground') or m2.get('total_points_all') or 0)
     n_per_ds1 = resolve_subsample_count(max(est_ground1, 1), cfg.alignment)
     n_per_ds2 = resolve_subsample_count(max(est_ground2, 1), cfg.alignment)
-    logger.info("Loading subsampled data for alignment (T1→%d, T2→%d)...", n_per_ds1, n_per_ds2)
+    logger.info("Loading subsampled data for alignment (T1->%d, T2->%d)...", n_per_ds1, n_per_ds2)
 
     # Overlap-aware bounding box
     overlap_bbox = None
@@ -348,6 +335,31 @@ def _load_streaming(
     logger.info("Loaded %d sample points from T2 for alignment", len(points2))
 
     return points1, points2, pc1_data, pc2_data
+
+
+def _log_streaming_dataset_summary(time_period: str, pc_data: dict) -> None:
+    """Log streaming dataset stats without implying unknown ground counts are zero."""
+    metadata = pc_data['metadata']
+    total_ground = metadata.get('total_points_ground')
+    total_all = float(metadata.get('total_points_all') or 0)
+    ground_percentage = metadata.get('ground_percentage')
+
+    if total_ground:
+        logger.info(
+            "Dataset (%s): %d files, ~%.0f ground / %.0f total (%.1f%%)",
+            time_period,
+            len(pc_data['file_paths']),
+            float(total_ground),
+            total_all,
+            float(ground_percentage) if ground_percentage is not None else float('nan'),
+        )
+    else:
+        logger.info(
+            "Dataset (%s): %d files, %.0f total points (ground count not precomputed)",
+            time_period,
+            len(pc_data['file_paths']),
+            total_all,
+        )
 
 
 def _load_inmemory(

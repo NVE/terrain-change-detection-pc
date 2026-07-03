@@ -34,6 +34,100 @@ if TYPE_CHECKING:
 
 logger = setup_logger(__name__)
 
+
+def _bounds_intersect_dict(a: Dict, b: Dict) -> bool:
+    """Return True when two XY bounds dictionaries intersect."""
+    return not (
+        float(a['max_x']) < float(b['min_x'])
+        or float(a['min_x']) > float(b['max_x'])
+        or float(a['max_y']) < float(b['min_y'])
+        or float(a['min_y']) > float(b['max_y'])
+    )
+
+
+def _combine_bounds(stats: List[Dict]) -> Optional[Dict]:
+    """Combine per-file bounds dictionaries into one dataset bounds dictionary."""
+    bounds_list = [s.get('bounds') for s in stats if s.get('bounds')]
+    if not bounds_list:
+        return None
+
+    return {
+        'min_x': min(float(b['min_x']) for b in bounds_list),
+        'min_y': min(float(b['min_y']) for b in bounds_list),
+        'min_z': min(float(b.get('min_z', 0.0)) for b in bounds_list),
+        'max_x': max(float(b['max_x']) for b in bounds_list),
+        'max_y': max(float(b['max_y']) for b in bounds_list),
+        'max_z': max(float(b.get('max_z', 0.0)) for b in bounds_list),
+    }
+
+
+def filter_dataset_by_bounds(
+    dataset_info: "DatasetInfo",
+    bounds: tuple[float, float, float, float],
+    *,
+    margin_m: float = 0.0,
+) -> "DatasetInfo":
+    """Filter dataset files to tiles intersecting XY bounds.
+
+    Uses per-file discovery stats when available. If bounds for a file are
+    missing, the file is kept to avoid accidental data loss.
+    """
+    min_x, min_y, max_x, max_y = bounds
+    target_bounds = {
+        'min_x': float(min_x) - margin_m,
+        'min_y': float(min_y) - margin_m,
+        'max_x': float(max_x) + margin_m,
+        'max_y': float(max_y) + margin_m,
+    }
+
+    stats_by_name = {s.get('file'): s for s in dataset_info.per_file_stats}
+    kept_files = []
+    kept_stats = []
+    kept_file_without_bounds = False
+
+    for laz_file in dataset_info.laz_files:
+        stat = stats_by_name.get(laz_file.name)
+        file_bounds = stat.get('bounds') if stat else None
+
+        if not file_bounds:
+            kept_files.append(laz_file)
+            kept_file_without_bounds = True
+            if stat:
+                kept_stats.append(stat)
+            continue
+
+        if _bounds_intersect_dict(file_bounds, target_bounds):
+            kept_files.append(laz_file)
+            kept_stats.append(stat)
+
+    if kept_file_without_bounds:
+        total_points = dataset_info.total_points
+        combined_bounds = dataset_info.bounds
+    else:
+        total_points = int(sum(int(s.get('ground_points', 0)) for s in kept_stats))
+        combined_bounds = _combine_bounds(kept_stats)
+
+    return DatasetInfo(
+        area_name=dataset_info.area_name,
+        time_period=dataset_info.time_period,
+        laz_files=kept_files,
+        metadata_dir=dataset_info.metadata_dir,
+        total_points=total_points,
+        bounds=combined_bounds,
+        per_file_stats=kept_stats,
+    )
+
+
+def dataset_size_bytes(dataset_info: "DatasetInfo") -> int:
+    """Return total size of dataset files that still exist on disk."""
+    total = 0
+    for laz_file in dataset_info.laz_files:
+        try:
+            total += laz_file.stat().st_size
+        except OSError:
+            pass
+    return total
+
 @dataclass
 class DatasetInfo:
     """Information about a dataset."""
@@ -78,7 +172,8 @@ class DataDiscovery:
     """
 
     def __init__(self, base_dir: str, *, data_dir_name: str = 'data', metadata_dir_name: str = 'metadata', 
-                 source_type: str = 'hoydedata', loader: Optional[PointCloudLoader] = None):
+                 source_type: str = 'hoydedata', loader: Optional[PointCloudLoader] = None,
+                 include_classification_stats: bool = True):
         """
         Initialize data discovery.
 
@@ -90,12 +185,15 @@ class DataDiscovery:
                         - 'hoydedata': area/time_period/data/*.laz structure
                         - 'drone': area/time_period/*.laz structure (no data/ subdir)
             loader: Optional PointCloudLoader instance
+            include_classification_stats: If True, stream points during discovery
+                to count classifications. If False, read headers only.
         """
         self.base_dir = Path(base_dir)
         self.data_dir_name = data_dir_name if source_type == 'hoydedata' else None
         self.metadata_dir_name = metadata_dir_name if source_type == 'hoydedata' else None
         self.source_type = source_type
         self.loader = loader if loader is not None else PointCloudLoader()
+        self.include_classification_stats = include_classification_stats
 
 
     def scan_areas(self, user_area_name: Optional[str] = None) -> Dict[str, AreaInfo]:
@@ -225,7 +323,11 @@ class DataDiscovery:
         for laz_file in laz_files:
             try:
                 # Use header-only + streaming classification stats to avoid full loads
-                metadata = self.loader.get_metadata(str(laz_file), header_only=True)
+                metadata = self.loader.get_metadata(
+                    str(laz_file),
+                    header_only=True,
+                    include_classification_stats=self.include_classification_stats,
+                )
 
                 # Get ground points count from classification stats
                 classification_stats = metadata.get('classification_stats', {})

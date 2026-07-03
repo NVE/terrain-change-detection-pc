@@ -215,7 +215,14 @@ class PointCloudLoader:
             logger.error(f"File validation failed for {file_path}: {e}")
             return False
 
-    def get_metadata(self, file_path: str, *, header_only: bool = False, chunk_points: int = 1_000_000) -> dict:
+    def get_metadata(
+        self,
+        file_path: str,
+        *,
+        header_only: bool = False,
+        chunk_points: int = 1_000_000,
+        include_classification_stats: bool = True,
+    ) -> dict:
         """
         Extract metadata from a point cloud file.
 
@@ -244,23 +251,23 @@ class PointCloudLoader:
                         'min_z': float(header.z_min),
                         'max_z': float(header.z_max),
                     }
-                    # Classification stats via streaming (no full load)
                     class_counts: dict[int, int] = {}
-                    try:
-                        for chunk in reader.chunk_iterator(chunk_points):
-                            if hasattr(chunk, 'classification'):
-                                cls = np.asarray(chunk.classification)
-                                # bincount over observed classes in this chunk
-                                bc = np.bincount(cls, minlength=256)
-                                for code, cnt in enumerate(bc):
-                                    if cnt:
-                                        class_counts[code] = class_counts.get(code, 0) + int(cnt)
-                            else:
-                                # No classification; skip stats
-                                pass
-                    except Exception:
-                        # If streaming classification fails, leave stats minimal
-                        class_counts = {}
+                    if include_classification_stats:
+                        try:
+                            for chunk in reader.chunk_iterator(chunk_points):
+                                if hasattr(chunk, 'classification'):
+                                    cls = np.asarray(chunk.classification)
+                                    # bincount over observed classes in this chunk
+                                    bc = np.bincount(cls, minlength=256)
+                                    for code, cnt in enumerate(bc):
+                                        if cnt:
+                                            class_counts[code] = class_counts.get(code, 0) + int(cnt)
+                                else:
+                                    # No classification; skip stats
+                                    pass
+                        except Exception:
+                            # If streaming classification fails, leave stats minimal
+                            class_counts = {}
 
                     ground_points = int(class_counts.get(2, 0)) if class_counts else 0
                     ground_percentage = (100.0 * ground_points / num_points) if num_points > 0 and ground_points > 0 else 0.0

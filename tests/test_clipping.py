@@ -16,7 +16,7 @@ import pytest
 
 # Check if shapely is available
 try:
-    from shapely.geometry import Polygon, MultiPolygon
+    import shapely  # noqa: F401
     SHAPELY_AVAILABLE = True
 except ImportError:
     SHAPELY_AVAILABLE = False
@@ -30,6 +30,8 @@ from terrain_change_detection.preprocessing.clipping import (
     check_shapely_available,
     check_fiona_available,
 )
+from terrain_change_detection.utils.config import AppConfig
+from terrain_change_detection.workflow.clipping import clipping_export_suffix
 
 
 # Skip all tests if shapely is not available
@@ -68,6 +70,50 @@ class TestAreaClipperCreation:
         assert clipper is not None
         assert clipper.bounds == (10, 20, 110, 120)
         assert abs(clipper.area - 10000) < 1e-6  # 100 * 100 = 10000
+
+    def test_clipping_export_suffix_uses_feature_name_override(self, tmp_path):
+        boundary = tmp_path / "clip.geojson"
+        boundary.write_text('{"type":"Feature","geometry":null,"properties":{"name":"ignored"}}', encoding="utf-8")
+        cfg = AppConfig()
+        cfg.clipping.enabled = True
+        cfg.clipping.boundary_file = str(boundary)
+        cfg.clipping.feature_name = "My Polygon 01"
+
+        assert clipping_export_suffix(cfg) == "_clipped_my_polygon_01"
+
+    def test_clipping_export_suffix_uses_single_geojson_name(self, tmp_path):
+        boundary = tmp_path / "clip.geojson"
+        boundary.write_text(
+            json.dumps({
+                "type": "Feature",
+                "geometry": None,
+                "properties": {"name": "Named Polygon"},
+            }),
+            encoding="utf-8",
+        )
+        cfg = AppConfig()
+        cfg.clipping.enabled = True
+        cfg.clipping.boundary_file = str(boundary)
+
+        assert clipping_export_suffix(cfg) == "_clipped_named_polygon"
+
+    def test_clipping_export_suffix_falls_back_to_file_stem_for_multiple_features(self, tmp_path):
+        boundary = tmp_path / "clip_1.geojson"
+        boundary.write_text(
+            json.dumps({
+                "type": "FeatureCollection",
+                "features": [
+                    {"type": "Feature", "geometry": None, "properties": {"name": "A"}},
+                    {"type": "Feature", "geometry": None, "properties": {"name": "B"}},
+                ],
+            }),
+            encoding="utf-8",
+        )
+        cfg = AppConfig()
+        cfg.clipping.enabled = True
+        cfg.clipping.boundary_file = str(boundary)
+
+        assert clipping_export_suffix(cfg) == "_clipped_clip_1"
     
     def test_from_geojson_file_polygon(self):
         """Test loading clipper from a GeoJSON file with a single polygon."""

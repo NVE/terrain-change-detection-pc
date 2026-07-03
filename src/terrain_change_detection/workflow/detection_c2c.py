@@ -20,6 +20,7 @@ from terrain_change_detection.utils.export import (
 from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
 
 from .export_helpers import detect_output_crs, resolve_output_dir
+from .clipping import clipping_export_suffix, resolve_clipper
 from .types import AlignmentResult, PreparedData
 
 logger = logging.getLogger(__name__)
@@ -189,24 +190,41 @@ def _export_c2c(cfg, data, src, c2c_res, *, export_pc, export_raster):
         # C2C uses flat output root (no area subdirectory) when output_dir is not set
         export_dir = resolve_output_dir(cfg, data.selected_area.area_name, area_scoped=False)
         crs = detect_output_crs(cfg, str(data.ds1.laz_files[0]))
+        src, distances = _clip_points_and_distances_to_geometry(cfg, data, src, c2c_res.distances)
 
         area_prefix = data.selected_area.area_name
+        clip_suffix = clipping_export_suffix(cfg)
         if export_pc:
-            c2c_laz = export_dir / f"c2c_{area_prefix}_{data.t1}_{data.t2}.laz"
+            c2c_laz = export_dir / f"c2c_{area_prefix}_{data.t1}_{data.t2}{clip_suffix}.laz"
             export_points_to_laz(
-                src, c2c_res.distances, str(c2c_laz),
+                src, distances, str(c2c_laz),
                 crs=crs, source_laz_path=str(data.ds1.laz_files[0]),
                 local_transform=data.local_transform,
             )
             logger.info("Exported C2C point cloud: %s", c2c_laz)
 
         if export_raster:
-            c2c_tif = export_dir / f"c2c_{area_prefix}_{data.t1}_{data.t2}.tif"
+            c2c_tif = export_dir / f"c2c_{area_prefix}_{data.t1}_{data.t2}{clip_suffix}.tif"
             export_distances_to_geotiff(
-                src, c2c_res.distances, str(c2c_tif),
+                src, distances, str(c2c_tif),
                 cell_size=cfg.detection.dod.cell_size, crs=crs,
                 local_transform=data.local_transform,
             )
             logger.info("Exported C2C raster: %s", c2c_tif)
     except Exception as export_err:
         logger.error("C2C export failed: %s", export_err)
+
+
+def _clip_points_and_distances_to_geometry(cfg, data, points, distances):
+    """Filter point-result exports to the exact clipping polygon."""
+    clipper = resolve_clipper(cfg, data.local_transform)
+    if clipper is None or len(points) == 0:
+        return points, distances
+
+    clipped_points, mask = clipper.clip(points, return_mask=True)
+    clipped_distances = np.asarray(distances)[mask]
+    logger.info(
+        "Masked C2C export to clipping geometry: %d/%d points kept",
+        len(clipped_points), len(points),
+    )
+    return clipped_points, clipped_distances

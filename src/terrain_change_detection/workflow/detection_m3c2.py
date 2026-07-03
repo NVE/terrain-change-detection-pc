@@ -30,6 +30,7 @@ from terrain_change_detection.utils.export import (
 from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
 
 from .export_helpers import detect_output_crs, resolve_output_dir
+from .clipping import clipping_export_suffix, resolve_clipper
 from .types import AlignmentResult, PreparedData
 from .visualization_helpers import to_global_for_vis
 
@@ -573,17 +574,21 @@ def _export_m3c2(cfg, data, m3c2_res, *, run_id: str | None = None):
         crs = detect_output_crs(cfg, str(data.ds1.laz_files[0]))
 
         area_prefix = data.selected_area.area_name
+        clip_suffix = clipping_export_suffix(cfg)
         run_suffix = f"_{run_id}" if run_id else ""
+        export_points, export_distances, export_uncertainty, export_significant = _clip_m3c2_export_to_geometry(
+            cfg, data, m3c2_res,
+        )
 
         if export_m3c2_pc:
-            m3c2_laz = export_dir / f"m3c2_{area_prefix}_{data.t1}_{data.t2}{run_suffix}.laz"
+            m3c2_laz = export_dir / f"m3c2_{area_prefix}_{data.t1}_{data.t2}{clip_suffix}{run_suffix}.laz"
             extra_dims = {}
-            if m3c2_res.uncertainty is not None:
-                extra_dims['uncertainty'] = m3c2_res.uncertainty
-            if m3c2_res.significant is not None:
-                extra_dims['significant'] = m3c2_res.significant
+            if export_uncertainty is not None:
+                extra_dims['uncertainty'] = export_uncertainty
+            if export_significant is not None:
+                extra_dims['significant'] = export_significant
             export_points_to_laz(
-                m3c2_res.core_points, m3c2_res.distances, str(m3c2_laz),
+                export_points, export_distances, str(m3c2_laz),
                 crs=crs, extra_dims=extra_dims if extra_dims else None,
                 source_laz_path=str(data.ds1.laz_files[0]),
                 local_transform=data.local_transform,
@@ -592,9 +597,9 @@ def _export_m3c2(cfg, data, m3c2_res, *, run_id: str | None = None):
             output_paths.append(str(m3c2_laz))
 
         if export_m3c2_raster:
-            m3c2_tif = export_dir / f"m3c2_{area_prefix}_{data.t1}_{data.t2}{run_suffix}.tif"
+            m3c2_tif = export_dir / f"m3c2_{area_prefix}_{data.t1}_{data.t2}{clip_suffix}{run_suffix}.tif"
             export_distances_to_geotiff(
-                m3c2_res.core_points, m3c2_res.distances, str(m3c2_tif),
+                export_points, export_distances, str(m3c2_tif),
                 cell_size=cfg.detection.dod.cell_size, crs=crs,
                 local_transform=data.local_transform,
             )
@@ -603,10 +608,10 @@ def _export_m3c2(cfg, data, m3c2_res, *, run_id: str | None = None):
 
             erosion_cfg = cfg.detection.m3c2.erosion_polygons
             if erosion_cfg.enabled:
-                m3c2_geojson = export_dir / f"m3c2_erosion_polygons_{area_prefix}_{data.t1}_{data.t2}{run_suffix}.geojson"
+                m3c2_geojson = export_dir / f"m3c2_erosion_polygons_{area_prefix}_{data.t1}_{data.t2}{clip_suffix}{run_suffix}.geojson"
                 significant_values = None
-                if m3c2_res.significant is not None and len(m3c2_res.significant) == len(m3c2_res.distances):
-                    significant_values = m3c2_res.significant
+                if export_significant is not None and len(export_significant) == len(export_distances):
+                    significant_values = export_significant
                 elif erosion_cfg.use_significance:
                     logger.warning("M3C2 significance unavailable or incomplete; exporting erosion polygons without significance mask")
 
@@ -616,7 +621,7 @@ def _export_m3c2(cfg, data, m3c2_res, *, run_id: str | None = None):
                     peak_threshold_m=erosion_cfg.peak_threshold_m,
                     outline_threshold_m=erosion_cfg.outline_threshold_m,
                     use_significance=erosion_cfg.use_significance,
-                    significant_points=m3c2_res.core_points if significant_values is not None else None,
+                    significant_points=export_points if significant_values is not None else None,
                     significant_values=significant_values,
                     closing_iterations=erosion_cfg.closing_iterations,
                     opening_iterations=erosion_cfg.opening_iterations,
@@ -637,6 +642,28 @@ def _export_m3c2(cfg, data, m3c2_res, *, run_id: str | None = None):
     except Exception as export_err:
         logger.error("M3C2 export failed: %s", export_err)
         return output_paths
+
+
+def _clip_m3c2_export_to_geometry(cfg, data, m3c2_res):
+    """Filter M3C2 exports to the exact clipping polygon."""
+    points = m3c2_res.core_points
+    distances = m3c2_res.distances
+    uncertainty = m3c2_res.uncertainty
+    significant = m3c2_res.significant
+
+    clipper = resolve_clipper(cfg, data.local_transform)
+    if clipper is None or len(points) == 0:
+        return points, distances, uncertainty, significant
+
+    clipped_points, mask = clipper.clip(points, return_mask=True)
+    clipped_distances = np.asarray(distances)[mask]
+    clipped_uncertainty = np.asarray(uncertainty)[mask] if uncertainty is not None else None
+    clipped_significant = np.asarray(significant)[mask] if significant is not None else None
+    logger.info(
+        "Masked M3C2 export to clipping geometry: %d/%d core points kept",
+        len(clipped_points), len(points),
+    )
+    return clipped_points, clipped_distances, clipped_uncertainty, clipped_significant
 
 
 def _build_m3c2_summary(cfg, params, params_source, max_core, m3c2_res, output_paths):

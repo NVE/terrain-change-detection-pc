@@ -283,13 +283,13 @@ def _run_multiscale_icp(
 
     if pre_coarse_err is not None and coarse_err > pre_coarse_err:
         logger.info(
-            "Multi-scale refinement unchanged (no improvement): RMSE %.6f m → %.6f m",
+            "Multi-scale refinement unchanged (no improvement): RMSE %.6f m -> %.6f m",
             pre_coarse_err, coarse_err,
         )
     else:
         transform_matrix = T_coarse
         if pre_coarse_err is not None:
-            logger.info("Multi-scale refinement improved: RMSE %.6f m → %.6f m", pre_coarse_err, coarse_err)
+            logger.info("Multi-scale refinement improved: RMSE %.6f m -> %.6f m", pre_coarse_err, coarse_err)
         else:
             logger.info("Multi-scale refinement completed: RMSE=%.6f m", coarse_err)
 
