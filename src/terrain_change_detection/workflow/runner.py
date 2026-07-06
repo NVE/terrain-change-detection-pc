@@ -208,8 +208,8 @@ def run(
         # ----------------------------------------------------------------
         logger.info("=== STEP 3: Change Detection ===")
 
-        run_dod(cfg, data, alignment, visualizer=visualizer, show_plots=show_plots)
-        run_c2c(cfg, data, alignment, visualizer=visualizer, show_plots=show_plots)
+        run_dod(cfg, data, alignment, run_id=run_id, visualizer=visualizer, show_plots=show_plots)
+        run_c2c(cfg, data, alignment, run_id=run_id, visualizer=visualizer, show_plots=show_plots)
         m3c2_summary = run_m3c2(
             cfg, data, alignment, args,
             run_id=run_id,

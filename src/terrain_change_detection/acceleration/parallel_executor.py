@@ -164,6 +164,16 @@ class TileParallelExecutor:
         if self.n_workers == 1 or n_tiles == 1:
             logger.info("Using sequential processing (1 worker or 1 tile)")
             results = []
+
+            def kwargs_for_tile(index: int, tile: Any) -> Dict[str, Any]:
+                if per_tile_kwargs is not None:
+                    if len(per_tile_kwargs) != n_tiles:
+                        raise ValueError("per_tile_kwargs length must match tiles length")
+                    return {**worker_kwargs, **(per_tile_kwargs[index] or {})}
+                if worker_kwargs_fn is not None:
+                    return {**worker_kwargs, **(worker_kwargs_fn(tile) or {})}
+                return worker_kwargs
+
             # Optional Rich progress bar
             _use_rich = False
             try:
@@ -190,7 +200,7 @@ class TileParallelExecutor:
                     task_id = progress.add_task(f"{pretty}", total=n_tiles)
                     for i, tile in enumerate(tiles):
                         try:
-                            result = worker_fn(tile, **worker_kwargs)
+                            result = worker_fn(tile, **kwargs_for_tile(i, tile))
                             results.append(result)
                             if progress_callback:
                                 progress_callback(i + 1, n_tiles)
@@ -201,7 +211,7 @@ class TileParallelExecutor:
             else:
                 for i, tile in enumerate(tiles):
                     try:
-                        result = worker_fn(tile, **worker_kwargs)
+                        result = worker_fn(tile, **kwargs_for_tile(i, tile))
                         results.append(result)
                         
                         if progress_callback:

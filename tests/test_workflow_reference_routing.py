@@ -11,6 +11,7 @@ from terrain_change_detection.utils.config import AppConfig
 from terrain_change_detection.workflow.detection_c2c import run_c2c
 from terrain_change_detection.workflow.detection_dod import run_dod
 from terrain_change_detection.workflow.detection_m3c2 import run_m3c2
+from terrain_change_detection.workflow.export_helpers import resolve_output_dir
 from terrain_change_detection.workflow.runner import _split_features_dir
 from terrain_change_detection.workflow.types import AlignmentResult, PreparedData
 
@@ -37,6 +38,14 @@ def test_split_features_dir_is_area_scoped(tmp_path):
     cfg.paths.output_dir = str(tmp_path / "outputs")
 
     assert _split_features_dir(cfg, "Romerike") == tmp_path / "outputs" / "Romerike" / "_split_features"
+
+
+def test_method_exports_default_to_area_scoped_output(tmp_path):
+    cfg = AppConfig()
+    cfg.paths.base_dir = str(tmp_path)
+    cfg.paths.output_dir = None
+
+    assert resolve_output_dir(cfg, "Romerike", area_scoped=True) == tmp_path / "output" / "Romerike"
 
 
 def _make_prepared_data(*, use_streaming: bool = False) -> PreparedData:
@@ -136,6 +145,47 @@ def test_dod_streaming_reference_t2_falls_back_without_aligned_t1(monkeypatch):
     assert captured["streaming_called"] is False
 
 
+def test_dod_export_filename_includes_run_id(tmp_path, monkeypatch):
+    cfg = _make_cfg()
+    cfg.paths.output_dir = str(tmp_path)
+    data = _make_prepared_data(use_streaming=False)
+    alignment = _make_alignment()
+    cfg.detection.dod.export_raster = True
+    captured = {}
+
+    def fake_compute_dod(*, points_t1, points_t2, cell_size, aggregator, config):
+        return SimpleNamespace(
+            grid_x=np.zeros((1, 1)),
+            grid_y=np.zeros((1, 1)),
+            dem1=np.zeros((1, 1)),
+            dem2=np.zeros((1, 1)),
+            dod=np.zeros((1, 1)),
+            bounds=(0.0, 0.0, 1.0, 1.0),
+            cell_size=cell_size,
+        )
+
+    def fake_export(dod_res, output_path, **kwargs):
+        captured["output_path"] = output_path
+        return output_path
+
+    monkeypatch.setattr(
+        "terrain_change_detection.workflow.detection_dod.ChangeDetector.compute_dod",
+        fake_compute_dod,
+    )
+    monkeypatch.setattr(
+        "terrain_change_detection.workflow.detection_dod.resolve_workflow_crs",
+        lambda *args, **kwargs: "EPSG:25833",
+    )
+    monkeypatch.setattr(
+        "terrain_change_detection.workflow.detection_dod.export_dod_to_geotiff",
+        fake_export,
+    )
+
+    run_dod(cfg, data, alignment, run_id="RUN123", show_plots=False)
+
+    assert Path(captured["output_path"]).name == "dod_test_area_2015_2020_RUN123.tif"
+
+
 def test_c2c_uses_aligned_t1_as_target_for_reference_t2(monkeypatch):
     cfg = _make_cfg()
     data = _make_prepared_data(use_streaming=False)
@@ -156,6 +206,38 @@ def test_c2c_uses_aligned_t1_as_target_for_reference_t2(monkeypatch):
 
     np.testing.assert_array_equal(captured["src"], alignment.points2_aligned)
     np.testing.assert_array_equal(captured["tgt"], alignment.points1_aligned)
+
+
+def test_c2c_export_filename_includes_run_id(tmp_path, monkeypatch):
+    cfg = _make_cfg()
+    cfg.paths.output_dir = str(tmp_path)
+    data = _make_prepared_data(use_streaming=False)
+    alignment = _make_alignment()
+    cfg.detection.c2c.export_pc = True
+    cfg.detection.c2c.export_raster = True
+    captured = {}
+
+    monkeypatch.setattr(
+        "terrain_change_detection.workflow.detection_c2c.ChangeDetector.compute_c2c",
+        lambda src, tgt, max_distance, config: SimpleNamespace(distances=np.array([0.1, 0.2])),
+    )
+    monkeypatch.setattr(
+        "terrain_change_detection.workflow.detection_c2c.resolve_workflow_crs",
+        lambda *args, **kwargs: "EPSG:25833",
+    )
+    monkeypatch.setattr(
+        "terrain_change_detection.workflow.detection_c2c.export_points_to_laz",
+        lambda points, distances, output_path, **kwargs: captured.setdefault("laz", output_path),
+    )
+    monkeypatch.setattr(
+        "terrain_change_detection.workflow.detection_c2c.export_distances_to_geotiff",
+        lambda points, distances, output_path, **kwargs: captured.setdefault("tif", output_path),
+    )
+
+    run_c2c(cfg, data, alignment, run_id="RUN123", show_plots=False)
+
+    assert Path(captured["laz"]).name == "c2c_test_area_2015_2020_RUN123.laz"
+    assert Path(captured["tif"]).name == "c2c_test_area_2015_2020_RUN123.tif"
 
 
 def test_m3c2_uses_aligned_t1_for_reference_t2(monkeypatch):

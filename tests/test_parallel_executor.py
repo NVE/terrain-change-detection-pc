@@ -29,6 +29,11 @@ def _scaling_worker(tile, scale=1):
     return tile.i * scale
 
 
+def _required_kwargs_worker(tile, required_value, scale=1):
+    """Worker that requires per-tile kwargs."""
+    return tile.i + required_value * scale
+
+
 def _error_worker(tile):
     """Worker that raises an error."""
     raise ValueError(f"Intentional error on tile {tile.i}")
@@ -100,6 +105,26 @@ class TestTileParallelExecutor:
 
         assert len(results) == 5
         assert results == [0, 1, 2, 3, 4]
+
+    def test_sequential_fallback_uses_per_tile_kwargs(self):
+        """Test per-tile kwargs are passed when executor falls back to sequential."""
+        executor = TileParallelExecutor(n_workers=4)
+
+        tile = Tile(
+            i=2, j=0,
+            inner=Bounds2D(0, 0, 10, 10),
+            outer=Bounds2D(0, 0, 10, 10),
+            x0_idx=0, y0_idx=0, nx=10, ny=10,
+        )
+
+        results = executor.map_tiles(
+            tiles=[tile],
+            worker_fn=_required_kwargs_worker,
+            worker_kwargs={"scale": 3},
+            per_tile_kwargs=[{"required_value": 4}],
+        )
+
+        assert results == [14]
 
     def test_parallel_processing_order_preserved(self):
         """Test parallel processing preserves tile order."""

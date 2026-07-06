@@ -198,6 +198,53 @@ class TestExportDoDToGeotiff:
                 assert src.crs is not None
                 assert src.crs.to_string() == crs
 
+    def test_local_transform_converts_dod_bounds_to_global(self, sample_dod):
+        """Test that local DoD bounds are written as global GeoTIFF bounds."""
+        from terrain_change_detection.utils.coordinate_transform import LocalCoordinateTransform
+        from terrain_change_detection.utils.export import export_dod_to_geotiff
+        import rasterio
+
+        local_transform = LocalCoordinateTransform.from_bounds(466000.0, 6650000.0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "dod_global_bounds.tif"
+            export_dod_to_geotiff(
+                sample_dod, str(output_path), local_transform=local_transform,
+            )
+
+            with rasterio.open(output_path) as src:
+                assert src.bounds.left == pytest.approx(466000.0)
+                assert src.bounds.bottom == pytest.approx(6650000.0)
+                assert src.bounds.right == pytest.approx(466010.0)
+                assert src.bounds.top == pytest.approx(6650010.0)
+                assert src.res == pytest.approx((sample_dod.cell_size, sample_dod.cell_size))
+
+    def test_dod_export_flips_rows_to_north_up(self):
+        """Test GeoTIFF row 0 contains max-Y DoD row."""
+        from terrain_change_detection.utils.export import export_dod_to_geotiff
+        import rasterio
+
+        dod = MockDoDResult(
+            grid_x=np.array([[0.5, 1.5], [0.5, 1.5]]),
+            grid_y=np.array([[0.5, 0.5], [1.5, 1.5]]),
+            dem1=np.zeros((2, 2)),
+            dem2=np.zeros((2, 2)),
+            dod=np.array([[1.0, 2.0], [3.0, 4.0]]),
+            cell_size=1.0,
+            bounds=(0.0, 0.0, 2.0, 2.0),
+            stats={},
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "dod_north_up.tif"
+            export_dod_to_geotiff(dod, str(output_path))
+
+            with rasterio.open(output_path) as src:
+                np.testing.assert_array_equal(
+                    src.read(1),
+                    np.array([[3.0, 4.0], [1.0, 2.0]], dtype=np.float32),
+                )
+
 
 class TestExportDistancesToGeotiff:
     """Tests for export_distances_to_geotiff function."""

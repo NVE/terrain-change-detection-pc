@@ -31,6 +31,7 @@ def run_c2c(
     data: PreparedData,
     alignment: AlignmentResult,
     *,
+    run_id: str | None = None,
     visualizer: PointCloudVisualizer | None = None,
     show_plots: bool = False,
 ) -> None:
@@ -40,6 +41,7 @@ def run_c2c(
         cfg: Application configuration.
         data: Prepared dataset.
         alignment: Alignment results.
+        run_id: Optional run identifier appended to output filenames.
         visualizer: Optional visualizer instance.
         show_plots: Whether to display interactive plots.
     """
@@ -58,15 +60,21 @@ def run_c2c(
         )
 
         if use_streaming_c2c:
-            _run_streaming_c2c(cfg, data, alignment, visualizer=visualizer, show_plots=show_plots)
+            _run_streaming_c2c(
+                cfg, data, alignment, run_id=run_id,
+                visualizer=visualizer, show_plots=show_plots,
+            )
         else:
-            _run_inmemory_c2c(cfg, data, alignment, visualizer=visualizer, show_plots=show_plots)
+            _run_inmemory_c2c(
+                cfg, data, alignment, run_id=run_id,
+                visualizer=visualizer, show_plots=show_plots,
+            )
 
     except Exception as e:
         logger.error("C2C computation failed: %s", e)
 
 
-def _run_streaming_c2c(cfg, data, alignment, *, visualizer, show_plots):
+def _run_streaming_c2c(cfg, data, alignment, *, run_id, visualizer, show_plots):
     """Streaming C2C with parallel/sequential paths."""
     if cfg.alignment.reference == "t2":
         files_tgt = data.pc1_data.get('aligned_file_paths') if data.pc1_data else None
@@ -81,7 +89,8 @@ def _run_streaming_c2c(cfg, data, alignment, *, visualizer, show_plots):
                 "aligned T1 files to keep T2 as the source cloud."
             )
             return _run_inmemory_c2c(
-                cfg, data, alignment, visualizer=visualizer, show_plots=show_plots,
+                cfg, data, alignment, run_id=run_id,
+                visualizer=visualizer, show_plots=show_plots,
             )
     else:
         files_src = (data.pc2_data.get('aligned_file_paths') or data.pc2_data['file_paths'])
@@ -93,6 +102,11 @@ def _run_streaming_c2c(cfg, data, alignment, *, visualizer, show_plots):
     use_parallel = getattr(cfg.parallel, 'enabled', False)
     mode = "parallel" if use_parallel else "sequential"
     logger.info("Using streaming C2C (%s, tiled)...", mode)
+    if getattr(cfg.detection.c2c, 'mode', 'euclidean') != 'euclidean':
+        logger.warning(
+            "C2C mode '%s' not supported in streaming; using unsigned euclidean distances.",
+            cfg.detection.c2c.mode,
+        )
 
     if use_parallel:
         c2c_res = ChangeDetector.compute_c2c_streaming_files_tiled_parallel(
@@ -111,8 +125,6 @@ def _run_streaming_c2c(cfg, data, alignment, *, visualizer, show_plots):
             local_transform=data.local_transform,
         )
     else:
-        if getattr(cfg.detection.c2c, 'mode', 'euclidean') != 'euclidean':
-            logger.warning("C2C mode '%s' not supported in streaming; using euclidean.", cfg.detection.c2c.mode)
         c2c_res = ChangeDetector.compute_c2c_streaming_files_tiled(
             files_src=files_src,
             files_tgt=files_tgt,
@@ -136,7 +148,7 @@ def _run_streaming_c2c(cfg, data, alignment, *, visualizer, show_plots):
         pass
 
 
-def _run_inmemory_c2c(cfg, data, alignment, *, visualizer, show_plots):
+def _run_inmemory_c2c(cfg, data, alignment, *, run_id, visualizer, show_plots):
     """In-memory C2C computation."""
     c2c_mode = getattr(cfg.detection.c2c, 'mode', 'euclidean')
     logger.info("Using in-memory C2C (%s)...", c2c_mode)
@@ -181,21 +193,25 @@ def _run_inmemory_c2c(cfg, data, alignment, *, visualizer, show_plots):
     export_c2c_pc = getattr(cfg.detection.c2c, 'export_pc', False)
     export_c2c_raster = getattr(cfg.detection.c2c, 'export_raster', False)
     if export_c2c_pc or export_c2c_raster:
-        _export_c2c(cfg, data, src, c2c_res, export_pc=export_c2c_pc, export_raster=export_c2c_raster)
+        _export_c2c(
+            cfg, data, src, c2c_res,
+            export_pc=export_c2c_pc, export_raster=export_c2c_raster,
+            run_id=run_id,
+        )
 
 
-def _export_c2c(cfg, data, src, c2c_res, *, export_pc, export_raster):
+def _export_c2c(cfg, data, src, c2c_res, *, export_pc, export_raster, run_id: str | None = None):
     """Export C2C results as LAZ and/or GeoTIFF."""
     try:
-        # C2C uses flat output root (no area subdirectory) when output_dir is not set
-        export_dir = resolve_output_dir(cfg, data.selected_area.area_name, area_scoped=False)
+        export_dir = resolve_output_dir(cfg, data.selected_area.area_name, area_scoped=True)
         crs = resolve_workflow_crs(cfg, data.ds1.laz_files[0], data.ds2.laz_files[0])
         src, distances = _clip_points_and_distances_to_geometry(cfg, data, src, c2c_res.distances, workflow_crs=crs)
 
         area_prefix = data.selected_area.area_name
         clip_suffix = clipping_export_suffix(cfg)
+        run_suffix = f"_{run_id}" if run_id else ""
         if export_pc:
-            c2c_laz = export_dir / f"c2c_{area_prefix}_{data.t1}_{data.t2}{clip_suffix}.laz"
+            c2c_laz = export_dir / f"c2c_{area_prefix}_{data.t1}_{data.t2}{clip_suffix}{run_suffix}.laz"
             export_points_to_laz(
                 src, distances, str(c2c_laz),
                 crs=crs, source_laz_path=str(data.ds1.laz_files[0]),
@@ -204,7 +220,7 @@ def _export_c2c(cfg, data, src, c2c_res, *, export_pc, export_raster):
             logger.info("Exported C2C point cloud: %s", c2c_laz)
 
         if export_raster:
-            c2c_tif = export_dir / f"c2c_{area_prefix}_{data.t1}_{data.t2}{clip_suffix}.tif"
+            c2c_tif = export_dir / f"c2c_{area_prefix}_{data.t1}_{data.t2}{clip_suffix}{run_suffix}.tif"
             export_distances_to_geotiff(
                 src, distances, str(c2c_tif),
                 cell_size=cfg.detection.dod.cell_size, crs=crs,

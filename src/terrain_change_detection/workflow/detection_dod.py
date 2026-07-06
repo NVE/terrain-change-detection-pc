@@ -28,6 +28,7 @@ def run_dod(
     data: PreparedData,
     alignment: AlignmentResult,
     *,
+    run_id: str | None = None,
     visualizer: PointCloudVisualizer | None = None,
     show_plots: bool = False,
 ) -> None:
@@ -37,6 +38,7 @@ def run_dod(
         cfg: Application configuration.
         data: Prepared dataset.
         alignment: Alignment results.
+        run_id: Optional run identifier appended to output filenames.
         visualizer: Optional visualizer instance.
         show_plots: Whether to display interactive plots.
     """
@@ -68,7 +70,7 @@ def run_dod(
 
         # Export DoD GeoTIFF
         if getattr(cfg.detection.dod, 'export_raster', False):
-            _export_dod(cfg, data, dod_res)
+            _export_dod(cfg, data, dod_res, run_id=run_id)
 
     except Exception as e:
         logger.error("DoD computation failed: %s", e)
@@ -150,18 +152,21 @@ def _compute_inmemory_dod(cfg, alignment):
     )
 
 
-def _export_dod(cfg, data, dod_res):
+def _export_dod(cfg, data, dod_res, *, run_id: str | None = None):
     """Export DoD as GeoTIFF."""
     try:
-        # DoD uses flat output root (no area subdirectory) when output_dir is not set
-        export_dir = resolve_output_dir(cfg, data.selected_area.area_name, area_scoped=False)
+        export_dir = resolve_output_dir(cfg, data.selected_area.area_name, area_scoped=True)
         crs = resolve_workflow_crs(cfg, data.ds1.laz_files[0], data.ds2.laz_files[0])
 
         area_prefix = data.selected_area.area_name
         clip_suffix = clipping_export_suffix(cfg)
-        dod_output = export_dir / f"dod_{area_prefix}_{data.t1}_{data.t2}{clip_suffix}.tif"
+        run_suffix = f"_{run_id}" if run_id else ""
+        dod_output = export_dir / f"dod_{area_prefix}_{data.t1}_{data.t2}{clip_suffix}{run_suffix}.tif"
         _mask_dod_to_clipping_geometry(cfg, data, dod_res, workflow_crs=crs)
-        export_dod_to_geotiff(dod_res, str(dod_output), crs=crs)
+        export_dod_to_geotiff(
+            dod_res, str(dod_output), crs=crs,
+            local_transform=data.local_transform,
+        )
         logger.info("Exported DoD raster: %s", dod_output)
     except Exception as export_err:
         logger.error("DoD export failed: %s", export_err)

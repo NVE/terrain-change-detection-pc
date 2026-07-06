@@ -41,3 +41,17 @@ def test_c2c_identical_clouds_zero_distance():
     assert float(res.mean) == 0.0
     assert float(res.median) == 0.0
     assert float(res.rmse) == 0.0
+
+
+def test_c2c_vertical_plane_positive_when_source_is_higher():
+    # Workflow passes T2 as source and T1 as target, so uplift should be positive.
+    x, y = np.meshgrid(np.arange(5, dtype=float), np.arange(5, dtype=float))
+    target = np.column_stack([x.ravel(), y.ravel(), np.zeros(x.size)])
+    source = target.copy()
+    source[:, 2] = 1.0
+
+    res = ChangeDetector.compute_c2c_vertical_plane(
+        source, target, k_neighbors=9, min_neighbors=3,
+    )
+
+    assert np.nanmedian(res.distances) == 1.0

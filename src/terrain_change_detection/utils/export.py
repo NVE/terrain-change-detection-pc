@@ -257,6 +257,7 @@ def export_dod_to_geotiff(
     *,
     crs: str = "EPSG:25833",
     nodata: float = -9999.0,
+    local_transform: Optional["LocalCoordinateTransform"] = None,
 ) -> str:
     """
     Export DEM of Difference result to a GeoTIFF file.
@@ -266,6 +267,7 @@ def export_dod_to_geotiff(
         output_path: Path for output GeoTIFF file
         crs: Coordinate reference system (default: EPSG:25833)
         nodata: NoData value for missing cells
+        local_transform: If provided, converts DoD bounds from local to global coordinates
 
     Returns:
         Path to created file
@@ -278,13 +280,20 @@ def export_dod_to_geotiff(
 
     # Get DoD array and dimensions
     dod = np.asarray(dod_result.dod, dtype=np.float32)
-    min_x, min_y, max_x, max_y = dod_result.bounds
+    min_x, min_y, _, _ = dod_result.bounds
+    height, width = dod.shape
+    max_x = min_x + width * dod_result.cell_size
+    max_y = min_y + height * dod_result.cell_size
+    if local_transform is not None:
+        min_x, min_y, max_x, max_y = local_transform.transform_bounds(
+            min_x, min_y, max_x, max_y, to_local=False,
+        )
+
+    # DoD grids are built south-to-north (increasing Y). GeoTIFF row 0 is north.
+    dod = np.flipud(dod)
 
     # Handle NaN values
     dod = np.where(np.isnan(dod), nodata, dod)
-
-    # Compute raster dimensions
-    height, width = dod.shape
 
     # Create affine transform (top-left origin for raster)
     transform = from_bounds(min_x, min_y, max_x, max_y, width, height)
