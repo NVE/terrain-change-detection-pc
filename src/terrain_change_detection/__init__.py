@@ -9,7 +9,7 @@ control of the spatial alignment, the ICP algorithm is implemented from scratch.
 Change detection is a WIP...(will most likely use py4dgeo)
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "Yared Bekele"
 __email__ = "yared.bekele@sintef.no"
 

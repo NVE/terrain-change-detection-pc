@@ -1,6 +1,6 @@
 [project]
 name = "terrain-change-detection-pc"
-version = "0.1.0"
+version = "0.2.0"
 description = "Terrain change detection based on multi-temporal point clouds"
 readme = "README.md"
 license = "MIT"

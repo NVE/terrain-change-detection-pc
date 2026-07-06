@@ -1,5 +1,21 @@
 # Changelog and Implementation Notes
 
+## 0.2.0 - 2026-07-06
+
+### Summary
+Added structured workflow outputs, reusable run artifacts, clipping improvements, M3C2 evaluation controls, erosion polygon export, and fixes for CRS handling and raster exports.
+
+### Changes
+- Added run IDs and artifact management for tracking and reusing workflow results.
+- Added M3C2 evaluation summaries and configurable evaluation source for core point selection.
+- Added erosion polygon export support and related configuration.
+- Improved clipping workflow performance and split clipping feature handling.
+- Improved dataset and selected-area typing in workflow data structures.
+- Improved CRS detection from LAZ inputs and clipping boundary reprojection.
+- Fixed C2C/DoD raster exports and made run outputs unique.
+
+---
+
 ## 2026-04-10 - Terrain Change Best Practice Guide
 
 ### Summary
