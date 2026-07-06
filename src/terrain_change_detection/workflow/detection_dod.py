@@ -16,7 +16,7 @@ from terrain_change_detection.utils.config import AppConfig
 from terrain_change_detection.utils.export import export_dod_to_geotiff
 from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
 
-from .export_helpers import detect_output_crs, resolve_output_dir
+from .export_helpers import resolve_output_dir, resolve_workflow_crs
 from .clipping import clipping_export_suffix, resolve_clipper
 from .types import AlignmentResult, PreparedData
 
@@ -155,21 +155,21 @@ def _export_dod(cfg, data, dod_res):
     try:
         # DoD uses flat output root (no area subdirectory) when output_dir is not set
         export_dir = resolve_output_dir(cfg, data.selected_area.area_name, area_scoped=False)
-        crs = detect_output_crs(cfg, str(data.ds1.laz_files[0]))
+        crs = resolve_workflow_crs(cfg, data.ds1.laz_files[0], data.ds2.laz_files[0])
 
         area_prefix = data.selected_area.area_name
         clip_suffix = clipping_export_suffix(cfg)
         dod_output = export_dir / f"dod_{area_prefix}_{data.t1}_{data.t2}{clip_suffix}.tif"
-        _mask_dod_to_clipping_geometry(cfg, data, dod_res)
+        _mask_dod_to_clipping_geometry(cfg, data, dod_res, workflow_crs=crs)
         export_dod_to_geotiff(dod_res, str(dod_output), crs=crs)
         logger.info("Exported DoD raster: %s", dod_output)
     except Exception as export_err:
         logger.error("DoD export failed: %s", export_err)
 
 
-def _mask_dod_to_clipping_geometry(cfg, data, dod_res) -> None:
+def _mask_dod_to_clipping_geometry(cfg, data, dod_res, *, workflow_crs: str | None = None) -> None:
     """Set DoD cells outside clipping polygon to NaN before export."""
-    clipper = resolve_clipper(cfg, data.local_transform)
+    clipper = resolve_clipper(cfg, data.local_transform, workflow_crs=workflow_crs)
     if clipper is None or dod_res.dod.size == 0:
         return
 

@@ -399,3 +399,20 @@ class TestDetectCrsFromLaz:
         
         result = detect_crs_from_laz("/nonexistent/path/file.laz")
         assert result is None
+
+    def test_extracts_projected_epsg_from_compound_wkt(self):
+        """Compound WKT should return horizontal CRS, not spheroid/vertical EPSG."""
+        from terrain_change_detection.utils.export import _extract_epsg_from_wkt
+
+        wkt = (
+            'COMPD_CS["ETRS89 / UTM zone 32N + NN2000 height",'
+            'PROJCS["ETRS89 / UTM zone 32N",'
+            'GEOGCS["ETRS89",DATUM["European_Terrestrial_Reference_System_1989",'
+            'SPHEROID["GRS 1980",6378137,298.257222101,AUTHORITY["EPSG","7019"]],'
+            'AUTHORITY["EPSG","6258"]]],'
+            'AUTHORITY["EPSG","25832"]],'
+            'VERT_CS["NN2000 height",AUTHORITY["EPSG","5941"]],'
+            'AUTHORITY["EPSG","5972"]]'
+        )
+
+        assert _extract_epsg_from_wkt(wkt) == "EPSG:25832"

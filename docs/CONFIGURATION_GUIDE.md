@@ -56,7 +56,7 @@ discovery:
 | :--- | :--- | :--- | :--- |
 | **paths** | `base_dir` | `data/raw` | Root directory containing the dataset area folders. |
 | | `output_dir` | `null` | Destination for results. If `null`, defaults to `base_dir/output`. |
-| | `output_crs` | `EPSG:25833` | Coordinate Reference System for exported files. |
+| | `output_crs` | `EPSG:25833` | Fallback CRS metadata used only when input LAZ/LAS files do not declare a CRS. It does not reproject outputs; outputs are written in the detected input CRS when available. |
 | **discovery** | `source_type` | `hoydedata` | Directory layout: `hoydedata` (nested `data/` folder) or `drone` (flat structure). |
 | | `data_dir_name` | `data` | Subfolder name for point clouds (used with `hoydedata` source). |
 | | `metadata_dir_name` | `metadata` | Subfolder name for metadata files. |
@@ -85,7 +85,7 @@ clipping:
 | **preprocessing** | `ground_only` | `true` | If true, retains only LAS Class 2 (Ground) points. |
 | | `classification_filter` | `[2]` | Specific LAS classes to keep (overrides `ground_only`). |
 | **clipping** | `enabled` | `false` | If true, clips point clouds to the polygon defined in `boundary_file`. |
-| | `boundary_file` | `null` | Path to a GeoJSON or Shapefile polygon. |
+| | `boundary_file` | `null` | Path to a GeoJSON or Shapefile polygon. If the boundary declares a CRS and it differs from the input point-cloud CRS, the boundary is reprojected before clipping. |
 | | `feature_name` | `null` | Name of the specific feature to use if the file contains multiple. |
 | | `save_clipped_files` | `false` | If true, saves the clipped LAZ files to disk to speed up future runs. |
 | | `output_dir` | `null` | Specific directory for clipped files (auto-generated if null). |

@@ -45,7 +45,7 @@ def detect_crs_from_laz(laz_path: str) -> Optional[str]:
             for vlr in header.vlrs:
                 # WKT VLR has record_id 2112 or user_id "LASF_Projection"
                 if vlr.user_id == "LASF_Projection" and vlr.record_id == 2112:
-                    wkt = vlr.record_data.decode("utf-8", errors="ignore").strip("\x00")
+                    wkt = _wkt_from_vlr(vlr)
                     # Try to extract EPSG from WKT
                     epsg = _extract_epsg_from_wkt(wkt)
                     if epsg:
@@ -64,9 +64,37 @@ def detect_crs_from_laz(laz_path: str) -> Optional[str]:
     return None
 
 
+def _wkt_from_vlr(vlr) -> str:
+    """Return WKT text from raw or laspy-known WKT VLR objects."""
+    if hasattr(vlr, "string"):
+        return str(vlr.string).strip("\x00")
+
+    record_data = getattr(vlr, "record_data", None)
+    if record_data is None:
+        record_data = getattr(vlr, "record_data_bytes", lambda: b"")()
+    return record_data.decode("utf-8", errors="ignore").strip("\x00")
+
+
 def _extract_epsg_from_wkt(wkt: str) -> Optional[str]:
     """Extract EPSG code from WKT string."""
     import re
+
+    # Prefer projected CRS from compound WKT (e.g., horizontal + vertical CRS).
+    match = re.search(
+        r'PROJCS\s*\[.*?AUTHORITY\s*\[\s*"EPSG"\s*,\s*"(\d+)"\s*\]\s*\]\s*,\s*VERT_CS',
+        wkt,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if match:
+        return f"EPSG:{match.group(1)}"
+
+    match = re.search(
+        r'PROJCRS\s*\[.*?ID\s*\[\s*"EPSG"\s*,\s*(\d+)\s*\]',
+        wkt,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if match:
+        return f"EPSG:{match.group(1)}"
 
     # Look for AUTHORITY["EPSG","25833"] or similar patterns
     match = re.search(r'AUTHORITY\s*\[\s*"EPSG"\s*,\s*"(\d+)"\s*\]', wkt, re.IGNORECASE)

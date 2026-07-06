@@ -26,7 +26,7 @@ from terrain_change_detection.utils.export import export_points_to_laz
 
 from .artifacts import get_forced_classification, load_alignment_artifact, write_alignment_artifact
 from .data_loading import resolve_subsample_count
-from .export_helpers import detect_output_crs, resolve_output_dir
+from .export_helpers import resolve_output_dir, resolve_workflow_crs
 from .types import AlignmentResult, PreparedData
 
 logger = logging.getLogger(__name__)
@@ -347,7 +347,7 @@ def _export_aligned_pc(
     transform_matrix: np.ndarray,
 ) -> None:
     """Export the aligned point cloud as a LAZ file."""
-    crs = detect_output_crs(cfg, str(data.ds1.laz_files[0]))
+    crs = resolve_workflow_crs(cfg, data.ds1.laz_files[0], data.ds2.laz_files[0])
     export_dir = resolve_output_dir(cfg, data.selected_area.area_name)
 
     aligned_pc_path = export_dir / f"aligned_{aligned_epoch}.laz"

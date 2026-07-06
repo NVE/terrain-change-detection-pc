@@ -19,7 +19,7 @@ from terrain_change_detection.utils.export import (
 )
 from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
 
-from .export_helpers import detect_output_crs, resolve_output_dir
+from .export_helpers import resolve_output_dir, resolve_workflow_crs
 from .clipping import clipping_export_suffix, resolve_clipper
 from .types import AlignmentResult, PreparedData
 
@@ -189,8 +189,8 @@ def _export_c2c(cfg, data, src, c2c_res, *, export_pc, export_raster):
     try:
         # C2C uses flat output root (no area subdirectory) when output_dir is not set
         export_dir = resolve_output_dir(cfg, data.selected_area.area_name, area_scoped=False)
-        crs = detect_output_crs(cfg, str(data.ds1.laz_files[0]))
-        src, distances = _clip_points_and_distances_to_geometry(cfg, data, src, c2c_res.distances)
+        crs = resolve_workflow_crs(cfg, data.ds1.laz_files[0], data.ds2.laz_files[0])
+        src, distances = _clip_points_and_distances_to_geometry(cfg, data, src, c2c_res.distances, workflow_crs=crs)
 
         area_prefix = data.selected_area.area_name
         clip_suffix = clipping_export_suffix(cfg)
@@ -215,9 +215,9 @@ def _export_c2c(cfg, data, src, c2c_res, *, export_pc, export_raster):
         logger.error("C2C export failed: %s", export_err)
 
 
-def _clip_points_and_distances_to_geometry(cfg, data, points, distances):
+def _clip_points_and_distances_to_geometry(cfg, data, points, distances, *, workflow_crs: str | None = None):
     """Filter point-result exports to the exact clipping polygon."""
-    clipper = resolve_clipper(cfg, data.local_transform)
+    clipper = resolve_clipper(cfg, data.local_transform, workflow_crs=workflow_crs)
     if clipper is None or len(points) == 0:
         return points, distances
 

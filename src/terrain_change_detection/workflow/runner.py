@@ -32,6 +32,7 @@ from .export_helpers import (
     export_dem_rasters,
     make_run_id,
     reset_crs_cache,
+    resolve_workflow_crs,
     resolve_output_dir,
     write_run_inputs,
 )
@@ -41,9 +42,14 @@ from .visualization_helpers import to_global_for_vis
 logger_module = logging.getLogger(__name__)
 
 
-def _prefilter_discovery_by_clipping(cfg: AppConfig, discovery) -> None:
+def _prefilter_discovery_by_clipping(
+    cfg: AppConfig,
+    discovery,
+    *,
+    workflow_crs: str | None = None,
+) -> None:
     """Reduce discovered tile lists using clipping bounds before point loading."""
-    clip_bounds = resolve_clipping_bounds(cfg)
+    clip_bounds = resolve_clipping_bounds(cfg, workflow_crs=workflow_crs)
     if clip_bounds is None:
         return
 
@@ -123,7 +129,9 @@ def run(
             selected_years=selected_years,
         )
 
-        _prefilter_discovery_by_clipping(cfg, discovery)
+        workflow_crs = resolve_workflow_crs(cfg, discovery.ds1.laz_files[0], discovery.ds2.laz_files[0])
+
+        _prefilter_discovery_by_clipping(cfg, discovery, workflow_crs=workflow_crs)
 
         # Setup local coordinate transform from T1 bounds
         local_transform = setup_local_transform(cfg, discovery.ds1.bounds)
@@ -136,6 +144,7 @@ def run(
         # ----------------------------------------------------------------
         points1, points2, clip_bounds = apply_clipping(
             cfg, data.points1, data.points2, data.local_transform,
+            workflow_crs=workflow_crs,
         )
         data.points1 = points1
         data.points2 = points2
@@ -163,6 +172,7 @@ def run(
                 point_clouds=[vis_points1, vis_points2],
                 area_name=data.selected_area.area_name,
                 laz_file=str(data.ds1.laz_files[0]),
+                laz_file_epoch2=str(data.ds2.laz_files[0]),
                 suffix="raw",
             )
 
@@ -189,6 +199,7 @@ def run(
                 point_clouds=[vis_p1_aligned, vis_p2_aligned],
                 area_name=data.selected_area.area_name,
                 laz_file=str(data.ds1.laz_files[0]),
+                laz_file_epoch2=str(data.ds2.laz_files[0]),
                 suffix="icp",
             )
 

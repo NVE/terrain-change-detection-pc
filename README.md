@@ -96,6 +96,8 @@ The toolkit always starts from `config/default.yaml`. You can then:
 
 Common override presets live in `config/profiles/`.
 
+`paths.output_crs` is not a reprojection target. It is only used as fallback CRS metadata when input LAZ/LAS files do not declare a CRS; outputs are otherwise written in the detected input CRS.
+
 | Config | Description |
 | :--- | :--- |
 | **`default.yaml`** | Full canonical config with all runtime defaults. |

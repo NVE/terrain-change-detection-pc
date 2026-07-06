@@ -12,7 +12,7 @@ from terrain_change_detection.preprocessing.loader import PointCloudLoader
 from terrain_change_detection.utils.config import AppConfig
 from terrain_change_detection.utils.export import export_points_to_laz
 
-from .export_helpers import detect_output_crs, resolve_output_dir
+from .export_helpers import resolve_output_dir, resolve_workflow_crs
 from .types import AlignmentResult, PreparedData
 
 logger = logging.getLogger(__name__)
@@ -97,7 +97,7 @@ def write_alignment_artifact(
         source_laz = data.ds2.laz_files[0]
 
     aligned_laz_path = artifacts_dir / f"aligned_{alignment.aligned_epoch}.laz"
-    crs = detect_output_crs(cfg, str(data.ds1.laz_files[0]))
+    crs = resolve_workflow_crs(cfg, data.ds1.laz_files[0], data.ds2.laz_files[0])
     export_points_to_laz(
         aligned_points,
         None,
@@ -247,4 +247,3 @@ def _compatibility_payload(cfg: AppConfig, data: PreparedData) -> dict:
         },
         "forced_classification": get_forced_classification(cfg),
     }
-

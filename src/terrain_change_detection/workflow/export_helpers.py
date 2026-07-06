@@ -19,6 +19,8 @@ from terrain_change_detection.utils.export import (
     export_distances_to_geotiff,
 )
 
+from .types import WorkflowAbort
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,6 +35,72 @@ def make_run_id() -> str:
 # ---------------------------------------------------------------------------
 
 _cached_crs: str | None = None
+_cached_crs_key: tuple[str, str | None] | None = None
+
+
+def _detect_laz_crs(label: str, laz_file: str | Path) -> str | None:
+    laz_file = Path(laz_file)
+    detected = detect_crs_from_laz(str(laz_file))
+    if detected:
+        logger.info("CRS detected for %s from %s: %s", label, laz_file, detected)
+    else:
+        logger.warning("No CRS detected for %s from %s", label, laz_file)
+    return detected
+
+
+def resolve_workflow_crs(
+    cfg: AppConfig,
+    epoch1_laz: str | Path,
+    epoch2_laz: str | Path | None = None,
+) -> str:
+    """Resolve CRS used by workflow outputs from both input epochs.
+
+    The configured ``paths.output_crs`` remains the fallback for files without
+    CRS metadata. Conflicting detected CRS values abort because this code does
+    not reproject input coordinates.
+    """
+    global _cached_crs, _cached_crs_key
+
+    cache_key = (str(Path(epoch1_laz)), str(Path(epoch2_laz)) if epoch2_laz is not None else None)
+    if _cached_crs is not None and _cached_crs_key == cache_key:
+        logger.debug("Using cached workflow CRS: %s", _cached_crs)
+        return _cached_crs
+
+    fallback = cfg.paths.output_crs
+    logger.info("Configured CRS fallback: %s", fallback)
+
+    crs1 = _detect_laz_crs("epoch 1", epoch1_laz)
+    crs2 = _detect_laz_crs("epoch 2", epoch2_laz) if epoch2_laz is not None else None
+
+    if crs1 and crs2:
+        if crs1 != crs2:
+            raise WorkflowAbort(
+                "Conflicting CRS metadata detected between input epochs: "
+                f"epoch 1 {epoch1_laz} declares {crs1}, "
+                f"epoch 2 {epoch2_laz} declares {crs2}. "
+                "Workflow does not reproject inputs; reproject data to a common CRS "
+                "or fix LAZ metadata before running."
+            )
+        selected = crs1
+        logger.info("Selected workflow CRS from matching input metadata: %s", selected)
+    elif crs1 or crs2:
+        selected = crs1 or crs2
+        detected_label = "epoch 1" if crs1 else "epoch 2"
+        logger.warning(
+            "CRS detected only for %s (%s); assuming both epochs use this CRS.",
+            detected_label,
+            selected,
+        )
+    else:
+        selected = fallback
+        logger.warning("No CRS detected from input LAZ files; using configured fallback: %s", selected)
+
+    if selected != fallback:
+        logger.info("Detected input CRS overrides configured fallback/output_crs: %s -> %s", fallback, selected)
+
+    _cached_crs = selected
+    _cached_crs_key = cache_key
+    return selected
 
 
 def detect_output_crs(cfg: AppConfig, laz_file: str | Path) -> str:
@@ -41,27 +109,14 @@ def detect_output_crs(cfg: AppConfig, laz_file: str | Path) -> str:
     The detected CRS is cached so later calls skip the (potentially slow)
     header read.  Falls back to ``cfg.paths.output_crs`` when detection fails.
     """
-    global _cached_crs
-    if _cached_crs is not None:
-        return _cached_crs
-
-    crs = cfg.paths.output_crs
-    try:
-        detected = detect_crs_from_laz(str(laz_file))
-        if detected:
-            crs = detected
-            logger.info("Auto-detected CRS from input: %s", crs)
-    except Exception:
-        pass
-
-    _cached_crs = crs
-    return crs
+    return resolve_workflow_crs(cfg, laz_file)
 
 
 def reset_crs_cache() -> None:
     """Reset the cached CRS (useful between test runs)."""
-    global _cached_crs
+    global _cached_crs, _cached_crs_key
     _cached_crs = None
+    _cached_crs_key = None
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +161,7 @@ def export_dem_rasters(
     point_clouds: list[np.ndarray],
     area_name: str,
     laz_file: str | Path,
+    laz_file_epoch2: str | Path | None = None,
     suffix: str,
 ) -> None:
     """Export DEM GeoTIFFs for one or more point clouds.
@@ -118,11 +174,12 @@ def export_dem_rasters(
         time_labels: Time-period labels (e.g. ``["2015", "2020"]``).
         point_clouds: Corresponding point arrays (global coordinates).
         area_name: Selected area name.
-        laz_file: A representative LAZ file for CRS detection.
+        laz_file: A representative LAZ file from epoch 1 for CRS detection.
+        laz_file_epoch2: Optional representative LAZ file from epoch 2.
         suffix: Filename suffix (``"raw"`` or ``"icp"``).
     """
     try:
-        crs = detect_output_crs(cfg, laz_file)
+        crs = resolve_workflow_crs(cfg, laz_file, laz_file_epoch2)
         export_dir = resolve_output_dir(cfg, area_name)
 
         for label, pc in zip(time_labels, point_clouds):

@@ -27,6 +27,17 @@ from .types import WorkflowAbort
 logger = logging.getLogger(__name__)
 
 
+def _normalize_crs(crs: str | dict | None) -> str | None:
+    if not crs:
+        return None
+    try:
+        from pyproj import CRS
+
+        return CRS.from_user_input(crs).to_string()
+    except Exception:
+        return str(crs)
+
+
 @dataclass(frozen=True)
 class ClipFeature:
     """Single clipping feature prepared for an isolated workflow run."""
@@ -49,6 +60,86 @@ def _resolve_boundary_path(cfg: AppConfig, project_root: Path | None = None) -> 
         boundary_path = project_root / boundary_path
 
     return boundary_path
+
+
+def _detect_boundary_crs(boundary_path: Path) -> str | None:
+    suffix = boundary_path.suffix.lower()
+    try:
+        if suffix == '.shp':
+            try:
+                import fiona
+            except ImportError:
+                return None
+            with fiona.open(boundary_path, 'r') as src:
+                crs = src.crs_wkt or src.crs
+            return _normalize_crs(crs)
+
+        if suffix in {'.geojson', '.json'}:
+            with open(boundary_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            crs = data.get('crs')
+            if isinstance(crs, dict):
+                props = crs.get('properties') or {}
+                name = props.get('name')
+                if name:
+                    return _normalize_crs(name)
+            return None
+    except Exception as e:
+        logger.warning("Could not read clipping boundary CRS from %s: %s", boundary_path, e)
+    return None
+
+
+def _reproject_clipper(clipper: AreaClipper, source_crs: str, target_crs: str) -> AreaClipper:
+    from pyproj import CRS, Transformer
+    from shapely.ops import transform
+
+    source = CRS.from_user_input(source_crs)
+    target = CRS.from_user_input(target_crs)
+    transformer = Transformer.from_crs(source, target, always_xy=True)
+    geometry = transform(transformer.transform, clipper.geometry)
+    return AreaClipper(geometry)
+
+
+def _load_clipper_for_workflow(
+    cfg: AppConfig,
+    boundary_path: Path,
+    *,
+    workflow_crs: str | None,
+    local_transform: LocalCoordinateTransform | None = None,
+) -> AreaClipper:
+    clipping_cfg = cfg.clipping
+    clipper = AreaClipper.from_file(
+        str(boundary_path),
+        feature_name=clipping_cfg.feature_name,
+    )
+
+    boundary_crs = _detect_boundary_crs(boundary_path)
+    if boundary_crs:
+        logger.info("Clipping boundary CRS from %s: %s", boundary_path, boundary_crs)
+    else:
+        logger.warning(
+            "Clipping boundary CRS not declared for %s; assuming it matches input CRS%s.",
+            boundary_path,
+            f" ({workflow_crs})" if workflow_crs else "",
+        )
+
+    if workflow_crs and boundary_crs:
+        source = _normalize_crs(boundary_crs)
+        target = _normalize_crs(workflow_crs)
+        if source != target:
+            logger.warning(
+                "Clipping boundary CRS differs from input CRS; reprojecting boundary %s -> %s",
+                source,
+                target,
+            )
+            clipper = _reproject_clipper(clipper, source, target)
+        else:
+            logger.info("Clipping boundary CRS matches input CRS: %s", target)
+
+    if local_transform is not None:
+        clipper = clipper.transform_to_local(local_transform)
+
+    return clipper
 
 
 def clipping_export_suffix(cfg: AppConfig, *, project_root: Path | None = None) -> str:
@@ -138,10 +229,10 @@ def split_clipping_features(cfg: AppConfig, output_dir: Path) -> list[ClipFeatur
         properties = feature.get("properties") or {}
         if not properties.get("name"):
             properties = {**properties, "name": label}
-        feature_path.write_text(
-            json.dumps({"type": "Feature", "geometry": feature["geometry"], "properties": properties}),
-            encoding='utf-8',
-        )
+        split_geojson = {"type": "Feature", "geometry": feature["geometry"], "properties": properties}
+        if data.get("crs"):
+            split_geojson["crs"] = data["crs"]
+        feature_path.write_text(json.dumps(split_geojson), encoding='utf-8')
         split_features.append(ClipFeature(index=i, label=label, boundary_file=feature_path))
 
     if not split_features:
@@ -162,6 +253,7 @@ def apply_clipping(
     points1: np.ndarray,
     points2: np.ndarray,
     local_transform: LocalCoordinateTransform | None,
+    workflow_crs: str | None = None,
     *,
     project_root: Path | None = None,
 ) -> tuple[np.ndarray, np.ndarray, tuple | None]:
@@ -207,14 +299,12 @@ def apply_clipping(
     logger.info("--- Applying area clipping ---")
 
     try:
-        clipper = AreaClipper.from_file(
-            str(boundary_path),
-            feature_name=clipping_cfg.feature_name,
+        clipper = _load_clipper_for_workflow(
+            cfg,
+            boundary_path,
+            workflow_crs=workflow_crs,
+            local_transform=local_transform,
         )
-
-        # Transform clipper to local coordinates if needed
-        if local_transform is not None:
-            clipper = clipper.transform_to_local(local_transform)
 
         clip_bounds = clipper.bounds
 
@@ -248,6 +338,7 @@ def apply_clipping(
 def resolve_clipping_bounds(
     cfg: AppConfig,
     *,
+    workflow_crs: str | None = None,
     project_root: Path | None = None,
 ) -> tuple[float, float, float, float] | None:
     """Resolve global clipping bounds for coarse tile prefiltering."""
@@ -268,10 +359,7 @@ def resolve_clipping_bounds(
         return None
 
     try:
-        clipper = AreaClipper.from_file(
-            str(boundary_path),
-            feature_name=clipping_cfg.feature_name,
-        )
+        clipper = _load_clipper_for_workflow(cfg, boundary_path, workflow_crs=workflow_crs)
     except Exception as e:
         logger.warning("Could not resolve clipping bounds for tile prefiltering: %s", e)
         return None
@@ -283,6 +371,7 @@ def resolve_clipper(
     cfg: AppConfig,
     local_transform: LocalCoordinateTransform | None = None,
     *,
+    workflow_crs: str | None = None,
     project_root: Path | None = None,
 ) -> AreaClipper | None:
     """Resolve clipping geometry, optionally transformed to local coordinates."""
@@ -300,13 +389,12 @@ def resolve_clipper(
         return None
 
     try:
-        clipper = AreaClipper.from_file(
-            str(boundary_path),
-            feature_name=clipping_cfg.feature_name,
+        return _load_clipper_for_workflow(
+            cfg,
+            boundary_path,
+            workflow_crs=workflow_crs,
+            local_transform=local_transform,
         )
-        if local_transform is not None:
-            clipper = clipper.transform_to_local(local_transform)
-        return clipper
     except Exception as e:
         logger.warning("Could not resolve clipping geometry: %s", e)
         return None

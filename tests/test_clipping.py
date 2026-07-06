@@ -31,7 +31,11 @@ from terrain_change_detection.preprocessing.clipping import (
     check_fiona_available,
 )
 from terrain_change_detection.utils.config import AppConfig
-from terrain_change_detection.workflow.clipping import clipping_export_suffix, split_clipping_features
+from terrain_change_detection.workflow.clipping import (
+    clipping_export_suffix,
+    resolve_clipping_bounds,
+    split_clipping_features,
+)
 
 
 # Skip all tests if shapely is not available
@@ -180,6 +184,49 @@ class TestAreaClipperCreation:
         features = split_clipping_features(cfg, tmp_path / "split")
 
         assert [f.label for f in features] == ["b"]
+
+    def test_resolve_clipping_bounds_reprojects_geojson_crs(self, tmp_path):
+        from pyproj import Transformer
+
+        lon_min, lat_min = 10.0, 59.9
+        lon_max, lat_max = 10.1, 60.0
+        boundary = tmp_path / "clip.geojson"
+        boundary.write_text(
+            json.dumps({
+                "type": "FeatureCollection",
+                "crs": {"type": "name", "properties": {"name": "EPSG:4326"}},
+                "features": [{
+                    "type": "Feature",
+                    "properties": {},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[
+                            [lon_min, lat_min],
+                            [lon_max, lat_min],
+                            [lon_max, lat_max],
+                            [lon_min, lat_max],
+                            [lon_min, lat_min],
+                        ]],
+                    },
+                }],
+            }),
+            encoding="utf-8",
+        )
+        cfg = AppConfig()
+        cfg.clipping.enabled = True
+        cfg.clipping.boundary_file = str(boundary)
+
+        bounds = resolve_clipping_bounds(cfg, workflow_crs="EPSG:25832")
+
+        transformer = Transformer.from_crs("EPSG:4326", "EPSG:25832", always_xy=True)
+        expected_points = [
+            transformer.transform(lon_min, lat_min),
+            transformer.transform(lon_max, lat_min),
+            transformer.transform(lon_max, lat_max),
+            transformer.transform(lon_min, lat_max),
+        ]
+        xs, ys = zip(*expected_points)
+        assert bounds == pytest.approx((min(xs), min(ys), max(xs), max(ys)))
     
     def test_from_geojson_file_polygon(self):
         """Test loading clipper from a GeoJSON file with a single polygon."""

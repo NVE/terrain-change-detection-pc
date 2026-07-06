@@ -29,7 +29,7 @@ from terrain_change_detection.utils.export import (
 )
 from terrain_change_detection.visualization.point_cloud import PointCloudVisualizer
 
-from .export_helpers import detect_output_crs, resolve_output_dir
+from .export_helpers import resolve_output_dir, resolve_workflow_crs
 from .clipping import clipping_export_suffix, resolve_clipper
 from .types import AlignmentResult, PreparedData
 from .visualization_helpers import to_global_for_vis
@@ -571,13 +571,13 @@ def _export_m3c2(cfg, data, m3c2_res, *, run_id: str | None = None):
     try:
         # M3C2 uses area-scoped output directory
         export_dir = resolve_output_dir(cfg, data.selected_area.area_name, area_scoped=True)
-        crs = detect_output_crs(cfg, str(data.ds1.laz_files[0]))
+        crs = resolve_workflow_crs(cfg, data.ds1.laz_files[0], data.ds2.laz_files[0])
 
         area_prefix = data.selected_area.area_name
         clip_suffix = clipping_export_suffix(cfg)
         run_suffix = f"_{run_id}" if run_id else ""
         export_points, export_distances, export_uncertainty, export_significant = _clip_m3c2_export_to_geometry(
-            cfg, data, m3c2_res,
+            cfg, data, m3c2_res, workflow_crs=crs,
         )
 
         if export_m3c2_pc:
@@ -644,14 +644,14 @@ def _export_m3c2(cfg, data, m3c2_res, *, run_id: str | None = None):
         return output_paths
 
 
-def _clip_m3c2_export_to_geometry(cfg, data, m3c2_res):
+def _clip_m3c2_export_to_geometry(cfg, data, m3c2_res, *, workflow_crs: str | None = None):
     """Filter M3C2 exports to the exact clipping polygon."""
     points = m3c2_res.core_points
     distances = m3c2_res.distances
     uncertainty = m3c2_res.uncertainty
     significant = m3c2_res.significant
 
-    clipper = resolve_clipper(cfg, data.local_transform)
+    clipper = resolve_clipper(cfg, data.local_transform, workflow_crs=workflow_crs)
     if clipper is None or len(points) == 0:
         return points, distances, uncertainty, significant
 
