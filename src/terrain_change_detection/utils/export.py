@@ -8,9 +8,10 @@ Provides functions to export detection results to:
 These outputs are compatible with QGIS and similar GIS software.
 """
 
-from pathlib import Path
-from typing import Optional, Dict, TYPE_CHECKING, Any
 import json
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
 import numpy as np
 
 from .logging import setup_logger
@@ -41,7 +42,16 @@ def detect_crs_from_laz(laz_path: str) -> Optional[str]:
         with laspy.open(laz_path) as reader:
             header = reader.header
 
+            epsg = header.parse_crs()
+            if epsg:
+                epsg = epsg.to_epsg()
+                logger.info(f"Detected EPSG from header: {epsg}")
+                return f"EPSG:{epsg}"
+
+            # the rest of the function might be unnecessary if laspy.parse_crs() works, but we can keep it just in case
+
             # Check for WKT VLR (common in newer LAS files)
+            logger.warning(f"No EPSG found in header for {laz_path}, checking VLRs...")
             for vlr in header.vlrs:
                 # WKT VLR has record_id 2112 or user_id "LASF_Projection"
                 if vlr.user_id == "LASF_Projection" and vlr.record_id == 2112:
@@ -286,7 +296,11 @@ def export_dod_to_geotiff(
     max_y = min_y + height * dod_result.cell_size
     if local_transform is not None:
         min_x, min_y, max_x, max_y = local_transform.transform_bounds(
-            min_x, min_y, max_x, max_y, to_local=False,
+            min_x,
+            min_y,
+            max_x,
+            max_y,
+            to_local=False,
         )
 
     # DoD grids are built south-to-north (increasing Y). GeoTIFF row 0 is north.
@@ -429,9 +443,7 @@ def export_distances_to_geotiff(
         dst.write(raster, 1)
 
     n_valid = np.sum(valid)
-    logger.info(
-        f"Exported distance raster ({width}x{height}, {n_valid:,} cells with data) to {output_path}"
-    )
+    logger.info(f"Exported distance raster ({width}x{height}, {n_valid:,} cells with data) to {output_path}")
     return str(output_path)
 
 
@@ -461,7 +473,7 @@ def export_erosion_polygons_geojson(
     import rasterio
     from rasterio.features import shapes
     from scipy import ndimage
-    from shapely.geometry import shape, mapping
+    from shapely.geometry import mapping, shape
 
     if peak_threshold_m >= 0 or outline_threshold_m >= 0:
         raise ValueError("erosion thresholds must be negative")
@@ -565,7 +577,10 @@ def export_erosion_polygons_geojson(
     total_volume = float(sum(feature["properties"]["volume_loss_m3"] for feature in features))
     logger.info(
         "Exported %d erosion polygons (area %.2f m2, volume %.2f m3) to %s",
-        len(features), total_area, total_volume, output_path_obj,
+        len(features),
+        total_area,
+        total_volume,
+        output_path_obj,
     )
     return {
         "path": str(output_path_obj),
@@ -578,7 +593,7 @@ def export_erosion_polygons_geojson(
 def _binary_structure(radius_cells: int) -> np.ndarray:
     if radius_cells <= 0:
         return np.ones((3, 3), dtype=bool)
-    y, x = np.ogrid[-radius_cells:radius_cells + 1, -radius_cells:radius_cells + 1]
+    y, x = np.ogrid[-radius_cells : radius_cells + 1, -radius_cells : radius_cells + 1]
     return (x * x + y * y) <= radius_cells * radius_cells
 
 
