@@ -39,6 +39,25 @@ This document tracks known limitations and issues in the terrain change detectio
 
 ---
 
+## Alignment
+
+### ICP Can Introduce Systematic Offsets Between Airborne and Drone Epochs
+
+**Issue**: On the Ristvassdrag dataset (hoydedata.no airborne LiDAR 2017 vs. drone LiDAR 2025), enabling ICP fine registration produced a visible, spatially systematic displacement pattern in the M3C2 output that was not present when alignment was disabled. The two epochs were already delivered in the same projected CRS (EPSG:25832), so the "correction" applied by ICP degraded rather than improved the result.
+
+**Observed in**: Ristvassdrag runs, July 2026 (`alignment.enabled=true`, `reference=t2`, coarse `phase` + ICP, reported RMSE ~1.37 m on the ICP subsample).
+
+**Suspected Causes**:
+- Strongly unequal spatial extents and point densities between epochs (a full ALS tile set vs. a narrow drone corridor), so the nearest-neighbour correspondences used by point-to-point ICP are biased by non-overlapping terrain and vegetation-edge effects.
+- Real terrain change inside the corridor is a large fraction of the overlap, which violates the ICP assumption that most correspondences are on unchanged surfaces.
+- ICP RMSE is not a reliable acceptance criterion here (see the RMSE note in the Best Practice Guide).
+
+**Workaround**: For epochs that are already georeferenced in the same CRS, run with `alignment.enabled=false` and verify alignment by checking that M3C2 distances on known stable surfaces (roads, bedrock) are centred on zero. Only enable ICP if that check fails, and then restrict it to stable reference areas (e.g., via clipping) rather than the full overlap.
+
+**Status**: Under investigation. A stable-area-constrained registration option would address this properly.
+
+---
+
 ## Change Detection Algorithms
 
 ### C2C Implementation Accuracy
