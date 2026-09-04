@@ -4,6 +4,10 @@ version = "0.2.0"
 description = "Terrain change detection based on multi-temporal point clouds"
 readme = "README.md"
 license = "MIT"
+authors = [
+    { name = "Yared W. Bekele", email = "Yared.Bekele@sintef.no" },
+    { name = "Cristian Andres Godoy Leiva", email = "crgo@nve.no" },
+]
 requires-python = ">=3.13"
 dependencies = [
     "laspy>=2.5.4",

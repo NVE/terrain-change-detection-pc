@@ -1,12 +1,20 @@
 cff-version: 1.2.0
 title: "Terrain Change Detection from Multi-temporal Point Clouds"
-message: "If you use this software, please cite it as below."
+message: >-
+  Developed by SINTEF and the Norwegian Water Resources and Energy Directorate (NVE).
+  If you use this software, please cite it as below.
 type: software
 authors:
-  - name: "Norwegian Water Resources and Energy Directorate (NVE)"
-    website: "https://www.nve.no/"
+  - given-names: Yared W.
+    family-names: Bekele
+    email: Yared.Bekele@sintef.no
+    affiliation: SINTEF
+  - given-names: Cristian Andres
+    family-names: Godoy Leiva
+    email: crgo@nve.no
+    affiliation: Norwegian Water Resources and Energy Directorate (NVE)
 contact:
-  - given-names: Yared
+  - given-names: Yared W.
     family-names: Bekele
     email: Yared.Bekele@sintef.no
     affiliation: SINTEF
@@ -16,8 +24,8 @@ contact:
     affiliation: Norwegian Water Resources and Energy Directorate (NVE)
 repository-code: "https://github.com/NVE/terrain-change-detection-pc"
 license: MIT
-version: 0.1.0
-date-released: "2026-04-16"
+version: 0.2.0
+date-released: "2026-07-06"
 keywords:
   - terrain change detection
   - point clouds
